@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workspace Analysis Visualization</title>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <style>
+        div {
+            margin-bottom: 5pt;
+        }
+        #instruction {
+            text-align: left;
+            font-size: small;
+            font-family: 'Arial', sans-serif; /* Set font-family to sans-serif */
+        }
+        #title {
+            text-align: left;
+            font-weight: bold;
+            font-size: small;
+            font-family: 'Arial', sans-serif; /* Set font-family to sans-serif */
+            margin-bottom: 2pt;
+        }
+        #footer {
+            text-align: left;
+            font-size: xx-small;
+            font-family: 'Arial', sans-serif; /* Set font-family to sans-serif */
+        }
+        #box {
+            border: 1px solid #ccc; /* Add a border around the box */
+            padding: 10px; /* Add some padding for better visualization */
+        }
+        #box > div:first-child {
+            text-align: left;
+            font-weight: bold;
+            font-family: 'Arial', sans-serif; /* Set font-family to sans-serif */
+        }
+    </style>
+</head>
+<body>
+
+<div id="instruction">Open with Live Server VSCode extension. HTML preview will not show the data.</div>
+<div id="title">Workspace Analysis Visualization</div>
+<div id="box">
+    <div id="box_caption">Range Pool Usage</div>
+    <div id="visualization"></div>
+</div>
+<script>
+    // Load JSON data from file using fetch
+    fetch('./data.json')
+        .then(response => response.json())
+        .then(data => visualizeRangePool(data))
+        .catch(error => console.error('Error loading JSON:', error));
+
+    function visualizeRangePool(data) {
+        // Normalize pool_range and range values
+        var normalize = function (value, min, max, normalizedMin, normalizedMax) {
+            return (value - min) / (max - min) * (normalizedMax - normalizedMin) + normalizedMin;
+        };
+
+        var normalizedPoolStart = 0;
+        var normalizedPoolEnd = 100;
+        var normalizedRanges = data.ranges.map(range => ({
+            from: normalize(range.from, data.pool_range.from, data.pool_range.to, normalizedPoolStart, normalizedPoolEnd),
+            to: normalize(range.to, data.pool_range.from, data.pool_range.to, normalizedPoolStart, normalizedPoolEnd)
+        }));
+
+        // Set up the SVG container
+        var svg = d3.select("#visualization")
+            .append("svg")
+            .attr("width", "100%")
+            .attr("height", 50); // Adjust the height as needed
+
+        // Create a base ribbon
+        svg.append("rect")
+            .attr("x", normalizedPoolStart + "%")
+            .attr("y", 0)
+            .attr("width", normalizedPoolEnd - normalizedPoolStart + "%")
+            .attr("height", 50) // Adjust the height as needed
+            .attr("fill", "lightgreen");
+
+        // Add occupied ranges with intensity based on overlap
+        svg.selectAll("rect.range")
+            .data(normalizedRanges)
+            .enter().append("rect")
+            .attr("class", "range")
+            .attr("x", d => d.from + "%")
+            .attr("y", 0)
+            .attr("width", d => d.to - d.from + "%")
+            .attr("height", 50) // Adjust the height as needed
+            .attr("fill", "red")
+            .style("opacity", 0.33); // Adjust the opacity as needed for intensity
+    }
+
+</script>
+
+</body>
+<footer>
+    <div id="footer">Work in progress by 9altitudes</div>
+</footer>
+</html>
