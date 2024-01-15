@@ -15,13 +15,22 @@ function Write-LaunchJSON {
         $workspaceRootPath = (get-item $scriptPath).Parent
         $appPath = "$($workspaceRootPath.Fullname)\$appPath"
     }
+
+    $appFilename = "$appPath\app.json"
+    if (-not (Test-Path $appFilename)) {
+        Write-Host "'$appPath' doesn't seem to be a BC app." -ForegroundColor Red
+        return
+    }
+
     $launchFilename = "$appPath\.vscode\launch.json"
     if (Test-Path $launchFilename) {
         $launchJSON = Get-Content -Path $launchFilename | ConvertFrom-Json
         Write-Host "'$launchFilename' loaded." -ForegroundColor Blue
     } else {
-        Write-Host "'$launchFilename' cannot be found." -ForegroundColor Red
-        return
+        Write-Host "'$launchFilename' not found. A new file will be created." -ForegroundColor Blue
+        $launchJSON = [PSCustomObject]@{}
+        $launchJSON | Add-Member -MemberType NoteProperty -Name version -Value "0.2.0"
+        $launchJSON | Add-Member -MemberType NoteProperty -Name configurations -Value @()
     }
 
     # Find & Manage Docker Launcher
@@ -35,7 +44,7 @@ function Write-LaunchJSON {
 
     if ($setupFound -eq $false) {
         Write-Host "Setup for '$dockerConfigurationName' NOT found, creating with default values." -ForegroundColor Blue
-        $newConfiguration = [PSObject]@{}
+        $newConfiguration = [PSCustomObject]@{}
         $newConfiguration | Add-Member -MemberType NoteProperty -Name name -Value $dockerConfigurationName
         $newConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value $settingsJSON.environmentType
         $newConfiguration | Add-Member -MemberType NoteProperty -Name server -Value "http://$($settingsJSON.containerName)"
@@ -104,7 +113,7 @@ function Write-LaunchJSON {
 		
 			if ($setupFound -eq $false) {
 				Write-Host "Setup for '$($remote.name) $($settingsJSON.environmentType)' NOT found, creating with default values." -ForegroundColor Blue
-				$newConfiguration = [PSObject]@{}
+				$newConfiguration = [PSCustomObject]@{}
 				$newConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "$($remote.name) $($settingsJSON.environmentType)"
 				$newConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value $settingsJSON.environmentType
 				$newConfiguration | Add-Member -MemberType NoteProperty -Name request -Value "launch"
@@ -245,7 +254,7 @@ function Initialize-Context {
     # Check if settings.json file exists
     if (-not (Test-Path -Path $settingsPath)) {
         # File doesn't exist, create with default values
-        $remoteConfiguration = [PSObject]@{}
+        $remoteConfiguration = [PSCustomObject]@{}
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "sample"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverType -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name targetType -Value ""
@@ -256,13 +265,12 @@ function Initialize-Context {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name tenant -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value ""
 
-        $defaultSettings = [PSObject]@{}
+        $defaultSettings = [PSCustomObject]@{}
         $defaultSettings | Add-Member -MemberType NoteProperty -Name authentication -Value "UserPassword"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name admin -Value "admin"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name password -Value "P@ssw0rd"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name containerName -Value $workspaceName.Replace(' ','-')
         $defaultSettings | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name country -Value "w1"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name licenseFile -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name certificateFile -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name packageOutputPath -Value ""
@@ -272,7 +280,23 @@ function Initialize-Context {
     }
 
     # Read settings.json
-    $settingsJSON.Value = Get-Content -Path $settingsPath | ConvertFrom-Json
+    $settingsJSONvalue = Get-Content -Path $settingsPath | ConvertFrom-Json
+
+    # Add remoteConfigurations from code-workspace
+    $country = ''
+    if ($workspaceJSON.value.settings.bcdevtoolset.country) {
+        $country = $workspaceJSON.value.settings.bcdevtoolset.country
+    }
+    if ($country -eq '') {
+        $country = "w1"
+    }
+
+    $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name country -Value $country
+    foreach ($remoteConfiguration in $workspaceJSON.value.settings.bcdevtoolset.remoteConfigurations) {
+        $settingsJSONvalue.remoteConfigurations = $settingsJSONvalue.remoteConfigurations + $remoteConfiguration
+    }
+    # finally, pass the object
+    $settingsJSON.Value = $settingsJSONvalue
 }
 
 function Get-AppJSON {

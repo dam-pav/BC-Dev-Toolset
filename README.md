@@ -8,20 +8,27 @@ It doesn't have an output or an artifact. The solution is the repository itself,
 
 This toolset is a work in continuous progress. Any usage is subject to a MIT license as specified in the repository.
 
-If you want to reach out to the developer, please open an issue at the *[BC-Dev-Toolset](https://github.com/dam-pav/BC-Dev-Toolset/issues)*. You are also welcome to apply as contributor.
+If you want to reach out to the developer, please open an issue at *[BC-Dev-Toolset](https://github.com/dam-pav/BC-Dev-Toolset/issues)*. You are also welcome to apply as contributor.
 
 ## **Starting a new workspace**
 
 Starting a new workspace and including the toolset is easy.
 
-1. Define a *?repository?.code-workspace* file (replace *?repository?* with a proper name). The name of the repository will become the default name for your Docker container.
-2. Acquire a clone of the BC-Dev-Toolset repository. ***You can copy an existing folder from existing workspaces from your other projects.*** Technically, cloning is nothing more than making a copy, so any source will do, as long it includes the *.git* folder. The name of the toolset folder is not important, but *BC-Dev-Toolset* is a good name. Add this folder to the workspace.
+1. Define a *repository.code-workspace* file (replace *repository* with a proper name). The name of the repository will become the default name for your Docker container. Your repository might already include such a file.
+2. Acquire a clone of the BC-Dev-Toolset repository. One easy way it to select the root folder for your repository, then execute this command line:
+
+   ```
+   git clone https://github.com/dam-pav/BC-Dev-Toolset.git
+   ```
+
+   If you accidentally cloned the toolset into somewhere else, there is nothing to worry about. Just move the folder where you need it. ***You can copy an existing folder from existing workspaces from your other projects.*** Technically, cloning is nothing more than making a copy, so any source will do, as long it includes the *.git* folder. The name of the toolset folder is not important, but *BC-Dev-Toolset* is a good name. Add this folder to the workspace (see Setup).
 3. Make sure this folder is ignored by git by specifying it in *.gitignore* in the root of your workspace. For example, if the name of the toolset folder is *BC-Dev-Toolset*, add a line to *.gitignore*:
    **`BC-Dev-Toolset/`**
-   If, on the contrary, you intend to include the toolset into your repository, do not exclude it from git. This will cause changes to your main repository with every update to the toolset. If you want to also prevent updates from the origin, remove the *.git* folder.
-4. Delete or edit the preexisting *settings.json*. If you delete it, it will be recreated with default values when you run any script.
-5. Delete or edit the preexisting *visualization\data.json*. If you delete it, it will be recreated with default values when you run *visualization\\DataUpdate.ps1*.
-6. You can create your first Docker container now by running *NewDockerContainer.ps1*.
+   If, on the contrary, you intend to include the toolset into your repository, do not exclude it from git. This will cause changes to your main repository with every update to the toolset. You can prevent updates from the origin by removing the contained *.git* folder.
+4. It is also recommended to add *launch.json* to *.gitignore*. These files are personalized per developer and managed by the toolset.
+5. Delete or edit the preexisting *settings.json*. If you delete it, it will be recreated with default values when you run any script.
+6. Delete or edit the preexisting *visualization\data.json*. If you delete it, it will be recreated with default values when you run *visualization\\DataUpdate.ps1*.
+7. You can create your first Docker container now by running *NewDockerContainer.ps1*.
 
 ## Toolset scripts
 
@@ -39,19 +46,71 @@ Starting a new workspace and including the toolset is easy.
   * ***WorkspaceAnalysis.html***: currently contains a visual mapping of the ranges collected in *data.json*. It will not function as a HTML preview, because it runs jscript. To view the page, use the VSCode extension, "Live Server".
 * The ***common*** subfolder contains scripts with helper functions. Not to be run directly.
 
-## Settings
+## Setup
 
-Use *settings.json* to configure the scripts behaviour. If not found, a *settings.json* file will be created for you when any of the scripts is first run, with default values.
+### *.gitignore*
 
-* ***authentication***: Specifies the authentication mode for the Docker instance. Default value is *UserPassword*.
-* ***admin*** and ***password***: The default user for the Docker BC instance.
-* ***containerName***: The name for the Docker container. The default value is the name of the workspace.
-* ***environmentType***: Type of BC instance to create. Valid values are *Sandbox* or *OnPrem*. Default value is *Sandbox*.
-* ***country***: sets the platform country version. Default values is "w1".
-* ***licenseFile***: Specify if you have one. Mandatory for Runtime packages.
-* ***certificateFile***: Specify if you have one. Mandatory for Runtime packages.
-* ***packageOutputPath***: Specify a specific folder path to group the Runtime packages. If empty, a runtime subfolder will automatically be created and used in the project. Remember to use double backslashes for full paths. For instance, for an actual path of "c:\\project\\packages" you will need to use "c:\\\\project\\\packages\".
+Add these two lines to the .gitignore file in the root of your repository:
+
+```
+BC-Dev-Toolset/
+launch.json
+```
+
+You might have already initialized git with these folders and files. In that case mere modification of *.gitignore* will not suffice. You will need to run
+
+```
+git rm BC-Dev-Toolset -r -f
+```
+
+in order to remove the folder and the containing files from git. This doesn't delete the files, just the tracking. Also, you might also need to run
+
+```
+git rm */launch.json --cached
+```
+
+to remove the files from git. You will need to commit these changes.
+
+### *repository*.code-workspace
+
+*.code-workspace is a configuration file for VSCode. For instance:
+
+```
+{
+  "folders": [
+    {
+      "path": "App"
+    },
+	{
+      "path": "BC-Dev-Toolset"
+    }
+  ],
+  "settings": {
+    "liveServer.settings.multiRootWorkspaceName": "BC-Dev-Toolset",
+    "powershell.cwd": "BC-Dev-Toolset",
+    "bcdevtoolset": {
+      "country": "w1",
+      "remoteConfigurations":  [
+        {
+          "name": "Test environment",
+                  "serverType": "Cloud",
+                  "environmentName": "TEST",
+                  "tenant": "tenants-guid-comes-here"
+        }
+      ]
+    }
+  }
+}
+
+```
+
+Its most obvious role is to define the folders included in the workspace. In addition to folders containing separate apps we need to make sure one additional folder, containing the toolset, is also included.
+
+We also use it as a vessel to carry configuration relevant to the workspace. The root attribute ***bcdevtoolset*** can specify:
+
+* ***country***: optional, sets the platform country version. The default is "w1".
 * ***remoteConfigurations***: Specify a list of remote deployments. Valid attributes (a subset of attributes for ***configurations*** in *launch.json*):
+
   * ***name***: a distinctive name for the configuration. The actual name will be composed of this and of the value of ***environmentType***. This value is mandatory; the list entry will be ignored if ***name*** has an empty value.
   * ***serverType***: Accepted values are *Cloud*, *SelfHosted* or *OnPrem*. Mandatory.
   * ***targetType***: Accepted values are *Test*, *Production*.
@@ -61,3 +120,16 @@ Use *settings.json* to configure the scripts behaviour. If not found, a *setting
   * ***environmentName***: Valid for Cloud or SelfHosted.
   * ***tenant***: Valid for Cloud or OnPrem.
   * ***authentication***: Valid for OnPrem.
+
+### *settings.json*
+
+Use *settings.json* to personalize your scripts behaviour. If not found, a *settings.json* file will be created for you when any of the scripts is first run, with default values.
+
+* ***authentication***: Specifies the authentication mode for the Docker instance. Default value is *UserPassword*.
+* ***admin*** and ***password***: The default user for the Docker BC instance.
+* ***containerName***: The name for the Docker container. The default value is the name of the workspace.
+* ***environmentType***: Type of BC instance to create. Valid values are *Sandbox* or *OnPrem*. Default value is *Sandbox*.
+* ***licenseFile***: Specify if you have one. Mandatory for Runtime packages.
+* ***certificateFile***: Specify if you have one. Mandatory for Runtime packages.
+* ***packageOutputPath***: Specify a specific folder path to group the Runtime packages. If empty, a runtime subfolder will automatically be created and used in the project. Remember to use double backslashes for full paths. For instance, for an actual path of "c:\\project\\packages" you will need to use "c:\\\\project\\\packages\".
+* ***remoteConfigurations***: Personalize an additional list of remote deployments. Valid attributes (a subset of attributes for ***configurations*** in *launch.json*). Same structure as defined for *.code-workspace*.
