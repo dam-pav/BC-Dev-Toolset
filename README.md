@@ -2,9 +2,9 @@
 
 ## Introduction
 
-The purpose of this toolset is the management of development environments for Business Central projects. The goal is to make quick work of preparation of local Docker repositories, as well as other routinely executed management procedures, such as editing of *launch.json*.
+The purpose of this toolset is the management of development environments for Business Central projects. The goal is to make quick work of preparation of local Docker repositories, as well as other routinely executed management procedures, such as editing of *launch.json*. It's a simple, no brainer approach that might get more sophisticated in the future, but will always focus on simplicity.
 
-It doesn't have an output or an artifact. The solution is the repository itself, with its ability to be integrated into projects. You could sever its tie to the origin by deleting the .git folder, but that would prevent it from keeping itself up to date. It's a simple, no brainer approach that might get more sophisticated in the future, but will always focus on simplicity.
+It doesn't have an output or an artifact. The solution is the repository itself, with its ability to be integrated into projects. You can sever its tie to the origin by deleting the .git folder - that will prevent it from keeping itself up to date if that is what you want.
 
 This toolset is a work in continuous progress. Any usage is subject to a MIT license as specified in the repository.
 
