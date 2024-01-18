@@ -655,8 +655,15 @@ function Update-Gitignore {
         "launch.json"
     )
 
-    # Read the file into an array
-    $lines = Get-Content $filePath
+    if (Test-Path $filePath) {
+        # Read the file into an array
+        Write-Host "Loading $filePath" -ForegroundColor Gray
+        $lines = @(Get-Content $filePath)
+    } else {
+        Write-Host "'$filePath' not found. A new file will be created." -ForegroundColor Gray
+        $lines = @()
+    }
+
 
     Write-Host "Updating $filePath" -ForegroundColor Gray
     # Check if each line to be added already exists
@@ -668,7 +675,8 @@ function Update-Gitignore {
     }
 
     # Overwrite the original file with the updated lines
-    $lines | Set-Content $filePath
+    $lines | Set-Content $filePath -Encoding UTF8
+
     Write-Host "$filePath updated." -ForegroundColor Green
     Write-Host ""
 }
