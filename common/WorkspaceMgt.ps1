@@ -1,3 +1,6 @@
+# default toolset folder name
+$toolsetFolderName = 'BC-Dev-Toolset'
+
 function Write-LaunchJSON {
     Param (
         [Parameter(Mandatory=$true)]
@@ -619,5 +622,117 @@ function New-DockerContainer {
     }
 
     Write-Host "The docker instance $($settingsJSON.containerName) should be ready." -ForegroundColor Green
+    Write-Host ""
+}
+
+function Update-Gitignore {
+    # Specify the file path
+    $filePath = ".gitignore"
+
+    # Specify the lines to be added
+    $linesToAdd = @(
+        "*.app"
+        "*.flf"
+        "*.bclicense"
+        "*.g.xlf"
+        ".DS_Store"
+        "Thumbs.db"
+        "TestResults*.xml"
+        "bcptTestResults*.json"
+        "BuildOutput.txt"
+        "rad.json"
+        ".output/"
+        ".dependencies/"
+        ".buildartifacts/"
+        ".alpackages/"
+        ".packages/"
+        ".alcache/"
+        ".altemplates/"
+        ".snapshots/"
+        "cache_*"
+        "~$*"
+        "$toolsetFolderName/"
+        "launch.json"
+    )
+
+    # Read the file into an array
+    $lines = Get-Content $filePath
+
+    Write-Host "Updating $filePath" -ForegroundColor Gray
+    # Check if each line to be added already exists
+    foreach ($line in $linesToAdd) {
+        if ($lines -notcontains $line) {
+            Write-Host "Adding $line" -ForegroundColor Gray
+            $lines += $line
+        }
+    }
+
+    # Overwrite the original file with the updated lines
+    $lines | Set-Content $filePath
+    Write-Host "$filePath updated." -ForegroundColor Green
+    Write-Host ""
+}
+
+function Update-Workspace {
+    Write-Host "Updating the .code-workspace file..." -ForegroundColor Gray
+
+    # Workspace
+    $filterExtension = ".code-workspace"  # Replace with the file extension you want to filter by
+    
+    # List all files in the folder and filter by extension
+    $filteredFiles = Get-ChildItem -Path $workspaceRootPath.FullName | Where-Object { $_.Extension -eq $filterExtension }
+    
+    # Check if there are any matching files
+    if ($filteredFiles.Count -gt 0) {
+        # Read *.code-workspace
+        $workspaceJSON = Get-Content -Path $filteredFiles[0].FullName | ConvertFrom-Json
+        $workspacePath = $filteredFiles[0].Name
+        $workspaceName = $workspacePath -split '\.' | Select-Object -First 1
+    } else {
+        # throw "No $filterExtension files found in the folder."
+        # there IS no workspace
+        Write-Host "Workspace definition not found, aborting." -ForegroundColor Red
+        Write-Host ""
+        return
+    }
+
+    Write-Host "Workspace found: $workspaceName" -ForegroundColor Gray
+
+    $filteredFolders = $workspaceJSON.folders | Where-Object { $_.path -eq $toolsetFolderName }
+    if ($filteredFolders.Count -eq 0) {
+        $workspaceJSON.folders = $workspaceJSON.folders + [PSCustomObject]@{
+            path = $toolsetFolderName
+        }
+    }
+
+    # Check if settings exists
+    if (-not ($workspaceJSON.settings)) {
+        $workspaceJSON | Add-Member -MemberType NoteProperty -Name settings -Value $([PSCustomObject]@{})
+    }
+
+    # Check if bcdevtoolset exists
+    if (-not ($workspaceJSON.settings.bcdevtoolset)) {
+        # Add bcdevtoolset with a sample remoteConfiguration to code-workspace
+        $remoteConfiguration = [PSCustomObject]@{}
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "sample"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverType -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name targetType -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name server -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverInstance -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name port -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentName -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name tenant -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value ""
+
+        $bcdevtoolset = [PSCustomObject]@{}
+        $bcdevtoolset | Add-Member -MemberType NoteProperty -Name country -Value "w1"
+        $bcdevtoolset | Add-Member -MemberType NoteProperty -Name remoteConfigurations -Value @($remoteConfiguration)
+
+        $workspaceJSON.settings | Add-Member -MemberType NoteProperty -Name bcdevtoolset -Value @($bcdevtoolset)
+    }
+
+    # finally, save the updated workspace file
+    $workspaceJSON | ConvertTo-Json -Depth 10 | Format-Json | Out-File -Encoding utf8 -FilePath $workspacePath -Force
+    Write-Host "Workspace file updated: $workspacePath" -ForegroundColor Green
     Write-Host ""
 }
