@@ -27,7 +27,8 @@ foreach ($appPath in $workspaceJSON.folders.path) {
             -settingsJSON $settingsJSON  `
             -appJSON $appJSON `
             -packageName ([ref]$packageName) `
-            -packagePath ([ref]$packagePath)
+            -packagePath ([ref]$packagePath) `
+            -runtime $true
         
         # Extract the package from Docker
         Export-BcContainerRuntimePackage -containerName $settingsJSON.containerName -appName $appJSON.name -packageFileName $packageName -packageFilePath $packagePath -certificateFile  $settingsJSON.certificateFile
