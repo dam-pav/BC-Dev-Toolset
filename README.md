@@ -17,7 +17,7 @@ Starting a new workspace and including the toolset is easy.
 1. Define a *repository.code-workspace* file (replace *repository* with a proper name). The name of the repository will become the default name for your Docker container. Your repository might already include such a file.
 2. Acquire a clone of the BC-Dev-Toolset repository.
 
-   1. The easiest way is to get ***`<a id="raw-url" href="https://github.com/dam-pav/BC-Dev-Toolset/blob/main/common/initBCDevToolset.ps1" download>`initBCDevToolset.ps1 `</a>`***, save it to the root of your repository (beside the *code-workspace* file) and run it with Powershell. This script executes substeps 2 through 4 for you.
+   1. The easiest way is to get ***[initBCDevToolset.ps1](https://github.com/dam-pav/BC-Dev-Toolset/blob/main/common/initBCDevToolset.ps1)***, save it to the root of your repository (beside the *code-workspace* file) and run it with Powershell. This script executes substeps *ii* through *iv* for you.
    2. The slightly longer approach would be to select the root folder for your repository, then execute this command line:
 
       ```
