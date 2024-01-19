@@ -28,7 +28,7 @@ Starting a new workspace and including the toolset is easy.
    3. Make sure this folder is ignored by git by specifying it in *.gitignore* in the root of your workspace. For example, if the name of the toolset folder is *BC-Dev-Toolset*, add a line to *.gitignore*:
       **`BC-Dev-Toolset/`**
       If, on the contrary, you intend to include the toolset into your repository, do not exclude it from git. This will cause changes to your main repository with every update to the toolset. You can prevent updates from the origin by removing the contained *.git* folder.
-   4. It is also recommended to add *launch.json* to *.gitignore*. These files are personalized per developer and managed by the toolset.
+   4. It is also recommended to add **`launch.json`** to *.gitignore*. These files are personalized per developer and managed by the toolset.
 3. Delete or edit the preexisting *settings.json*. If you delete it, it will be recreated with default values when you run any script.
 4. Delete or edit the preexisting *visualization\data.json*. If you delete it, it will be recreated with default values when you run *visualization\\DataUpdate.ps1*.
 5. You can create your first Docker container now by running ***NewDockerContainer.ps1***.
