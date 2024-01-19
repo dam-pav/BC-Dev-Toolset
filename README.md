@@ -15,25 +15,28 @@ If you want to reach out to the developer, please open an issue at *[BC-Dev-Tool
 Starting a new workspace and including the toolset is easy.
 
 1. Define a *repository.code-workspace* file (replace *repository* with a proper name). The name of the repository will become the default name for your Docker container. Your repository might already include such a file.
-2. Acquire a clone of the BC-Dev-Toolset repository. One easy way it to select the root folder for your repository, then execute this command line:
+2. Acquire a clone of the BC-Dev-Toolset repository.
 
-   ```
-   git clone https://github.com/dam-pav/BC-Dev-Toolset.git
-   ```
+   1. The easiest way is to get ***`<a id="raw-url" href="https://github.com/dam-pav/BC-Dev-Toolset/blob/main/common/initBCDevToolset.ps1" download>`initBCDevToolset.ps1 `</a>`***, save it to the root of your repository (beside the *code-workspace* file) and run it with Powershell. This script executes substeps 2 through 4 for you.
+   2. The slightly longer approach would be to select the root folder for your repository, then execute this command line:
 
-   If you accidentally cloned the toolset into somewhere else, there is nothing to worry about. Just move the folder where you need it. ***You can copy an existing folder from existing workspaces from your other projects.*** Technically, cloning is nothing more than making a copy, so any source will do, as long it includes the *.git* folder. The name of the toolset folder is not important, but *BC-Dev-Toolset* is a good name. Add this folder to the workspace (see Setup).
-3. Make sure this folder is ignored by git by specifying it in *.gitignore* in the root of your workspace. For example, if the name of the toolset folder is *BC-Dev-Toolset*, add a line to *.gitignore*:
-   **`BC-Dev-Toolset/`**
-   If, on the contrary, you intend to include the toolset into your repository, do not exclude it from git. This will cause changes to your main repository with every update to the toolset. You can prevent updates from the origin by removing the contained *.git* folder.
-4. It is also recommended to add *launch.json* to *.gitignore*. These files are personalized per developer and managed by the toolset.
-5. Delete or edit the preexisting *settings.json*. If you delete it, it will be recreated with default values when you run any script.
-6. Delete or edit the preexisting *visualization\data.json*. If you delete it, it will be recreated with default values when you run *visualization\\DataUpdate.ps1*.
-7. You can create your first Docker container now by running *NewDockerContainer.ps1*.
+      ```
+      git clone https://github.com/dam-pav/BC-Dev-Toolset.git
+      ```
+
+      If you accidentally cloned the toolset into somewhere else, there is nothing to worry about. Just move the folder where you need it. ***You can copy an existing folder from existing workspaces from your other projects.*** Technically, cloning is nothing more than making a copy, so any source will do, as long it includes the *.git* folder. The name of the toolset folder is not important, but *BC-Dev-Toolset* is a good name. Add this folder to the workspace (see Setup).
+   3. Make sure this folder is ignored by git by specifying it in *.gitignore* in the root of your workspace. For example, if the name of the toolset folder is *BC-Dev-Toolset*, add a line to *.gitignore*:
+      **`BC-Dev-Toolset/`**
+      If, on the contrary, you intend to include the toolset into your repository, do not exclude it from git. This will cause changes to your main repository with every update to the toolset. You can prevent updates from the origin by removing the contained *.git* folder.
+   4. It is also recommended to add *launch.json* to *.gitignore*. These files are personalized per developer and managed by the toolset.
+3. Delete or edit the preexisting *settings.json*. If you delete it, it will be recreated with default values when you run any script.
+4. Delete or edit the preexisting *visualization\data.json*. If you delete it, it will be recreated with default values when you run *visualization\\DataUpdate.ps1*.
+5. You can create your first Docker container now by running ***NewDockerContainer.ps1***.
 
 ## Toolset scripts
 
 * ***CreateRuntimePackage.ps1***: creates Runtime packages, using the local Docker instance.
-* ***NewDockerContainer.ps1***: creates a Docker container with a Sandbox BC platform version determined by the first app.json found. If a previous container with the same name is found, it gets removed and replaced. Doesn't support multiplatform (apps for different platform versions) projects.
+* ***NewDockerContainer.ps1***: creates a Docker container with a Sandbox BC platform version determined by the first app.json found. If an existing container with the same name is found, it gets removed and replaced. Doesn't support multiplatform (apps for different platform versions) projects.
 * ***PublishApps2Docker.ps1***: publish apps as PTE (as opposed to Dev) to the locally created Docker instance.
 * ***PublishApps2Test.ps1***: publish apps as PTE (as opposed to Dev) to the remote servers specified in *settings.json*, with the *targetType* value of *Test*.
 * ***PublishRuntimeApps2Docker.ps1***: publish *runtime* apps as PTE to the locally created Docker instance.
