@@ -4,6 +4,8 @@
 
 The purpose of this toolset is the management of development environments for Business Central projects. The goal is to make quick work of preparation of local Docker repositories, as well as other routinely executed management procedures, such as editing of *launch.json*. It's a simple, no brainer approach that might get more sophisticated in the future, but will always focus on simplicity.
 
+It relies on information about your project/app that is already available from *app.json* or *repo.code-workspace*. Only information that is not already there needs to be added to toolset's own settings. Part of the toolset's setting are developer's own preferences, while other, such as the locations of test environments, can be made available from within the repository, so that developers don't have to manage those manually.
+
 It doesn't have an output or an artifact. The solution is the repository itself, with its ability to be integrated into projects. You can sever its tie to the origin by deleting the .git folder - that will prevent it from keeping itself up to date if that is what you want.
 
 This toolset is a work in continuous progress. Any usage is subject to a MIT license as specified in the repository.
