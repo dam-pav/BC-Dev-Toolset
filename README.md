@@ -12,6 +12,18 @@ This toolset is a work in continuous progress. Any usage is subject to a MIT lic
 
 If you want to reach out to the developer, please open an issue at *[BC-Dev-Toolset](https://github.com/dam-pav/BC-Dev-Toolset/issues)*. You are also welcome to apply as contributor.
 
+## Prerequisites
+1. **GIT**.
+   You will neet CLI for Git. A good way to install it on a Windows PC is using WinGet:
+   ```
+   winget install -e --id Git.Git
+   ```
+   After the installation is done, close your PS terminal sessions and start a new.
+2. **VS Code**. Obviously.
+   ```
+   winget install -e --id Microsoft.VisualStudioCode
+   ```
+
 ## **Starting a new workspace**
 
 Starting a new workspace and including the toolset is easy.
@@ -19,7 +31,12 @@ Starting a new workspace and including the toolset is easy.
 1. Define a *repository.code-workspace* file (replace *repository* with a proper name). The name of the repository will become the default name for your Docker container. Your repository might already include such a file.
 2. Acquire a clone of the BC-Dev-Toolset repository.
 
-   1. The easiest way is to get ***[initBCDevToolset.ps1](https://github.com/dam-pav/BC-Dev-Toolset/blob/main/common/initBCDevToolset.ps1)***, save it to the root of your repository (beside the *code-workspace* file) and run it with Powershell. This script executes substeps *ii* through *iv* for you.
+   1. The easiest way is to get ***[initBCDevToolset.ps1](https://github.com/dam-pav/BC-Dev-Toolset/blob/main/common/initBCDevToolset.ps1)***, save it to the root of your repository (beside the *code-workspace* file) and run it with Powershell. This script executes substeps *ii* through *iv* for you. You might run into some trouble with the execution policy, since the script is not digitally signed (might happen in near future). In such event please bypass the policy by running:
+      ```
+      Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+      ```
+      After this the script will run. Once you close the PS session (process is the scope), the bypass is gone.
+
    2. The slightly longer approach would be to select the root folder for your repository, then execute this command line:
 
       ```
