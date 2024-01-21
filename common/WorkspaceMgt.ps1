@@ -10,6 +10,11 @@ function Write-LaunchJSON {
         [Parameter(Mandatory=$true)]
         [PSObject] $settingsJSON
     )
+    $appName = $appPath -split '\.' | Select-Object -First 1
+    if ($appName -eq $toolsetFolderName) {
+        return
+    }
+
     Write-Host ""    
     Write-Host "Updating launch.json for '$appPath'." -ForegroundColor Green
 
@@ -21,7 +26,7 @@ function Write-LaunchJSON {
 
     $appFilename = "$appPath\app.json"
     if (-not (Test-Path $appFilename)) {
-        Write-Host "'$appPath' doesn't seem to be a BC app." -ForegroundColor Red
+        Write-Host "'$appFilename' not found." -ForegroundColor Red
         return
     }
 
@@ -51,7 +56,7 @@ function Write-LaunchJSON {
         $newConfiguration | Add-Member -MemberType NoteProperty -Name name -Value $dockerConfigurationName
         $newConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value $settingsJSON.environmentType
         $newConfiguration | Add-Member -MemberType NoteProperty -Name server -Value "http://$($settingsJSON.containerName)"
-        if ($settingsJSON.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") {
+        if (($settingsJSON.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") -or ($appJSON.application -ge [Version]"19.0.0.0")) {
             $newConfiguration | Add-Member -MemberType NoteProperty -Name serverInstance -Value "BC"
         } else {
             $newConfiguration | Add-Member -MemberType NoteProperty -Name serverInstance -Value "NAV"
@@ -311,6 +316,12 @@ function Get-AppJSON {
         [Parameter(Mandatory=$true)]
         [ref] $appJSON
     )
+    $appName = $appPath -split '\.' | Select-Object -First 1
+    if ($appName -eq $toolsetFolderName) {
+        # this is not an app folder
+        $appJSON.Value = [PSCustomObject]@{}
+        return
+    }
     
     # Read app.json
     if (-not $appPath.Contains('\')) {
@@ -323,6 +334,7 @@ function Get-AppJSON {
         $appJSON.Value = Get-Content -Path $appFilename | ConvertFrom-Json
         Write-Host "'$appFilename' loaded." -ForegroundColor Blue
     } else {
+        $appJSON.Value = [PSCustomObject]@{}
         Write-Host "'$appFilename' cannot be found." -ForegroundColor Red
     }
 }
