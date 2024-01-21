@@ -1,4 +1,4 @@
-# BC Developer's Toolset
+# Business Central Developer's Toolset
 
 ## Introduction
 
@@ -13,13 +13,30 @@ This toolset is a work in continuous progress. Any usage is subject to a MIT lic
 If you want to reach out to the developer, please open an issue at *[BC-Dev-Toolset](https://github.com/dam-pav/BC-Dev-Toolset/issues)*. You are also welcome to apply as contributor.
 
 ## Prerequisites
-1. **GIT**.
-   You will neet CLI for Git. A good way to install it on a Windows PC is using WinGet:
+
+1. A **Windows Pro** or **Windows Enterprise** edition.
+   Unfortunately, Docker Desktop doesn't allow Windows containers on Windows Home. If you don't have access to any of the above, you won't be able to develop for BC using Docker.
+2. **Docker Desktop**.
+
+   ```
+   winget install -e --id Docker.DockerDesktop
+   ```
+
+   You will need to switch to Windows containers. In order to do that, running this in a PowerShell prompt might help:
+
+   ```
+   & $Env:ProgramFiles\Docker\Docker\DockerCli.exe -SwitchDaemon
+   ```
+3. **GIT**.
+   You will need CLI for git. A good way to install it on a Windows PC is using WinGet:
+
    ```
    winget install -e --id Git.Git
    ```
-   After the installation is done, close your PS terminal sessions and start a new.
-2. **VS Code**. Obviously.
+
+   After the installation is done, close your PS terminal sessions and start a new to get access to git.
+4. **VS Code**.
+
    ```
    winget install -e --id Microsoft.VisualStudioCode
    ```
@@ -32,11 +49,12 @@ Starting a new workspace and including the toolset is easy.
 2. Acquire a clone of the BC-Dev-Toolset repository.
 
    1. The easiest way is to get ***[initBCDevToolset.ps1](https://github.com/dam-pav/BC-Dev-Toolset/blob/main/common/initBCDevToolset.ps1)***, save it to the root of your repository (beside the *code-workspace* file) and run it with Powershell. This script executes substeps *ii* through *iv* for you. You might run into some trouble with the execution policy, since the script is not digitally signed (might happen in near future). In such event please bypass the policy by running:
+
       ```
       Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
       ```
-      After this the script will run. Once you close the PS session (process is the scope), the bypass is gone.
 
+      After this the script will run. Once you close the PS session (process is the scope), the bypass is gone.
    2. The slightly longer approach would be to select the root folder for your repository, then execute this command line:
 
       ```
