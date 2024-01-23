@@ -8,7 +8,9 @@ function Write-LaunchJSON {
         [Parameter(Mandatory=$true)]
         [string] $appPath,
         [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON
+        [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$false)]
+        [bool] $replaceJSON = $false
     )
     $appName = $appPath -split '\.' | Select-Object -First 1
     if ($appName -eq $toolsetFolderName) {
@@ -16,7 +18,11 @@ function Write-LaunchJSON {
     }
 
     Write-Host ""    
-    Write-Host "Updating launch.json for '$appPath'." -ForegroundColor Green
+    if ($replaceJSON -eq $true) {
+        Write-Host "Replacing launch.json for '$appPath'." -ForegroundColor Green
+    } else {
+        Write-Host "Updating launch.json for '$appPath'." -ForegroundColor Green
+    }
 
     # Read launch.json
     if (-not $appPath.Contains('\')) {
@@ -31,11 +37,18 @@ function Write-LaunchJSON {
     }
 
     $launchFilename = "$appPath\.vscode\launch.json"
-    if (Test-Path $launchFilename) {
-        $launchJSON = Get-Content -Path $launchFilename | ConvertFrom-Json
-        Write-Host "'$launchFilename' loaded." -ForegroundColor Blue
-    } else {
-        Write-Host "'$launchFilename' not found. A new file will be created." -ForegroundColor Blue
+    if  (-not $replaceJSON -eq $true) {
+        if (Test-Path $launchFilename) {
+            $launchJSON = Get-Content -Path $launchFilename | ConvertFrom-Json
+            Write-Host "'$launchFilename' loaded." -ForegroundColor Blue
+        } else {
+            Write-Host "'$launchFilename' not found." -ForegroundColor Blue
+            $replaceJSON = $true
+        }
+    }
+
+    if ($replaceJSON -eq $true) {
+        Write-Host "A new '$launchFilename' will be created." -ForegroundColor Blue
         $launchJSON = [PSCustomObject]@{}
         $launchJSON | Add-Member -MemberType NoteProperty -Name version -Value "0.2.0"
         $launchJSON | Add-Member -MemberType NoteProperty -Name configurations -Value @()
@@ -96,7 +109,8 @@ function Write-LaunchJSON {
         }
         if ($configurationValid) {
             $setupFound = $false
-			foreach ($configuration in $($launchJSON.configurations | Where-Object Name -eq "$($remote.name) $($settingsJSON.environmentType)")) {
+            $remoteConfigurationName = "$($remote.name) $($remote.serverType)"
+			foreach ($configuration in $($launchJSON.configurations | Where-Object Name -eq $remoteConfigurationName)) {
 				Write-Host "Existing setup for '$($configuration.name)' found." -ForegroundColor Blue
                 if ($configuration.PSObject.Properties['environmentName']) {
                     $configuration.PSObject.Properties.Remove('environmentName')
@@ -122,8 +136,12 @@ function Write-LaunchJSON {
 			if ($setupFound -eq $false) {
 				Write-Host "Setup for '$($remote.name) $($settingsJSON.environmentType)' NOT found, creating with default values." -ForegroundColor Blue
 				$newConfiguration = [PSCustomObject]@{}
-				$newConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "$($remote.name) $($settingsJSON.environmentType)"
-				$newConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value $settingsJSON.environmentType
+				$newConfiguration | Add-Member -MemberType NoteProperty -Name name -Value $remoteConfigurationName
+                if ($remote.serverType -eq "OnPrem") {
+                    $newConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value "OnPrem"
+                } else {
+                    $newConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
+                }
 				$newConfiguration | Add-Member -MemberType NoteProperty -Name request -Value "launch"
 				$newConfiguration | Add-Member -MemberType NoteProperty -Name type -Value "al"
 				$newConfiguration | Add-Member -MemberType NoteProperty -Name startupObjectId -Value 22
@@ -142,7 +160,7 @@ function Write-LaunchJSON {
                 $launchJSON.configurations = $launchJSON.configurations + $newConfiguration
 			}
 
-			foreach ($configuration in $($launchJSON.configurations | Where-Object Name -eq "$($remote.name) $($settingsJSON.environmentType)")) {
+			foreach ($configuration in $($launchJSON.configurations | Where-Object Name -eq $remoteConfigurationName)) {
 				Write-Host "Replacing values for setup '$($configuration.name)'." -ForegroundColor Blue
                 switch ($remote.serverType) {
                     "Cloud" { 
@@ -202,6 +220,36 @@ function Write-LaunchJSON {
 }
 
 # Formats JSON in a nicer format than the built-in ConvertTo-Json does.
+function Confirm-Option {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $question,
+        [Parameter(Mandatory=$false)]
+        [string] $answerYes = 'y',
+        [Parameter(Mandatory=$false)]
+        [string] $answerNo = 'n',
+        [Parameter(Mandatory=$false)]
+        [string] $defaultYes = $false
+    )
+
+    if ($defaultYes -eq $true) {
+        $answerYes = $answerYes.ToUpper()
+        $answerNo = $answerNo.ToLower()
+    } else {
+        $answerYes = $answerYes.ToLower()
+        $answerNo = $answerNo.ToUpper()
+    }
+
+    $Confirm = $answerNo
+    Write-Host "$question [$answerYes/$answerNo]: " -NoNewline -ForegroundColor Green
+    $Confirm = Read-Host
+    if ([string]::IsNullOrWhiteSpace($Confirm)) {
+        $Confirm = $answerNo
+    }
+        
+    return($Confirm.ToUpper() -eq $answerYes.ToUpper())
+}
+
 function Format-Json([Parameter(Mandatory, ValueFromPipeline)][String] $json) {
     $indent = 0;
     ($json -Split "`n" | % {
@@ -541,24 +589,12 @@ function Clear-Artifacts {
     )
     $workspaceRootPath = (Get-Item $scriptPath).Parent
     
-    $Confirm = "n"
-    Write-Host "Do you want to clear the translation files? [y/N]: " -NoNewline -ForegroundColor Green
-    $Confirm = Read-Host
-    if ([string]::IsNullOrWhiteSpace($Confirm)) {
-        $Confirm = "n"
-    }
-    if ($Confirm.ToUpper() -eq "Y") {
+    if (Confirm-Option -question "Do you want to clear the translation files?") {
         Get-ChildItem -Path $workspaceRootPath.FullName -Include *.g.xlf -Recurse | Remove-Item
         Write-Host "Translation files cleared." -ForegroundColor Blue
     }
     
-    $Confirm = "n"
-    Write-Host "Do you want to clear all APP files? You will need to download symbols for all projects. [y/N]: " -NoNewline -ForegroundColor Green
-    $Confirm = Read-Host
-    if ([string]::IsNullOrWhiteSpace($Confirm)) {
-        $Confirm = "n"
-    }
-    if ($Confirm.ToUpper() -eq "Y") {
+    if (Confirm-Option -question "Do you want to clear all APP files? You will need to download symbols for all projects.") {
         Get-ChildItem -Path $workspaceRootPath.FullName -Include *.app -Recurse | Remove-Item
         Write-Host "APP files cleared." -ForegroundColor Blue
     }
@@ -640,6 +676,12 @@ function New-DockerContainer {
 function Update-Gitignore {
     # Specify the file path
     $filePath = ".gitignore"
+
+    # Verify that this is a repository
+    if (-not (Test-Path '.git')) {
+        Write-Host "This is not a repository. A '$filePath' is not required." -ForegroundColor Gray
+        return
+    }
 
     # Specify the lines to be added
     $linesToAdd = @(
