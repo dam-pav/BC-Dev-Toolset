@@ -15,6 +15,7 @@ Publish-Apps2Remote `
     -scriptPath $scriptPath `
     -settingsJSON $settingsJSON `
     -workspaceJSON $workspaceJSON `
-    -targetType "Test"
+    -targetType "Test" `
+    -skipMissing
 
 Write-Done

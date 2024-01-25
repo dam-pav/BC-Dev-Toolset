@@ -9,7 +9,8 @@ function Publish-Apps2Remote {
         [PSObject] $workspaceJSON,
         [Parameter(Mandatory=$true)]
         [string] $targetType,
-        [bool] $runtime = $false
+        [bool] $runtime = $false,
+        [switch] $skipMissing
     )
 
     Write-Host "                      " -BackgroundColor Yellow
@@ -18,43 +19,65 @@ function Publish-Apps2Remote {
 
     $sortedApps = (Get-SortedApps -workspaceJSON $workspaceJSON)
     $rootFolder = (Get-Item $scriptPath).Parent
+    $appList = @()
 
     foreach ($configuration in $($settingsJSON.remoteConfigurations | Where-Object targetType -eq $targetType)) {
         Write-Host "Deploying apps to '$($configuration.name)'." -ForegroundColor Blue
         ForEach ($App in $sortedApps) {
-                $packageName = ""
-                $packagePath = ""
-                Get-PackageParams `
-                    -settingsJSON $settingsJSON  `
-                    -appJSON $App `
-                    -runtime $runtime `
-                    -packageName ([ref]$packageName) `
-                    -packagePath ([ref]$packagePath)
-                
-                # Do it
-                #Write-Host "Publish-BcContainerApp -containerName $($settingsJSON.containerName) -appFile $(Join-Path $packagePath $packageName)" -ForegroundColor Green
-                #Publish-BcContainerApp -containerName $settingsJSON.containerName -appFile $(Join-Path $packagePath $packageName) -skipVerification -install -scope Tenant
-                $appFile = $App.Path
-                if (-not $appFile.Contains('\')) {
-                    $appFile = "$($rootFolder.Fullname)\$appFile"
+            Write-Host "Preparing '$($App.Name)' for deployment." -ForegroundColor Blue
+            $packageName = ""
+            $packagePath = ""
+            Get-PackageParams `
+                -settingsJSON $settingsJSON  `
+                -appJSON $App `
+                -runtime $runtime `
+                -packageName ([ref]$packageName) `
+                -packagePath ([ref]$packagePath)
+            
+            $appFile = $App.Path
+            if (-not $appFile.Contains('\')) {
+                $appFile = "$($rootFolder.Fullname)\$appFile"
+            }
+            $appFile += "\$packageName"
+            $appReady = Test-Path $appFile
+            if ($appReady -eq $false) {
+                if ($skipMissing) {
+                    Write-Host "$appFile does not exist. Deployment will be skipped." -ForegroundColor Red
+                } else {
+                    throw "$appFile does not exist. Please build all apps before attempting deployment."
                 }
-                $appFile += "\$packageName"
-                Write-Host "Publishing '$appFile'." -ForegroundColor Blue
-                $authContext = New-BcAuthContext -refreshToken $refreshToken
-                Publish-PerTenantExtensionApps `
-                    -bcAuthContext $authContext `
-                    -environment $settingsJSON.environmentType `
-                    -appFiles $appFile
-                
+            }
+
+            if ($appReady -eq $true) {
                 #TODO: lots of testing    
-                #if ($onprem) {
-                #    Write-Host ""
-                #    Write-Host "Deploying $($App.name)" -ForegroundColor Green
+                if ($configuration.serverType -eq 'OnPrem') {
+                    Write-Host ""
+                    Write-Host "Deploying $($App.name)" -ForegroundColor Gray
                 #    Publish-NAVApp -ServerInstance $ServerInstance -Path $package -SkipVerification -Scope Global
                 #    Sync-NAVApp -ServerInstance $ServerInstance -Name $App.name
                 #    Install-NAVApp -ServerInstance $ServerInstance -Name $App.name
-                #}
+                } else {
+                    Write-Host "Adding '$appFile' to deployment list." -ForegroundColor Gray
+                    #if ($appList -ne '') {
+                    #    $appList += ', '
+                    #}
+                    $appList += $appFile
+                }
             }
+        }
+        if (($configuration.serverType -ne 'OnPrem') -and ($appList.length -gt 0)) {
+            #get authenticated
+            Start-Process "https://microsoft.com/devicelogin"
+            $authContext = New-BcAuthContext `
+                -includeDeviceLogin `
+                -tenantID $configuration.tenant `
+                -refreshToken $refreshToken
+    
+            Publish-PerTenantExtensionApps `
+                -bcAuthContext $authContext `
+                -environment $configuration.environmentName `
+                -appFiles $appList
+        }
     }
 }
 
@@ -66,43 +89,55 @@ function Publish-Apps2Docker {
         [PSObject] $settingsJSON,
         [Parameter(Mandatory=$true)]
         [PSObject] $workspaceJSON,
-        [bool] $runtime = $false
+        [bool] $runtime = $false,
+        [switch] $skipMissing
     )
 
 
     $sortedApps = (Get-SortedApps -workspaceJSON $workspaceJSON)
     $rootFolder = (Get-Item $scriptPath).Parent
+    $appList = @()
 
     ForEach ($App in $sortedApps) {
-            $packageName = ""
-            $packagePath = ""
-            Get-PackageParams `
-                -settingsJSON $settingsJSON  `
-                -appJSON $App `
-                -runtime $runtime `
-                -packageName ([ref]$packageName) `
-                -packagePath ([ref]$packagePath)
+        Write-Host "Preparing '$($App.Name)' for deployment." -ForegroundColor Blue
+        $packageName = ""
+        $packagePath = ""
+        Get-PackageParams `
+            -settingsJSON $settingsJSON  `
+            -appJSON $App `
+            -runtime $runtime `
+            -packageName ([ref]$packageName) `
+            -packagePath ([ref]$packagePath)
 
-            if ($packagePath -eq "") {
-                $appFile = $App.Path
-                if (-not $appFile.Contains('\')) {
-                    $appFile = "$($rootFolder.Fullname)\$appFile"
-                }
-                $appFile += "\$packageName"
+        if ($packagePath -eq "") {
+            $appFile = $App.Path
+            if (-not $appFile.Contains('\')) {
+                $appFile = "$($rootFolder.Fullname)\$appFile"
+            }
+            $appFile += "\$packageName"
+        } else {
+            $appFile = (Join-Path $packagePath $packageName)
+        }
+
+        $appReady = Test-Path $appFile
+        if ($appReady -eq $false) {
+            if ($skipMissing) {
+                Write-Host "$appFile does not exist. Deployment will be skipped." -ForegroundColor Red
             } else {
-                $appFile = (Join-Path $packagePath $packageName)
+                throw "$appFile does not exist. Please build all apps before attempting deployment."
             }
-            Write-Host "" -ForegroundColor Blue
-            Write-Host "Publishing '$($App.name)'." -ForegroundColor Blue
-                
-            # Do it
-            try {
-                Write-Host "Publish-BcContainerApp -containerName $($settingsJSON.containerName) -appFile $appFile -skipVerification -install -scope Tenant" -ForegroundColor Green
-                Publish-BcContainerApp -containerName $settingsJSON.containerName -appFile $appFile -skipVerification -install -scope Tenant
-                }
-            catch {
-                Write-Host "Publishing '$($App.name)' failed." -ForegroundColor Blue
-            }
+        }
+
+        if ($appReady -eq $true) {
+            Write-Host "Adding '$appFile' to deployment list." -ForegroundColor Gray
+            $appList += $appFile
+        }
+    }
+    if ($appList.length -gt 0) {
+        Write-Host "" -ForegroundColor Blue
+        Write-Host "Deploying apps." -ForegroundColor Blue
+        #Write-Host "Publish-BcContainerApp -containerName $($settingsJSON.containerName) -appFile $appFile -skipVerification -install -scope Tenant" -ForegroundColor Green
+        Publish-BcContainerApp -containerName $settingsJSON.containerName -appFile $appList -skipVerification -install -scope Tenant
     }
 }
 

@@ -18,6 +18,7 @@ Initialize-Context `
 Publish-Apps2Docker `
     -scriptPath $scriptPath `
     -settingsJSON $settingsJSON `
-    -workspaceJSON $workspaceJSON
+    -workspaceJSON $workspaceJSON `
+    -skipMissing
 
 Write-Done

@@ -632,41 +632,26 @@ function New-DockerContainer {
         }
     }
 
-    $Command = '    New-BcContainer `
-        -accept_eula `
-        -assignPremiumPlan `
-        -updateHosts `'
-
-    if ($settingsJSON.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") {
-            $Command += '
-            -runSandboxAsOnPrem `'
-        }
-
-    $showCommand = $Command
-
-    if ($settingsJSON.licenseFile -ne "") {
-        $Command += '
-        -licenseFile $settingsJSON.licenseFile `'
-        $showCommand += '
-        -licenseFile ' + $settingsJSON.licenseFile + ' `'
+    $Parameters = @{
+        accept_eula = $true
+        assignPremiumPlan = $true
+        updateHosts = $true
+        containerName = $settingsJSON.containerName
+        credential = $credential
+        auth = $auth
+        artifactUrl = $artifactUrl
     }
 
-    $Command += '
-        -containerName $settingsJSON.containerName `
-        -credential $credential `
-        -auth $auth `
-        -artifactUrl $artifactUrl'
+    if ($settingsJSON.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") {
+            $Parameters.runSandboxAsOnPrem = $true
+        }
 
-    $showCommand += '
-        -containerName ' + $settingsJSON.containerName + ' `
-        -credential ' + $credential + ' `
-        -auth ' + $auth + ' `
-        -artifactUrl ' + $artifactUrl
+    if ($settingsJSON.licenseFile -ne "") {
+        $Parameters.licenseFile = $settingsJSON.licenseFile
+    }
         
-    Write-Host 'Running command:' -ForegroundColor Green
-    Write-Host $showCommand -ForegroundColor Gray
     if (-not $testmode) {
-        Invoke-Expression $Command
+        New-BcContainer @Parameters
     }
 
     Write-Host "The docker instance $($settingsJSON.containerName) should be ready." -ForegroundColor Green
@@ -745,20 +730,25 @@ function Update-Workspace {
     $filteredFiles = Get-ChildItem -Path $workspaceRootPath.FullName | Where-Object { $_.Extension -eq $filterExtension }
     
     # Check if there are any matching files
-    if ($filteredFiles.Count -gt 0) {
+    if ($filteredFiles.Count -eq 0) {
+        # throw "No $filterExtension files found in the folder."
+        # there IS no workspace
+        $workspaceJSON = [PSCustomObject]@{}
+        $workspaceJSON | Add-Member -MemberType NoteProperty -Name folders -Value @()
+        $workspaceJSON.folders = $workspaceJSON.folders + [PSCustomObject]@{
+            path = '.'
+        }
+        $workspacePath = $(Get-Item $PSScriptRoot).Parent.Parent
+        $workspaceName = $workspacePath -split '\.' | Select-Object -First 1
+        Write-Host "Workspace definition not found, creating workspace $workspaceName." -ForegroundColor Red
+        $workspacePath = "$workspaceName.code-workspace"
+    } else {
         # Read *.code-workspace
         $workspaceJSON = Get-Content -Path $filteredFiles[0].FullName | ConvertFrom-Json
         $workspacePath = $filteredFiles[0].Name
         $workspaceName = $workspacePath -split '\.' | Select-Object -First 1
-    } else {
-        # throw "No $filterExtension files found in the folder."
-        # there IS no workspace
-        Write-Host "Workspace definition not found, aborting." -ForegroundColor Red
-        Write-Host ""
-        return
+        Write-Host "Workspace found: $workspaceName" -ForegroundColor Gray
     }
-
-    Write-Host "Workspace found: $workspaceName" -ForegroundColor Gray
 
     $filteredFolders = $workspaceJSON.folders | Where-Object { $_.path -eq $toolsetFolderName }
     if ($filteredFolders.Count -eq 0) {
