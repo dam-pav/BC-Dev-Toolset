@@ -34,6 +34,8 @@ function Write-LaunchJSON {
     if (-not (Test-Path $appFilename)) {
         Write-Host "'$appFilename' not found." -ForegroundColor Red
         return
+    } else {
+        $appJSON = Get-Content -Path $appFilename | ConvertFrom-Json
     }
 
     $launchFilename = "$appPath\.vscode\launch.json"
