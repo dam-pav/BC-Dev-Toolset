@@ -10,7 +10,8 @@ function Publish-Apps2Remote {
         [Parameter(Mandatory=$true)]
         [string] $targetType,
         [bool] $runtime = $false,
-        [switch] $skipMissing
+        [switch] $skipMissing,
+        [ref] $authContext
     )
 
     Write-Host "                      " -BackgroundColor Yellow
@@ -53,34 +54,97 @@ function Publish-Apps2Remote {
                 if ($configuration.serverType -eq 'OnPrem') {
                     Write-Host ""
                     Write-Host "Deploying $($App.name)" -ForegroundColor Gray
-                #    Publish-NAVApp -ServerInstance $ServerInstance -Path $package -SkipVerification -Scope Global
-                #    Sync-NAVApp -ServerInstance $ServerInstance -Name $App.name
-                #    Install-NAVApp -ServerInstance $ServerInstance -Name $App.name
+                    Publish-NAVApp -ServerInstance $ServerInstance -Path $package -SkipVerification -Scope Global
+                    Sync-NAVApp -ServerInstance $ServerInstance -Name $App.name
+                    Install-NAVApp -ServerInstance $ServerInstance -Name $App.name
                 } else {
                     Write-Host "Adding '$appFile' to deployment list." -ForegroundColor Gray
-                    #if ($appList -ne '') {
-                    #    $appList += ', '
-                    #}
                     $appList += $appFile
                 }
             }
         }
         if (($configuration.serverType -ne 'OnPrem') -and ($appList.length -gt 0)) {
-            #get authenticated
-            Start-Process "https://microsoft.com/devicelogin"
-            $authContext = New-BcAuthContext `
-                -includeDeviceLogin `
-                -tenantID $configuration.tenant `
-                -refreshToken $refreshToken
-    
+            if ($authContext.value.AccessToken) {
+                $renewAuthContext = Confirm-Option "Do you want to renew the Authentication context?"
+            } else {
+                $renewAuthContext = $true
+            }
+
+            if ($renewAuthContext) {
+                #get authenticated
+                Start-Process "https://microsoft.com/devicelogin"
+                $authContext.Value = New-BcAuthContext `
+                    -includeDeviceLogin `
+                    -tenantID $configuration.tenant `
+                    -refreshToken $refreshToken
+            }
+
             Publish-PerTenantExtensionApps `
-                -bcAuthContext $authContext `
+                -bcAuthContext $authContext.Value `
                 -environment $configuration.environmentName `
                 -appFiles $appList
         }
     }
 }
 
+function Unpublish-Remote {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $workspaceJSON
+    )
+    Write-Host "                                     " -BackgroundColor Yellow
+    Write-Host " !!! No functioning solution yet !!! " -ForegroundColor Green -BackgroundColor Yellow
+    Write-Host "                                     " -BackgroundColor Yellow
+
+    Write-Host ""
+    Write-Host "See here:"
+    Write-Host "https://github.com/microsoft/navcontainerhelper/issues/2808"
+    Write-Host ""
+    return
+
+    $appList = @()    
+    foreach ($appPath in $workspaceJSON.folders.path) {
+        $appJSON = @{}
+        Get-AppJSON `
+            -scriptPath $scriptPath `
+            -appPath $appPath  `
+            -appJSON ([ref]$appJSON)
+                
+        if ($null -ne $appJSON.application) {
+            $appList = $appList + @($appJSON)
+        } 
+    }
+    
+    $sortedApps = (Get-AppDependencies($appList) | Sort-Object ProcessOrder)
+    $installedApps = (Get-BcContainerAppInfo -containerName $settingsJSON.containerName)
+    
+
+    foreach ($configuration in $($settingsJSON.remoteConfigurations | Where-Object targetType -eq $targetType)) {
+        Write-Host "Removing apps from '$($configuration.name)'." -ForegroundColor Blue
+        ForEach ($App in ($sortedApps|Sort-Object -Property ProcessOrder -Descending)) {
+            Write-Host "Try removing $($App.Name) (Order: $($App.ProcessOrder))"
+            $installedApps | Where-Object { $_.Name -eq $App.Name -and $_.AppId -eq $App.AppId } | ForEach-Object{
+                #Write-Host "UnInstall-BcContainerApp -containerName $($settingsJSON.containerName) -Name $($App.Name) -Version $($_.Version)"
+                UnInstall-NavContainerApp -containerName $settingsJSON.containerName -Name $App.Name -force            
+                #Write-Host "Unpublish-BcContainerApp -containerName $($settingsJSON.containerName) -Name $($App.Name) -Version $($_.Version)"
+                Unpublish-BcContainerApp -containerName $settingsJSON.containerName -Name $App.Name -force            
+
+                
+                #TODO: lots of testing    
+                #if ($onprem) {
+                #    Write-Host ""
+                #    Write-Host "Removing $($App.name)" -ForegroundColor Green
+                #    Uninstall-NAVApp -ServerInstance $ServerInstance -Name $App.name
+                #    Unpublish-NAVApp -ServerInstance $ServerInstance -Name $App.name
+                #}
+            }
+        }
+    }
+}
 function Publish-Apps2Docker {
     Param (
         [Parameter(Mandatory=$true)]
@@ -184,59 +248,6 @@ function Unpublish-Docker {
                 force = $true
             }
             Unpublish-BcContainerApp @params
-        }
-    }
-}
-
-function Unpublish-Remote {
-    Param (
-        [Parameter(Mandatory=$true)]
-        [string] $scriptPath,
-        [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON,
-        [Parameter(Mandatory=$true)]
-        [PSObject] $workspaceJSON
-    )
-    Write-Host "                      " -BackgroundColor Yellow
-    Write-Host " !!! EXPERIMENTAL !!! " -ForegroundColor Green -BackgroundColor Yellow
-    Write-Host "                      " -BackgroundColor Yellow
-
-    $appList = @()    
-    foreach ($appPath in $workspaceJSON.folders.path) {
-        $appJSON = @{}
-        Get-AppJSON `
-            -scriptPath $scriptPath `
-            -appPath $appPath  `
-            -appJSON ([ref]$appJSON)
-                
-        if ($null -ne $appJSON.application) {
-            $appList = $appList + @($appJSON)
-        } 
-    }
-    
-    $sortedApps = (Get-AppDependencies($appList) | Sort-Object ProcessOrder)
-    $installedApps = (Get-BcContainerAppInfo -containerName $settingsJSON.containerName)
-    
-
-    foreach ($configuration in $($settingsJSON.remoteConfigurations | Where-Object targetType -eq $targetType)) {
-        Write-Host "Removing apps from '$($configuration.name)'." -ForegroundColor Blue
-        ForEach ($App in ($sortedApps|Sort-Object -Property ProcessOrder -Descending)) {
-            Write-Host "Try removing $($App.Name) (Order: $($App.ProcessOrder))"
-            $installedApps | Where-Object { $_.Name -eq $App.Name -and $_.AppId -eq $App.AppId } | ForEach-Object{
-                #Write-Host "UnInstall-BcContainerApp -containerName $($settingsJSON.containerName) -Name $($App.Name) -Version $($_.Version)"
-                UnInstall-NavContainerApp -containerName $settingsJSON.containerName -Name $App.Name -force            
-                #Write-Host "Unpublish-BcContainerApp -containerName $($settingsJSON.containerName) -Name $($App.Name) -Version $($_.Version)"
-                Unpublish-BcContainerApp -containerName $settingsJSON.containerName -Name $App.Name -force            
-
-                
-                #TODO: lots of testing    
-                #if ($onprem) {
-                #    Write-Host ""
-                #    Write-Host "Removing $($App.name)" -ForegroundColor Green
-                #    Uninstall-NAVApp -ServerInstance $ServerInstance -Name $App.name
-                #    Unpublish-NAVApp -ServerInstance $ServerInstance -Name $App.name
-                #}
-            }
         }
     }
 }
