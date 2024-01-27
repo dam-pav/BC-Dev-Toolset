@@ -56,62 +56,26 @@ function Write-LaunchJSON {
         $launchJSON | Add-Member -MemberType NoteProperty -Name configurations -Value @()
     }
 
-    # Find & Manage Docker Launcher
-    $dockerConfigurationName = "$($settingsJSON.containerName) Docker $($settingsJSON.environmentType)"
-    $setupFound = $false
-    foreach ($configuration in $($launchJSON.configurations | Where-Object Name -eq "$dockerConfigurationName")) {
-        Write-Host "Existing setup for '$($configuration.name)' found." -ForegroundColor Blue
-        $configuration.authentication = $settingsJSON.authentication
-        $setupFound = $true
-    }
-
-    if ($setupFound -eq $false) {
-        Write-Host "Setup for '$dockerConfigurationName' NOT found, creating with default values." -ForegroundColor Blue
-        $newConfiguration = [PSCustomObject]@{}
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name name -Value $dockerConfigurationName
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value $settingsJSON.environmentType
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name server -Value "http://$($settingsJSON.containerName)"
-        if (($settingsJSON.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") -or ($appJSON.application -ge [Version]"19.0.0.0")) {
-            $newConfiguration | Add-Member -MemberType NoteProperty -Name serverInstance -Value "BC"
-        } else {
-            $newConfiguration | Add-Member -MemberType NoteProperty -Name serverInstance -Value "NAV"
-        }
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name tenant -Value "default"
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value $settingsJSON.authentication
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name request -Value "launch"
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name type -Value "al"
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name startupObjectId -Value 22
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name startupObjectType -Value "Page"
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name breakOnError -Value "All"
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name launchBrowser -Value $true
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name enableLongRunningSqlStatements -Value $true
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name enableSqlInformationDebugger -Value $true
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name usePublicURLFromServer -Value $true
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name schemaUpdateMode -Value "ForceSync"
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name forceUpgrade -Value $true
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name breakOnRecordWrite -Value "None"
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name longRunningSqlStatementsThreshold -Value 500
-        $newConfiguration | Add-Member -MemberType NoteProperty -Name numberOfSqlStatements -Value 10
-        
-        $launchJSON.configurations = $launchJSON.configurations + $newConfiguration
-    }
-    
     # Find & Manage Remote Launcher
-    foreach ($remote in $settingsJSON.remoteConfigurations) {
+    foreach ($remote in $settingsJSON.configurations) {
         $configurationValid = $true
         if ($remote.name -eq "") {
             $configurationValid = $false
-            Write-Host "settings.json: please supply the mandatory value for 'remoteConfigurations' attribute 'name'." -ForegroundColor Red
+            Write-Host "settings.json: please supply the mandatory value for 'configurations' attribute 'name'." -ForegroundColor Red
         }
-        if (-not ($remote.serverType -in ("Cloud","SelfHosted","OnPrem"))) {
+        if (-not ($remote.serverType -in ("Container","Cloud","SelfHosted","OnPrem"))) {
             $configurationValid = $false
             if ($remote.name -ne "sample") {
-                Write-Host "settings.json: please supply the mandatory value for 'remoteConfigurations' attribute 'serverType'. Valid values are: Cloud, SelfHosted and OnPrem." -ForegroundColor Red
+                Write-Host "settings.json: please supply the mandatory value for 'configurations' attribute 'serverType'. Valid values are: Container, Cloud, SelfHosted and OnPrem." -ForegroundColor Red
             }
         }
         if ($configurationValid) {
             $setupFound = $false
-            $remoteConfigurationName = "$($remote.name) $($remote.serverType)"
+            $remoteConfigurationName = "$($remote.name)"
+            if ($remote.targetType) {
+                $remoteConfigurationName += " $($remote.targetType)"
+            }
+            $remoteConfigurationName += " $($remote.serverType)"
 			foreach ($configuration in $($launchJSON.configurations | Where-Object Name -eq $remoteConfigurationName)) {
 				Write-Host "Existing setup for '$($configuration.name)' found." -ForegroundColor Blue
                 if ($configuration.PSObject.Properties['environmentName']) {
@@ -132,32 +96,18 @@ function Write-LaunchJSON {
                 if ($configuration.PSObject.Properties['tenant']) {
                     $configuration.PSObject.Properties.Remove('tenant')
                 }
+                if ($configuration.PSObject.Properties['environmentType']) {
+                    $configuration.PSObject.Properties.Remove('environmentType')
+                }
 				$setupFound = $true
 			}
 		
 			if ($setupFound -eq $false) {
-				Write-Host "Setup for '$($remote.name) $($settingsJSON.environmentType)' NOT found, creating with default values." -ForegroundColor Blue
+				Write-Host "Setup for '$remoteConfigurationName' NOT found, creating with default values." -ForegroundColor Blue
 				$newConfiguration = [PSCustomObject]@{}
 				$newConfiguration | Add-Member -MemberType NoteProperty -Name name -Value $remoteConfigurationName
-                if ($remote.serverType -eq "OnPrem") {
-                    $newConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value "OnPrem"
-                } else {
-                    $newConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
-                }
 				$newConfiguration | Add-Member -MemberType NoteProperty -Name request -Value "launch"
 				$newConfiguration | Add-Member -MemberType NoteProperty -Name type -Value "al"
-				$newConfiguration | Add-Member -MemberType NoteProperty -Name startupObjectId -Value 22
-				$newConfiguration | Add-Member -MemberType NoteProperty -Name startupObjectType -Value "Page"
-				$newConfiguration | Add-Member -MemberType NoteProperty -Name breakOnError -Value "All"
-				$newConfiguration | Add-Member -MemberType NoteProperty -Name launchBrowser -Value $true
-				$newConfiguration | Add-Member -MemberType NoteProperty -Name enableLongRunningSqlStatements -Value $true
-				$newConfiguration | Add-Member -MemberType NoteProperty -Name enableSqlInformationDebugger -Value $true
-				$newConfiguration | Add-Member -MemberType NoteProperty -Name usePublicURLFromServer -Value $true
-				$newConfiguration | Add-Member -MemberType NoteProperty -Name schemaUpdateMode -Value "ForceSync"
-				$newConfiguration | Add-Member -MemberType NoteProperty -Name forceUpgrade -Value $true
-				$newConfiguration | Add-Member -MemberType NoteProperty -Name breakOnRecordWrite -Value "None"
-				$newConfiguration | Add-Member -MemberType NoteProperty -Name longRunningSqlStatementsThreshold -Value 500
-				$newConfiguration | Add-Member -MemberType NoteProperty -Name numberOfSqlStatements -Value 10
 
                 $launchJSON.configurations = $launchJSON.configurations + $newConfiguration
 			}
@@ -165,23 +115,56 @@ function Write-LaunchJSON {
 			foreach ($configuration in $($launchJSON.configurations | Where-Object Name -eq $remoteConfigurationName)) {
 				Write-Host "Replacing values for setup '$($configuration.name)'." -ForegroundColor Blue
                 switch ($remote.serverType) {
+                    "Container" { 
+                        if ($remote.PSObject.Properties['server']) {
+                            Write-Host "'server' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
+                        }
+                        if ($remote.PSObject.Properties['serverInstance']) {
+                            Write-Host "'serverInstance' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
+                        }
+                        if ($remote.PSObject.Properties['tenant']) {
+                            Write-Host "'tenant' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
+                        }
+                        if ($remote.environmentType -eq "OnPrem") {
+                            $configuration | Add-Member -MemberType NoteProperty -Name environmentType -Value $remote.environmentType
+                        } else {
+                            $configuration | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
+                        }
+                        $configuration | Add-Member -MemberType NoteProperty -Name server -Value "http://$($remote.container)"
+                        if (($configuration.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") -or ($appJSON.application -ge [Version]"19.0.0.0")) {
+                            $configuration | Add-Member -MemberType NoteProperty -Name serverInstance -Value "BC"
+                        } else {
+                            $configuration | Add-Member -MemberType NoteProperty -Name serverInstance -Value "NAV"
+                        }
+                        $configuration | Add-Member -MemberType NoteProperty -Name tenant -Value "default"
+                        $configuration | Add-Member -MemberType NoteProperty -Name authentication -Value $remote.authentication
+                    }
                     "Cloud" { 
-                        if ($configuration.PSObject.Properties['server']) {
-                            Write-Host "'server' attribute is ignored for 'serverType'='Cloud'." -ForegroundColor Red
+                        if ($remote.PSObject.Properties['server']) {
+                            Write-Host "'server' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
                         }
-                        if ($configuration.PSObject.Properties['serverInstance']) {
-                            Write-Host "'serverInstance' attribute is ignored for 'serverType'='Cloud'." -ForegroundColor Red
+                        if ($remote.PSObject.Properties['serverInstance']) {
+                            Write-Host "'serverInstance' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
                         }
-                        if ($configuration.PSObject.Properties['authentication']) {
-                            Write-Host "'authentication' attribute is ignored for 'serverType'='Cloud'." -ForegroundColor Red
+                        if ($remote.PSObject.Properties['authentication']) {
+                            Write-Host "'authentication' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
+                        }
+                        if (($remote.environmentType -eq "Sandbox") -or (-not $remote.environmentType)) {
+                            $configuration | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
+                        } else {
+                            Write-Host "'environmentType' attribute's only valid value is 'Sandbox'. The value '$($remote.environmentType)' is not valid." -ForegroundColor Red
                         }
                         $configuration | Add-Member -MemberType NoteProperty -Name environmentName -Value $remote.environmentName
                         $configuration | Add-Member -MemberType NoteProperty -Name tenant -Value $remote.tenant
                     }
                     "SelfHosted" { 
                         if ($configuration.PSObject.Properties['serverInstance']) {
-                            Write-Host "'serverInstance' attribute is ignored for 'serverType'='SelfHosted'." -ForegroundColor Red
+                            Write-Host "'serverInstance' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
                         }
+                        if ($remote.PSObject.Properties['environmentType']) {
+                            Write-Host "'environmentType' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
+                        }
+                        $configuration | Add-Member -MemberType NoteProperty -Name environmentType -Value $newEnvironmentType
                         $configuration | Add-Member -MemberType NoteProperty -Name environmentName -Value $remote.environmentName
                         $configuration | Add-Member -MemberType NoteProperty -Name server -Value $remote.server
                         $configuration | Add-Member -MemberType NoteProperty -Name authentication -Value $remote.authentication
@@ -194,7 +177,10 @@ function Write-LaunchJSON {
                     }
                     "OnPrem" { 
                         if ($configuration.PSObject.Properties['environmentName']) {
-                            Write-Host "'environmentName' attribute is ignored for 'serverType'='OnPrem'." -ForegroundColor Red
+                            Write-Host "'environmentName' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
+                        }
+                        if ($remote.PSObject.Properties['environmentType']) {
+                            Write-Host "'environmentType' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
                         }
                         $configuration | Add-Member -MemberType NoteProperty -Name server -Value $remote.server
                         $configuration | Add-Member -MemberType NoteProperty -Name serverInstance -Value $remote.serverInstance
@@ -208,10 +194,24 @@ function Write-LaunchJSON {
                         $configuration | Add-Member -MemberType NoteProperty -Name tenant -Value $remoteTenant
                     }
                     Default {
-                        Write-Host "settings.json: valid values for 'remoteConfiguration' attribute 'serverType' are Cloud, SelfHosted and OnPrem." -ForegroundColor Red
+                        Write-Host "settings.json: valid values for 'remoteConfiguration' attribute 'serverType' are Container, Cloud, SelfHosted and OnPrem." -ForegroundColor Red
                     }
                 }
             }
+			if ($setupFound -eq $false) {
+				$configuration | Add-Member -MemberType NoteProperty -Name startupObjectId -Value 22
+				$configuration | Add-Member -MemberType NoteProperty -Name startupObjectType -Value "Page"
+				$configuration | Add-Member -MemberType NoteProperty -Name breakOnError -Value "All"
+				$configuration | Add-Member -MemberType NoteProperty -Name launchBrowser -Value $true
+				$configuration | Add-Member -MemberType NoteProperty -Name enableLongRunningSqlStatements -Value $true
+				$configuration | Add-Member -MemberType NoteProperty -Name enableSqlInformationDebugger -Value $true
+				$configuration | Add-Member -MemberType NoteProperty -Name usePublicURLFromServer -Value $true
+				$configuration | Add-Member -MemberType NoteProperty -Name schemaUpdateMode -Value "ForceSync"
+				$configuration | Add-Member -MemberType NoteProperty -Name forceUpgrade -Value $true
+				$configuration | Add-Member -MemberType NoteProperty -Name breakOnRecordWrite -Value "None"
+				$configuration | Add-Member -MemberType NoteProperty -Name longRunningSqlStatementsThreshold -Value 500
+				$configuration | Add-Member -MemberType NoteProperty -Name numberOfSqlStatements -Value 10
+			}
         }
 	}
     
@@ -312,27 +312,40 @@ function Initialize-Context {
     # Check if settings.json file exists
     if (-not (Test-Path -Path $settingsPath)) {
         # File doesn't exist, create with default values
+        $defaultSettings = [PSCustomObject]@{}
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name licenseFile -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name certificateFile -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name packageOutputPath -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
+
+        # add container configuration
+        $remoteConfiguration = [PSCustomObject]@{}
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "$workspaceName Default"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverType -Value "Container"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name targetType -Value "Dev"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name container -Value $workspaceName.Replace(' ','-')
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value "UserPassword"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value "admin"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value "P@ssw0rd"
+        $defaultSettings.configurations += $remoteConfiguration
+
+        # add sample configuration
         $remoteConfiguration = [PSCustomObject]@{}
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "sample"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverType -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name targetType -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name server -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverInstance -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name container -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name port -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentName -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name tenant -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value ""
-
-        $defaultSettings = [PSCustomObject]@{}
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name authentication -Value "UserPassword"
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name admin -Value "admin"
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name password -Value "P@ssw0rd"
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name containerName -Value $workspaceName.Replace(' ','-')
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name licenseFile -Value ""
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name certificateFile -Value ""
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name packageOutputPath -Value ""
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name remoteConfigurations -Value @($remoteConfiguration)
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value ""
+        $defaultSettings.configurations += $remoteConfiguration
 
         $defaultSettings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
     }
@@ -340,7 +353,7 @@ function Initialize-Context {
     # Read settings.json
     $settingsJSONvalue = Get-Content -Path $settingsPath | ConvertFrom-Json
 
-    # Add remoteConfigurations from code-workspace
+    # Add configurations from code-workspace
     $country = ''
     if ($workspaceJSON.value.settings.bcdevtoolset.country) {
         $country = $workspaceJSON.value.settings.bcdevtoolset.country
@@ -350,8 +363,8 @@ function Initialize-Context {
     }
 
     $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name country -Value $country
-    foreach ($remoteConfiguration in $workspaceJSON.value.settings.bcdevtoolset.remoteConfigurations) {
-        $settingsJSONvalue.remoteConfigurations = $settingsJSONvalue.remoteConfigurations + $remoteConfiguration
+    foreach ($remote in $workspaceJSON.value.settings.bcdevtoolset.configurations) {
+        $settingsJSONvalue.configurations = $settingsJSONvalue.configurations + $remote
     }
     # finally, pass the object
     $settingsJSON.Value = $settingsJSONvalue
@@ -613,51 +626,64 @@ function New-DockerContainer {
         [PSObject] $settingsJSON
     )
     
-    # No mutex for the time being, we do it manually
-    $securePassword = ConvertTo-SecureString -String $settingsJSON.password -AsPlainText -Force
-    $credential = New-Object pscredential $settingsJSON.admin, $securePassword
-    $auth = $settingsJSON.authentication
+    $configurationFound = $false
+    foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "Container")) {
+        $configurationFound = $true
 
-    if ($appJSON.application -eq "") {
-        throw "Artifact URL could not be determined based on $appPath\app.json. Processing aborted."
-    } else {
-        Write-Host "Retrieving artifact URL for $($settingsJSON.environmentType) app version $($appJSON.application)."
-    }
+        # No mutex for the time being, we do it manually
+        $securePassword = ConvertTo-SecureString -String $configuration.password -AsPlainText -Force
+        $credential = New-Object pscredential $configuration.admin, $securePassword
+        $auth = $configuration.authentication
 
-    Write-Host "Get-BcArtifactUrl -version $($appJSON.application) -type $($settingsJSON.environmentType) -country $($settingsJSON.country) -select 'Closest'" -ForegroundColor Green
-    if (-not $testmode) {
-        $artifactUrl = Get-BcArtifactUrl -version $appJSON.application -type $settingsJSON.environmentType -country $settingsJSON.country -select 'Closest'
-        if ("$artifactUrl" -eq "") {
-            throw "Artifact URL could not be determined for $($settingsJSON.environmentType) app version $($appJSON.application). Processing aborted."
+        if ($appJSON.application -eq "") {
+            throw "Artifact URL could not be determined based on $appPath\app.json. Processing aborted."
         } else {
-            Write-Host "Using artifact URL $artifactUrl."
-        }
-    }
-
-    $Parameters = @{
-        accept_eula = $true
-        assignPremiumPlan = $true
-        updateHosts = $true
-        containerName = $settingsJSON.containerName
-        credential = $credential
-        auth = $auth
-        artifactUrl = $artifactUrl
-    }
-
-    if ($settingsJSON.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") {
-            $Parameters.runSandboxAsOnPrem = $true
+            Write-Host "Retrieving artifact URL for $($configuration.environmentType) app version $($appJSON.application)."
         }
 
-    if ($settingsJSON.licenseFile -ne "") {
-        $Parameters.licenseFile = $settingsJSON.licenseFile
-    }
-        
-    if (-not $testmode) {
-        New-BcContainer @Parameters
+        Write-Host "Get-BcArtifactUrl -version $($appJSON.application) -type $($configuration.environmentType) -country $($settingsJSON.country) -select 'Closest'" -ForegroundColor Green
+        if (-not $testmode) {
+            $artifactUrl = Get-BcArtifactUrl -version $appJSON.application -type $configuration.environmentType -country $settingsJSON.country -select 'Closest'
+            if ("$artifactUrl" -eq "") {
+                throw "Artifact URL could not be determined for $($configuration.environmentType) app version $($appJSON.application). Processing aborted."
+            } else {
+                Write-Host "Using artifact URL $artifactUrl."
+            }
+        }
+
+        $Parameters = @{
+            accept_eula = $true
+            assignPremiumPlan = $true
+            updateHosts = $true
+            containerName = $configuration.container
+            credential = $credential
+            auth = $auth
+            artifactUrl = $artifactUrl
+        }
+
+        if ($configuration.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") {
+                $Parameters.runSandboxAsOnPrem = $true
+            }
+
+        if ($settingsJSON.licenseFile -ne "") {
+            $Parameters.licenseFile = $settingsJSON.licenseFile
+        }
+            
+        if (-not $testmode) {
+            New-BcContainer @Parameters
+        }
+
+        Write-Host "The docker instance $($configuration.container) should be ready." -ForegroundColor Green
+        Write-Host ""
     }
 
-    Write-Host "The docker instance $($settingsJSON.containerName) should be ready." -ForegroundColor Green
-    Write-Host ""
+    if (-not $configurationFound) {
+        Write-Host "No Docker configurations found." -ForegroundColor Red
+        $false
+        return
+    }
+
+    $true
 }
 
 function Update-Gitignore {
@@ -780,7 +806,7 @@ function Update-Workspace {
 
         $bcdevtoolset = [PSCustomObject]@{}
         $bcdevtoolset | Add-Member -MemberType NoteProperty -Name country -Value "w1"
-        $bcdevtoolset | Add-Member -MemberType NoteProperty -Name remoteConfigurations -Value @($remoteConfiguration)
+        $bcdevtoolset | Add-Member -MemberType NoteProperty -Name configurations -Value @($remoteConfiguration)
 
         $workspaceJSON.settings | Add-Member -MemberType NoteProperty -Name bcdevtoolset -Value @($bcdevtoolset)
     }
@@ -790,3 +816,73 @@ function Update-Workspace {
     Write-Host "Workspace file updated: $workspacePath" -ForegroundColor Green
     Write-Host ""
 }
+
+function Download-Symbols {
+    Param(
+        [Parameter(Mandatory=$false)]
+        [string]$SourcePath = (Get-Location),
+        [Parameter(Mandatory=$false)]
+        [string]$ContainerName = (Get-ContainerFromLaunchJson),
+        # optionally download the test symbols
+        [Parameter(Mandatory=$false)]
+        [switch]
+        $includeTestSymbols
+    )
+
+    $PackagesPath = Join-Path $SourcePath '.alpackages'
+
+    if (!(Test-Path $PackagesPath)) {
+        Create-EmptyDirectory $PackagesPath
+    }
+
+    $SymbolsDownloaded = $false
+
+    # since BC15, system layer is defined in dependencies
+    $Dependencies = Get-AppKeyValue -SourcePath $SourcePath -KeyName 'dependencies'
+    foreach ($Dependency in $Dependencies) {
+        if ($Dependency.publisher -eq 'Microsoft') {
+            $Uri = 'http://{0}:7049/bc/dev/packages?publisher={1}&appName={2}&versionText={3}' -f $ContainerName, $Dependency.publisher, $Dependency.name, $Dependency.version
+            Write-Host $Uri
+            Invoke-WebRequest -Uri $Uri -Headers (New-Headers) -OutFile (Join-Path $PackagesPath ('{0}_{1}_{2}.app' -f $Dependency.publisher, $Dependency.name, $Dependency.version))
+            $SymbolsDownloaded = $true            
+        }
+    }
+
+    if ($SymbolsDownloaded) {
+        $Uri = 'http://{0}:7049/bc/dev/packages?publisher=Microsoft&appName=System&versionText={1}' -f $ContainerName, (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'platform')
+        Write-Host $Uri
+        Invoke-WebRequest -Uri $Uri -Headers (New-Headers) -OutFile (Join-Path $PackagesPath ('Microsoft_System_{0}.app' -f (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'platform')))
+    }
+    # prior to BC15, system layer defined through properties in app.json
+    else {
+        $Uri = 'http://{0}:7049/nav/dev/packages?publisher=Microsoft&appName=Application&versionText={1}' -f $ContainerName, (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'application')
+        Write-Host $Uri
+        Invoke-WebRequest -Uri $Uri -Headers (New-Headers) -OutFile (Join-Path $PackagesPath ('Microsoft_Application_{0}.app' -f (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'application')))
+        
+        $Uri = 'http://{0}:7049/nav/dev/packages?publisher=Microsoft&appName=System&versionText={1}' -f $ContainerName, (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'platform')
+        Write-Host $Uri
+        Invoke-WebRequest -Uri $Uri -Headers (New-Headers) -OutFile (Join-Path $PackagesPath ('Microsoft_System_{0}.app' -f (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'platform')))
+        
+        if ($includeTestSymbols.IsPresent) {
+            $Uri = 'http://{0}:7049/nav/dev/packages?publisher=Microsoft&appName=Test&versionText={1}' -f $ContainerName, (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'test')
+            Write-Host $Uri
+            Invoke-WebRequest -Uri $Uri -Headers (New-Headers) -OutFile (Join-Path $PackagesPath ('Microsoft_Test_{0}.app' -f (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'test')))
+        }
+    }
+}
+
+function New-Headers
+{
+    Param(
+        [Parameter(Mandatory=$true)]
+        [string]$username,
+        [Parameter(Mandatory=$true)]
+        [string]$password
+    )
+    $ba = '{0}:{1}' -f $username, $password
+    $ba = [System.Text.Encoding]::UTF8.GetBytes($ba)
+    $ba = [System.Convert]::ToBase64String($ba)
+    $h = @{Authorization=("Basic {0}" -f $ba);'Accept-Encoding'='gzip,deflate'}   
+    $h
+}
+

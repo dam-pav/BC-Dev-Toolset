@@ -149,27 +149,26 @@ Its most obvious role is to define the folders included in the workspace. In add
 We also use it as a vessel to carry configuration relevant to the workspace. The root attribute ***bcdevtoolset*** can specify:
 
 * ***country***: optional, sets the platform country version. The default is "w1".
-* ***remoteConfigurations***: Specify a list of remote deployments. Valid attributes (a subset of attributes for ***configurations*** in *launch.json*):
+* ***configurations***: Specify a list of remote deployments. Valid attributes (an approximate subset of attributes for ***configurations*** in *launch.json*):
 
-  * ***name***: a distinctive name for the configuration. The actual name will be composed of this and of the value of ***environmentType***. This value is mandatory; the list entry will be ignored if ***name*** has an empty value.
-  * ***serverType***: Accepted values are *Cloud*, *SelfHosted* or *OnPrem*. Mandatory.
-  * ***targetType***: Accepted values are *Test*, *Production*.
+  * ***name***: a distinctive name for the configuration. This value is mandatory; the list entry will be ignored if ***name*** has an empty value or if the value is "sample".
+  * ***serverType***: Accepted values are Container, *Cloud*, *SelfHosted* or *OnPrem*. Mandatory.
+  * ***targetType***: Accepted values are Dev, *Test*, *Production*.
   * ***server***: Valid for server types SelfHosted or OnPrem.
-  * ***serverInstance***: Valid for OnPrem.
+  * ***serverInstance***: Valid for server type OnPrem.
+  * ***container***: The name for the Docker container. The default value is the name of the workspace. Valid for server type Container.
   * ***port***: Valid for OnPrem.
+  * ***environmentType***: Type of BC instance to create. Valid values are *Sandbox* or *OnPrem*. Default value is *Sandbox*. Valid for server type Container and Cloud.
   * ***environmentName***: Valid for Cloud or SelfHosted.
   * ***tenant***: Valid for Cloud or OnPrem.
-  * ***authentication***: Valid for OnPrem.
+  * ***authentication***: Valid for Container or OnPrem. Default value is *UserPassword*.
+  * ***admin*** and ***password***: The default user for the Docker BC instance.
 
 ### *settings.json*
 
 Use *settings.json* to personalize your scripts behaviour. If not found, a *settings.json* file will be created for you when any of the scripts is first run, with default values.
 
-* ***authentication***: Specifies the authentication mode for the Docker instance. Default value is *UserPassword*.
-* ***admin*** and ***password***: The default user for the Docker BC instance.
-* ***containerName***: The name for the Docker container. The default value is the name of the workspace.
-* ***environmentType***: Type of BC instance to create. Valid values are *Sandbox* or *OnPrem*. Default value is *Sandbox*.
 * ***licenseFile***: Specify if you have one. Mandatory for Runtime packages.
 * ***certificateFile***: Specify if you have one. Mandatory for Runtime packages.
 * ***packageOutputPath***: Specify a specific folder path to group the Runtime packages. If empty, a runtime subfolder will automatically be created and used in the project. Remember to use double backslashes for full paths. For instance, for an actual path of "c:\\project\\packages" you will need to use "c:\\\\project\\\packages\".
-* ***remoteConfigurations***: Personalize an additional list of remote deployments. Valid attributes (a subset of attributes for ***configurations*** in *launch.json*). Same structure as defined for *.code-workspace*.
+* ***configurations***: Personalize an additional list of remote deployments. Valid attributes (a subset of attributes for ***configurations*** in *launch.json*). Same structure as defined for *.code-workspace*.

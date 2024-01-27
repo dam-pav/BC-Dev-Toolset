@@ -30,19 +30,22 @@ foreach ($appPath in $workspaceJSON.folders.path) {
 }
 
 # Build a new container
-New-DockerContainer `
+$success = $false
+$success = New-DockerContainer `
     -testMode $false `
     -scriptPath $scriptRoot `
     -appJSON $appJSON  `
     -settingsJSON $settingsJSON
 
-# Update environments
-Write-Host "Updating launch.json for all apps." -ForegroundColor Green
-foreach ($appPath in $workspaceJSON.folders.path) {
-    Write-LaunchJSON `
-    -scriptPath $scriptRoot `
-    -appPath $appPath `
-    -settingsJSON $settingsJSON
+if ($success -eq $true) {
+    # Update environments
+    Write-Host "Updating launch.json for all apps." -ForegroundColor Green
+    foreach ($appPath in $workspaceJSON.folders.path) {
+        Write-LaunchJSON `
+        -scriptPath $scriptRoot `
+        -appPath $appPath `
+        -settingsJSON $settingsJSON
+    }
 }
 
 Write-Done    

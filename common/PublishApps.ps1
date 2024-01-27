@@ -22,9 +22,9 @@ function Publish-Apps2Remote {
     $rootFolder = (Get-Item $scriptPath).Parent
     $appList = @()
 
-    foreach ($configuration in $($settingsJSON.remoteConfigurations | Where-Object targetType -eq $targetType)) {
+    foreach ($configuration in $($settingsJSON.configurations | Where-Object  { $_.targetType -eq $targetType })) {
         Write-Host "Deploying apps to '$($configuration.name)'." -ForegroundColor Blue
-        ForEach ($App in $sortedApps) {
+        foreach ($App in $sortedApps) {
             Write-Host "Preparing '$($App.Name)' for deployment." -ForegroundColor Blue
             $packageName = ""
             $packagePath = ""
@@ -35,11 +35,14 @@ function Publish-Apps2Remote {
                 -packageName ([ref]$packageName) `
                 -packagePath ([ref]$packagePath)
             
-            $appFile = $App.Path
-            if (-not $appFile.Contains('\')) {
-                $appFile = "$($rootFolder.Fullname)\$appFile"
+            if ($packagePath -eq "") {
+                $packagePath = $App.Path
+                if (-not $packagePath.Contains('\')) {
+                    $packagePath = (Join-Path $rootFolder.Fullname $appFile)
+                }
             }
-            $appFile += "\$packageName"
+            $appFile = (Join-Path $packagePath $packageName)
+
             $appReady = Test-Path $appFile
             if ($appReady -eq $false) {
                 if ($skipMissing) {
@@ -120,30 +123,6 @@ function Unpublish-Remote {
     }
     
     $sortedApps = (Get-AppDependencies($appList) | Sort-Object ProcessOrder)
-    $installedApps = (Get-BcContainerAppInfo -containerName $settingsJSON.containerName)
-    
-
-    foreach ($configuration in $($settingsJSON.remoteConfigurations | Where-Object targetType -eq $targetType)) {
-        Write-Host "Removing apps from '$($configuration.name)'." -ForegroundColor Blue
-        ForEach ($App in ($sortedApps|Sort-Object -Property ProcessOrder -Descending)) {
-            Write-Host "Try removing $($App.Name) (Order: $($App.ProcessOrder))"
-            $installedApps | Where-Object { $_.Name -eq $App.Name -and $_.AppId -eq $App.AppId } | ForEach-Object{
-                #Write-Host "UnInstall-BcContainerApp -containerName $($settingsJSON.containerName) -Name $($App.Name) -Version $($_.Version)"
-                UnInstall-NavContainerApp -containerName $settingsJSON.containerName -Name $App.Name -force            
-                #Write-Host "Unpublish-BcContainerApp -containerName $($settingsJSON.containerName) -Name $($App.Name) -Version $($_.Version)"
-                Unpublish-BcContainerApp -containerName $settingsJSON.containerName -Name $App.Name -force            
-
-                
-                #TODO: lots of testing    
-                #if ($onprem) {
-                #    Write-Host ""
-                #    Write-Host "Removing $($App.name)" -ForegroundColor Green
-                #    Uninstall-NAVApp -ServerInstance $ServerInstance -Name $App.name
-                #    Unpublish-NAVApp -ServerInstance $ServerInstance -Name $App.name
-                #}
-            }
-        }
-    }
 }
 function Publish-Apps2Docker {
     Param (
@@ -162,46 +141,47 @@ function Publish-Apps2Docker {
     $rootFolder = (Get-Item $scriptPath).Parent
     $appList = @()
 
-    ForEach ($App in $sortedApps) {
-        Write-Host "Preparing '$($App.Name)' for deployment." -ForegroundColor Blue
-        $packageName = ""
-        $packagePath = ""
-        Get-PackageParams `
-            -settingsJSON $settingsJSON  `
-            -appJSON $App `
-            -runtime $runtime `
-            -packageName ([ref]$packageName) `
-            -packagePath ([ref]$packagePath)
+    foreach ($configuration in $($settingsJSON.configurations | Where-Object { $_.targetType -eq "Dev" -and $_.serverType -eq "Container" })) {
+        Write-Host "Deploying apps to '$($configuration.name)'." -ForegroundColor Blue
+        foreach ($App in $sortedApps) {
+            Write-Host "Preparing '$($App.Name)' for deployment." -ForegroundColor Blue
+            $packageName = ""
+            $packagePath = ""
+            Get-PackageParams `
+                -settingsJSON $settingsJSON  `
+                -appJSON $App `
+                -runtime $runtime `
+                -packageName ([ref]$packageName) `
+                -packagePath ([ref]$packagePath)
 
-        if ($packagePath -eq "") {
-            $appFile = $App.Path
-            if (-not $appFile.Contains('\')) {
-                $appFile = "$($rootFolder.Fullname)\$appFile"
+            if ($packagePath -eq "") {
+                $packagePath = $App.Path
+                if (-not $packagePath.Contains('\')) {
+                    $packagePath = (Join-Path $rootFolder.Fullname $packagePath)
+                }
             }
-            $appFile += "\$packageName"
-        } else {
             $appFile = (Join-Path $packagePath $packageName)
-        }
 
-        $appReady = Test-Path $appFile
-        if ($appReady -eq $false) {
-            if ($skipMissing) {
-                Write-Host "$appFile does not exist. Deployment will be skipped." -ForegroundColor Red
-            } else {
-                throw "$appFile does not exist. Please build all apps before attempting deployment."
+            $appReady = Test-Path $appFile
+            if ($appReady -eq $false) {
+                if ($skipMissing) {
+                    Write-Host "$appFile does not exist. Deployment will be skipped." -ForegroundColor Red
+                } else {
+                    throw "$appFile does not exist. Please build all apps before attempting deployment."
+                }
+            }
+
+            if ($appReady -eq $true) {
+                Write-Host "Adding '$appFile' to deployment list." -ForegroundColor Gray
+                $appList += $appFile
             }
         }
-
-        if ($appReady -eq $true) {
-            Write-Host "Adding '$appFile' to deployment list." -ForegroundColor Gray
-            $appList += $appFile
+        if ($appList.length -gt 0) {
+            Write-Host "" -ForegroundColor Blue
+            Write-Host "Deploying apps." -ForegroundColor Blue
+            #Write-Host "Publish-BcContainerApp -containerName $($configuration.container) -appFile $appFile -skipVerification -install -scope Tenant" -ForegroundColor Green
+            Publish-BcContainerApp -containerName $configuration.container -appFile $appList -skipVerification -install -scope Tenant -sync
         }
-    }
-    if ($appList.length -gt 0) {
-        Write-Host "" -ForegroundColor Blue
-        Write-Host "Deploying apps." -ForegroundColor Blue
-        #Write-Host "Publish-BcContainerApp -containerName $($settingsJSON.containerName) -appFile $appFile -skipVerification -install -scope Tenant" -ForegroundColor Green
-        Publish-BcContainerApp -containerName $settingsJSON.containerName -appFile $appList -skipVerification -install -scope Tenant
     }
 }
 
@@ -229,25 +209,36 @@ function Unpublish-Docker {
     }
     
     $sortedApps = (Get-AppDependencies($appList) | Sort-Object ProcessOrder)
-    $installedApps = (Get-BcContainerAppInfo -containerName $settingsJSON.containerName)
-    
-    ForEach ($App in ($sortedApps|Sort-Object -Property ProcessOrder -Descending)) {
-        Write-Host "Try removing $($App.Name) (Order: $($App.ProcessOrder))"
-        $installedApps | Where-Object { $_.Name -eq $App.Name -and $_.AppId -eq $App.AppId } | ForEach-Object{
-            $params = @{
-                containerName = $settingsJSON.containerName
-                Name = $App.Name
-                force = $true
-                doNotSaveData = $true
-                doNotSaveSchema = $true
+    foreach ($configuration in $($settingsJSON.configurations | Where-Object { $_.targetType -eq "Dev" -and $_.serverType -eq "Container" })) {
+        Write-Host "Removing apps from '$($configuration.name)'." -ForegroundColor Blue
+        $installedApps = (Get-BcContainerAppInfo -containerName $configuration.container)
+        
+        ForEach ($App in ($sortedApps|Sort-Object -Property ProcessOrder -Descending)) {
+            Write-Host "Try removing $($App.Name) (Order: $($App.ProcessOrder))"
+            $installedApps | Where-Object { $_.Name -eq $App.Name -and $_.AppId -eq $App.AppId } | ForEach-Object{
+                $params = @{
+                    containerName = $configuration.container
+                    Name = $App.Name
+                    Force = $true
+                    doNotSaveData = $true
+                    doNotSaveSchema = $true
+                }
+                UnInstall-BcContainerApp @params           
+                
+                $params = @{
+                    containerName = $configuration.container
+                    appName = $App.Name
+                    Force = $true
+                }
+                Sync-BcContainerApp @params
+                
+                $params = @{
+                    containerName = $configuration.container
+                    Name = $App.Name
+                    Force = $true
+                }
+                Unpublish-BcContainerApp @params
             }
-            UnInstall-NavContainerApp @params           
-            $params = @{
-                containerName = $settingsJSON.containerName
-                Name = $App.Name
-                force = $true
-            }
-            Unpublish-BcContainerApp @params
         }
     }
 }
