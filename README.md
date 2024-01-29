@@ -61,9 +61,9 @@ You are also welcome to apply as contributor. As a contributor you will  implici
    ```
    winget install -e --id Microsoft.VisualStudioCode
    ```
-5. **BcContainerHelper.**
+5. **BcContainerHelper**.
 
-   None of this would be possible without the BcContainerHelper. Hat down.
+   None of this would be possible without the BcContainerHelper. Hats off.
 
    Run Powershell as admin, then:
 
