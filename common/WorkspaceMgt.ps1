@@ -318,7 +318,8 @@ function Build-Settings {
         $defaultSettings.configurations += $remoteConfiguration
 
         $defaultSettings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
-    }
+        Write-Host "$settingsPath created." -ForegroundColor Green
+        }
 }
 function Initialize-Context {
     Param (
