@@ -269,7 +269,7 @@ function Format-Json([Parameter(Mandatory, ValueFromPipeline)][String] $json) {
 }
 
 function Build-Settings {
-    Params (
+    Param (
         [Parameter(Mandatory=$true)]
         [string] $settingsPath,
         [Parameter(Mandatory=$true)]
