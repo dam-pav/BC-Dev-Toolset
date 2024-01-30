@@ -1,5 +1,4 @@
 Clear-Host
-$ExecutionContext.SessionState.LanguageMode = 'FullLanguage' #because PS7.4 is broken
 
 $scriptPath = $PSScriptRoot
 . $scriptPath/common/WorkspaceMgt.ps1

@@ -268,6 +268,58 @@ function Format-Json([Parameter(Mandatory, ValueFromPipeline)][String] $json) {
     }) -Join "`n"
 }
 
+function Build-Settings {
+    Params (
+        [Parameter(Mandatory=$true)]
+        [string] $settingsPath,
+        [Parameter(Mandatory=$true)]
+        [string] $workspaceName
+    )
+
+    # Check if settings.json file exists
+    if (-not (Test-Path -Path $settingsPath)) {
+        Write-Host ""
+        Write-Host "Creating $settingsPath..." -ForegroundColor Gray
+
+        # File doesn't exist, create with default values
+        $defaultSettings = [PSCustomObject]@{}
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name licenseFile -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name certificateFile -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name packageOutputPath -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
+
+        # add container configuration
+        $remoteConfiguration = [PSCustomObject]@{}
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "$workspaceName Default"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverType -Value "Container"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name targetType -Value "Dev"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name container -Value $workspaceName.Replace(' ','-')
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value "UserPassword"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value "admin"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value "P@ssw0rd"
+        $defaultSettings.configurations += $remoteConfiguration
+
+        # add sample configuration
+        $remoteConfiguration = [PSCustomObject]@{}
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "sample"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverType -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name targetType -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name server -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverInstance -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name container -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name port -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentName -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name tenant -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value ""
+        $defaultSettings.configurations += $remoteConfiguration
+
+        $defaultSettings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
+    }
+}
 function Initialize-Context {
     Param (
         [Parameter(Mandatory=$true)]
@@ -308,47 +360,7 @@ function Initialize-Context {
     
     # Set the path for settings.json
     $settingsPath = "$scriptPath\settings.json"
-
-    # Check if settings.json file exists
-    if (-not (Test-Path -Path $settingsPath)) {
-        # File doesn't exist, create with default values
-        $defaultSettings = [PSCustomObject]@{}
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name licenseFile -Value ""
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name certificateFile -Value ""
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name packageOutputPath -Value ""
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
-
-        # add container configuration
-        $remoteConfiguration = [PSCustomObject]@{}
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "$workspaceName Default"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverType -Value "Container"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name targetType -Value "Dev"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name container -Value $workspaceName.Replace(' ','-')
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value "UserPassword"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value "admin"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value "P@ssw0rd"
-        $defaultSettings.configurations += $remoteConfiguration
-
-        # add sample configuration
-        $remoteConfiguration = [PSCustomObject]@{}
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "sample"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverType -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name targetType -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name server -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverInstance -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name container -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name port -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentName -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name tenant -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value ""
-        $defaultSettings.configurations += $remoteConfiguration
-
-        $defaultSettings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
-    }
+    Build-Settings $settingsPath $workspaceName
 
     # Read settings.json
     $settingsJSONvalue = Get-Content -Path $settingsPath | ConvertFrom-Json
@@ -687,6 +699,8 @@ function New-DockerContainer {
 }
 
 function Update-Gitignore {
+    Write-Host ""
+
     # Specify the file path
     $filePath = ".gitignore"
 
@@ -745,10 +759,10 @@ function Update-Gitignore {
     $lines | Set-Content $filePath -Encoding UTF8
 
     Write-Host "$filePath updated." -ForegroundColor Green
-    Write-Host ""
 }
 
 function Update-Workspace {
+    Write-Host ""
     Write-Host "Updating the .code-workspace file..." -ForegroundColor Gray
 
     # Workspace
@@ -814,10 +828,12 @@ function Update-Workspace {
     # finally, save the updated workspace file
     $workspaceJSON | ConvertTo-Json -Depth 10 | Format-Json | Out-File -Encoding utf8 -FilePath $workspacePath -Force
     Write-Host "Workspace file updated: $workspacePath" -ForegroundColor Green
-    Write-Host ""
+
+    # initialize settings.json
+    Build-Settings (Join-Path $toolsetFolderName "settings.json") $workspaceName
 }
 
-function Download-Symbols {
+function Get-Symbols {
     Param(
         [Parameter(Mandatory=$false)]
         [string]$SourcePath = (Get-Location),
@@ -839,11 +855,13 @@ function Download-Symbols {
 
     # since BC15, system layer is defined in dependencies
     $Dependencies = Get-AppKeyValue -SourcePath $SourcePath -KeyName 'dependencies'
+    $Headers = Build-Headers
+
     foreach ($Dependency in $Dependencies) {
         if ($Dependency.publisher -eq 'Microsoft') {
             $Uri = 'http://{0}:7049/bc/dev/packages?publisher={1}&appName={2}&versionText={3}' -f $ContainerName, $Dependency.publisher, $Dependency.name, $Dependency.version
             Write-Host $Uri
-            Invoke-WebRequest -Uri $Uri -Headers (New-Headers) -OutFile (Join-Path $PackagesPath ('{0}_{1}_{2}.app' -f $Dependency.publisher, $Dependency.name, $Dependency.version))
+            Invoke-WebRequest -Uri $Uri -Headers ($Headers) -OutFile (Join-Path $PackagesPath ('{0}_{1}_{2}.app' -f $Dependency.publisher, $Dependency.name, $Dependency.version))
             $SymbolsDownloaded = $true            
         }
     }
@@ -851,27 +869,27 @@ function Download-Symbols {
     if ($SymbolsDownloaded) {
         $Uri = 'http://{0}:7049/bc/dev/packages?publisher=Microsoft&appName=System&versionText={1}' -f $ContainerName, (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'platform')
         Write-Host $Uri
-        Invoke-WebRequest -Uri $Uri -Headers (New-Headers) -OutFile (Join-Path $PackagesPath ('Microsoft_System_{0}.app' -f (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'platform')))
+        Invoke-WebRequest -Uri $Uri -Headers ($Headers) -OutFile (Join-Path $PackagesPath ('Microsoft_System_{0}.app' -f (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'platform')))
     }
     # prior to BC15, system layer defined through properties in app.json
     else {
         $Uri = 'http://{0}:7049/nav/dev/packages?publisher=Microsoft&appName=Application&versionText={1}' -f $ContainerName, (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'application')
         Write-Host $Uri
-        Invoke-WebRequest -Uri $Uri -Headers (New-Headers) -OutFile (Join-Path $PackagesPath ('Microsoft_Application_{0}.app' -f (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'application')))
+        Invoke-WebRequest -Uri $Uri -Headers ($Headers) -OutFile (Join-Path $PackagesPath ('Microsoft_Application_{0}.app' -f (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'application')))
         
         $Uri = 'http://{0}:7049/nav/dev/packages?publisher=Microsoft&appName=System&versionText={1}' -f $ContainerName, (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'platform')
         Write-Host $Uri
-        Invoke-WebRequest -Uri $Uri -Headers (New-Headers) -OutFile (Join-Path $PackagesPath ('Microsoft_System_{0}.app' -f (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'platform')))
+        Invoke-WebRequest -Uri $Uri -Headers ($Headers) -OutFile (Join-Path $PackagesPath ('Microsoft_System_{0}.app' -f (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'platform')))
         
         if ($includeTestSymbols.IsPresent) {
             $Uri = 'http://{0}:7049/nav/dev/packages?publisher=Microsoft&appName=Test&versionText={1}' -f $ContainerName, (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'test')
             Write-Host $Uri
-            Invoke-WebRequest -Uri $Uri -Headers (New-Headers) -OutFile (Join-Path $PackagesPath ('Microsoft_Test_{0}.app' -f (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'test')))
+            Invoke-WebRequest -Uri $Uri -Headers ($Headers) -OutFile (Join-Path $PackagesPath ('Microsoft_Test_{0}.app' -f (Get-AppKeyValue -SourcePath $SourcePath -KeyName 'test')))
         }
     }
 }
 
-function New-Headers
+function Build-Headers
 {
     Param(
         [Parameter(Mandatory=$true)]
@@ -885,4 +903,3 @@ function New-Headers
     $h = @{Authorization=("Basic {0}" -f $ba);'Accept-Encoding'='gzip,deflate'}   
     $h
 }
-
