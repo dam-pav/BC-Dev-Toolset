@@ -254,7 +254,7 @@ function Confirm-Option {
 
 function Format-Json([Parameter(Mandatory, ValueFromPipeline)][String] $json) {
     $indent = 0;
-    ($json -Split "`n" | % {
+    ($json -Split "`n" | ForEach-Object {
         if ($_ -match '[\}\]]\s*,?\s*$') {
             # This line ends with ] or }, decrement the indentation level
             $indent--
@@ -707,7 +707,7 @@ function Update-Gitignore {
 
     # Verify that this is a repository
     if (-not (Test-Path '.git')) {
-        Write-Host "This is not a repository. A '$filePath' is not required." -ForegroundColor Gray
+        Write-Host "This is not a repository. A '$filePath' is not required." -ForegroundColor Green
         return
     }
 
@@ -783,7 +783,7 @@ function Update-Workspace {
         }
         $workspacePath = $(Get-Item $PSScriptRoot).Parent.Parent
         $workspaceName = $workspacePath -split '\.' | Select-Object -First 1
-        Write-Host "Workspace definition not found, creating workspace $workspaceName." -ForegroundColor Red
+        Write-Host "Workspace definition not found, creating workspace $workspaceName." -ForegroundColor Gray
         $workspacePath = "$workspaceName.code-workspace"
     } else {
         # Read *.code-workspace
