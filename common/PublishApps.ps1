@@ -38,7 +38,7 @@ function Publish-Apps2Remote {
             if ($packagePath -eq "") {
                 $packagePath = $App.Path
                 if (-not $packagePath.Contains('\')) {
-                    $packagePath = (Join-Path $rootFolder.Fullname $appFile)
+                    $packagePath = (Join-Path $rootFolder.Fullname $App.Path)
                 }
             }
             $appFile = (Join-Path $packagePath $packageName)
