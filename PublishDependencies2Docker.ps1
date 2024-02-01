@@ -14,11 +14,7 @@ Initialize-Context `
     -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
 
-    Publish-Apps `
-    -scriptPath $scriptPath `
-    -settingsJSON $settingsJSON `
-    -workspaceJSON $workspaceJSON `
-    -targetType "Dev" `
-    -skipMissing
+Publish-Dependencies2Docker `
+    -settingsJSON $settingsJSON
 
 Write-Done

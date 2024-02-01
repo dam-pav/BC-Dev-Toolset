@@ -286,6 +286,7 @@ function Build-Settings {
         $defaultSettings | Add-Member -MemberType NoteProperty -Name licenseFile -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name certificateFile -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name packageOutputPath -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name dependenciesPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
 
         # add container configuration

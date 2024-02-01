@@ -14,7 +14,7 @@ Initialize-Context `
 if (-not ($authContext)) {
     $authContext = @{}
 }
-Publish-Apps2Remote `
+Publish-Apps `
     -scriptPath $scriptPath `
     -settingsJSON $settingsJSON `
     -workspaceJSON $workspaceJSON `

@@ -1,7 +1,5 @@
 Clear-Host
 
-throw "Not ready yet."
-
 $scriptPath = $PSScriptRoot
 . $scriptPath/common/WorkspaceMgt.ps1
 . $scriptPath/common/PublishApps.ps1
@@ -14,7 +12,7 @@ Initialize-Context `
     -workspaceJSON ([ref]$workspaceJSON)
 
 
-Unpublish-Test `
+Unpublish-Apps `
     -scriptPath $scriptPath `
     -settingsJSON $settingsJSON `
     -workspaceJSON $workspaceJSON `

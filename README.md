@@ -2,7 +2,7 @@
 
 ## Why?
 
-If you are a developer, you spend an inordinate amount of time manually executing operations such as preparing your development tools and set up, preparing and deploying packages and so on. I'm sure you'd rather spend that time doing something less dull and repetitive.
+If you are a BC developer, you spend an inordinate amount of time manually executing operations such as preparing your development tools and set up, preparing and deploying packages and so on. I'm sure you'd rather spend that time doing something less dull and repetitive.
 
 The things that the toolset will enable you to do once it is set up:
 
@@ -12,11 +12,11 @@ The things that the toolset will enable you to do once it is set up:
 * Batch setup for *launch.json*.
 * Batch creation of runtime packages.
 * Batch deployment to environments both local and remote.
+* Batch deployment of dependency apps into containers.
 
 Also in the pipeline:
 
 * Batch downloading of symbols.
-* Batch deployment of dependency apps into containers.
 * Stay tuned for more.
 
 ## Introduction
@@ -31,12 +31,12 @@ This toolset is a work in continuous progress. Any usage is subject to a MIT lic
 
 If you want to reach out to the developer, please open an issue at *[BC-Dev-Toolset](https://github.com/dam-pav/BC-Dev-Toolset/issues)*.
 
-You are also welcome to apply as contributor. As a contributor you will  implicitly agree to a [Contributor License Agreement](documentation/CLA.md). By accepting the agreement you will declare that you have the right to grant this project the rights to use your contribution anf that you in fact do grant this right of use.
+You are also welcome to apply as contributor. As a contributor you will implicitly agree to a [Contributor License Agreement](documentation/CLA.md). By accepting the agreement you will declare that you have the right to grant this project the rights to use your contribution anf that you in fact do grant this right of use.
 
 ## Prerequisites
 
 1. A **Windows Pro** or **Windows Enterprise** edition.
-   Unfortunately, Docker Desktop doesn't allow Windows containers on Windows Home. If you don't have access to any of the above, you won't be able to develop for BC using Docker.
+   Unfortunately, Docker Desktop doesn't allow Windows containers on Windows Home. If you don't have access to any of the above, you won't be able to develop for BC using Docker. You might still find scripts that are not related to Docker useful.
 2. **Docker Desktop**.
 
    ```
@@ -78,8 +78,12 @@ You are also welcome to apply as contributor. As a contributor you will  implici
 
 There are two scenarios for workspaces, in relation to repositories they handle.
 
+---
+
 1. A workspace can contain one or more separate repositories, some of them containing an app of its own. The workspace definition in not included in any of them. It can include other otherwise independent folders, not necessarily containing apps. This is perfect for the developer that wants to use the toolset casually without involving it in any workflows.
 2. The workspace can be part of a main repository. The main repository contains an arbitrary number of folders, some of them might contain apps. This is great for the developer that wants to predefine resources and setup for all team members.
+
+---
 
 Either way there is one requirement you must follow. Each separate app needs to have a separate base folder and this folder needs to be specified in the *folders* array in the workspace file. Like this:
 
@@ -139,10 +143,11 @@ Starting a new workspace and including the toolset should be easy.
 
 * ***CreateRuntimePackage.ps1***: creates Runtime packages, using the local Docker instance.
 * ***NewDockerContainer.ps1***: creates a Docker container with a Sandbox BC platform version determined by the first app.json found. If an existing container with the same name is found, it gets removed and replaced. Doesn't support multiplatform (apps for different platform versions) projects.
-* ***PublishApps2Docker.ps1***: publish apps as PTE (as opposed to Dev) to the locally created Docker instance.
-* ***PublishApps2Test.ps1***: publish apps as PTE (as opposed to Dev) to the remote servers specified in *settings.json*, with the *targetType* value of *Test*.
-* ***PublishRuntimeApps2Docker.ps1***: publish *runtime* apps as PTE to the locally created Docker instance.
-* ***PublishRuntimeApps2Test.ps1***: publish *runtime* apps as PTE to the remote servers specified in *settings.json*, with the *targetType* value of *Test*.
+* ***PublishDependencies2Docker.ps1***: publish apps from the *dependenciesPath* to the local Docker instance, identified as *serverType* of *Container*.
+* ***PublishApps2Docker.ps1***: publish apps as PTE (as opposed to Dev) to the local Docker instance.
+* ***PublishApps2Test.ps1***: publish apps as PTE to the configurations specified in *settings.json*, with the *targetType* value of *Test*.
+* ***PublishRuntimeApps2Docker.ps1***: publish *runtime* apps as PTE to the local Docker instance.
+* ***PublishRuntimeApps2Test.ps1***: publish *runtime* apps as PTE to configuration specified in *settings.json*, with the *targetType* value of *Test*.
 * ***UnpublishDockerApps.ps1***: unpublish all the apps in the workspace from the locally created Docker instance.
 * ***UnpublishTestApps.ps1***: unpublish all the apps in the workspace from the remote servers specified in *settings.json*, with the *targetType* value of *Test*.
 * ***UpdateLaunchJson.ps1***: creates or/and updates *launch.json* configurations for all apps in the workspace. It takes care of default local configuration for Docker and, in addition, for all remote configurations defined in *settings.json*.
@@ -168,13 +173,13 @@ You might have already initialized git with these folders and files. In that cas
 git rm BC-Dev-Toolset -r -f
 ```
 
-in order to remove the folder and the containing files from git. This doesn't delete the files, just the tracking. Also, you might also need to run
+in order to remove the folder and the containing files from git. Also, you might also need to run
 
 ```
 git rm */launch.json --cached
 ```
 
-to remove the files from git. You will need to commit these changes.
+to remove the files from git. Beware, this actually deletes the files from the current branch, not just the tracking. You will need to commit these changes.
 
 ### *repository*.code-workspace
 
@@ -214,7 +219,7 @@ Its most obvious role is to define the folders included in the workspace. In add
 We also use it as a vessel to carry configuration relevant to the workspace. The root attribute ***bcdevtoolset*** can specify:
 
 * ***country***: optional, sets the platform country version. The default is "w1".
-* ***configurations***: Specify a list of remote deployments. Valid attributes (an approximate subset of attributes for ***configurations*** in *launch.json*):
+* ***configurations***: Specify a list of remote deployments. Valid attributes (an approximate match of attributes for ***configurations*** in *launch.json*):
 
   * ***name***: a distinctive name for the configuration. This value is mandatory; the list entry will be ignored if ***name*** has an empty value or if the value is "sample".
   * ***serverType***: Accepted values are Container, *Cloud*, *SelfHosted* or *OnPrem*. Mandatory.
@@ -236,4 +241,5 @@ Use *settings.json* to personalize your scripts behaviour. If not found, a *sett
 * ***licenseFile***: Specify if you have one. Mandatory for Runtime packages.
 * ***certificateFile***: Specify if you have one. Mandatory for Runtime packages.
 * ***packageOutputPath***: Specify a specific folder path to group the Runtime packages. If empty, a runtime subfolder will automatically be created and used in the project. Remember to use double backslashes for full paths. For instance, for an actual path of "c:\\project\\packages" you will need to use "c:\\\\project\\\packages\".
-* ***configurations***: Personalize an additional list of remote deployments. Valid attributes (a subset of attributes for ***configurations*** in *launch.json*). Same structure as defined for *.code-workspace*.
+* ***dependenciesPath***: Specify a specific folder path to where the required app packages are stored. Again, remember to use double backslashes for full paths.
+* ***configurations***: Locally personalized additional list of remote deployments. Valid attributes (a subset of attributes for ***configurations*** in *launch.json*). Same structure as defined for *.code-workspace*. Both lists are used.

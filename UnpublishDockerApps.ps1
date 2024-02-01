@@ -15,9 +15,10 @@ Initialize-Context `
     -workspaceJSON ([ref]$workspaceJSON)
 
 
-Unpublish-Docker `
+Unpublish-Apps `
     -scriptPath $scriptPath `
     -settingsJSON $settingsJSON `
-    -workspaceJSON $workspaceJSON
+    -workspaceJSON $workspaceJSON `
+    -targetType "Dev"
 
 Write-Done
