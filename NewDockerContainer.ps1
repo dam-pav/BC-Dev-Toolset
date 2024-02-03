@@ -37,8 +37,16 @@ $success = New-DockerContainer `
     -appJSON $appJSON  `
     -settingsJSON $settingsJSON
 
+
 if ($success -eq $true) {
+    # Deploy external apps
+    Write-Host ""
+    Write-Host "Deploying apps with dependencies to the new container." -ForegroundColor Green
+    Publish-Dependencies2Docker `
+        -settingsJSON $settingsJSON
+
     # Update environments
+    Write-Host ""
     Write-Host "Updating launch.json for all apps." -ForegroundColor Green
     foreach ($appPath in $workspaceJSON.folders.path) {
         Write-LaunchJSON `
