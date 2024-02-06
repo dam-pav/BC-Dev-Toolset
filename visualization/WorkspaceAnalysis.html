@@ -35,6 +35,10 @@
             font-weight: bold;
             font-family: 'Arial', sans-serif; /* Set font-family to sans-serif */
         }
+        #boundary-display {
+            font-size: x-small;
+            font-family: 'Arial', sans-serif; /* Set font-family to sans-serif */
+        }
         rect.range:hover {
             fill: blue;
         }
@@ -49,6 +53,7 @@
 <div id="title">Workspace Analysis Visualization</div>
 <div id="box">
     <div id="box_caption">Range Pool Usage</div>
+    <div id="boundary-display" style="text-align: center; margin-bottom: 10px;">Range: <span id="boundary-start">0</span> - <span id="boundary-end">100</span></div>
     <div id="visualization"></div>
     <div id="slider-container"></div>
 </div>
@@ -74,6 +79,10 @@ fetch('./data.json')
             }
         });
 
+        // After setting globalData and visualizing for the first time:
+        document.getElementById('boundary-start').textContent = poolRange.from;
+        document.getElementById('boundary-end').textContent = poolRange.to;
+
         var slider = document.getElementById('slider-container').noUiSlider;
         slider.on('update', function(values, handle) {
             // values: Array containing the current slider values
@@ -87,6 +96,10 @@ fetch('./data.json')
                 from: globalData.pool_range.from + (globalData.pool_range.to - globalData.pool_range.from) * (minVal / 100),
                 to: globalData.pool_range.from + (globalData.pool_range.to - globalData.pool_range.from) * (maxVal / 100)
             };
+
+            // Update the boundary display
+            document.getElementById('boundary-start').textContent = newPoolRange.from.toFixed(0); // Use toFixed for rounding if necessary
+            document.getElementById('boundary-end').textContent = newPoolRange.to.toFixed(0);
 
             // Redraw your visualization using `newPoolRange` instead of `globalData.pool_range`
             visualizeRangePool(globalData, newPoolRange); // You'll need to modify visualizeRangePool to accept `newPoolRange` as a parameter
