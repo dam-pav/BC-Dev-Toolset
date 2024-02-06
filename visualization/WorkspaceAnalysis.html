@@ -39,6 +39,8 @@
             fill: blue;
         }
     </style>
+    <link href="https://cdn.jsdelivr.net/npm/nouislider/distribute/nouislider.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/nouislider/distribute/nouislider.min.js"></script>
 </head>
 <body>
 
@@ -48,15 +50,50 @@
 <div id="box">
     <div id="box_caption">Range Pool Usage</div>
     <div id="visualization"></div>
+    <div id="slider-container"></div>
 </div>
 <script>
-    // Load JSON data from file using fetch
-    fetch('./data.json')
-        .then(response => response.json())
-        .then(data => visualizeRangePool(data))
-        .catch(error => console.error('Error loading JSON:', error));
+    
+    let globalData;
+    let poolRange;
 
-    function visualizeRangePool(data) {
+    // Load JSON data from file using fetch
+fetch('./data.json')
+    .then(response => response.json())
+    .then(data => {
+        // Initialize newPoolRange with the full range from data on page load
+        globalData = data;
+        poolRange = { ...data.pool_range };
+        visualizeRangePool(globalData, poolRange); // Pass newPoolRange to your function
+        noUiSlider.create(document.getElementById('slider-container'), {
+            start: [0, 100], // Start with handles at the extremes
+            connect: true, // Display a colored bar between the handles
+            range: {
+                'min': 0,
+                'max': 100
+            }
+        });
+
+        var slider = document.getElementById('slider-container').noUiSlider;
+        slider.on('update', function(values, handle) {
+            // values: Array containing the current slider values
+            // handle: Index of the handle that caused the event
+            var minVal = parseInt(values[0], 10);
+            var maxVal = parseInt(values[1], 10);
+
+            // Calculate the new pool range based on slider values
+            // Assuming `globalData` is your original data object and `pool_range` is a property in it
+            var newPoolRange = {
+                from: globalData.pool_range.from + (globalData.pool_range.to - globalData.pool_range.from) * (minVal / 100),
+                to: globalData.pool_range.from + (globalData.pool_range.to - globalData.pool_range.from) * (maxVal / 100)
+            };
+
+            // Redraw your visualization using `newPoolRange` instead of `globalData.pool_range`
+            visualizeRangePool(globalData, newPoolRange); // You'll need to modify visualizeRangePool to accept `newPoolRange` as a parameter
+        });
+    })
+    .catch(error => console.error('Error loading JSON:', error));
+    function visualizeRangePool(data, newPoolRange) {
         // Normalize pool_range and range values
         var normalize = function (value, min, max, normalizedMin, normalizedMax) {
             return (value - min) / (max - min) * (normalizedMax - normalizedMin) + normalizedMin;
@@ -68,10 +105,13 @@
             from: range.from,
             to: range.to,
             name: range.name,
-            normalizedFrom: normalize(range.from, data.pool_range.from, data.pool_range.to, normalizedPoolStart, normalizedPoolEnd),
-            normalizedTo: normalize(range.to, data.pool_range.from, data.pool_range.to, normalizedPoolStart, normalizedPoolEnd)
+            normalizedFrom: normalize(range.from, newPoolRange.from, newPoolRange.to, normalizedPoolStart, normalizedPoolEnd),
+            normalizedTo: normalize(range.to, newPoolRange.from, newPoolRange.to, normalizedPoolStart, normalizedPoolEnd)
         }));
 
+        // Clear existing SVG content
+        d3.select("#visualization svg").remove();
+        
         // Set up the SVG container
         var svg = d3.select("#visualization")
             .append("svg")
@@ -116,7 +156,6 @@
             tooltip.style("visibility", "hidden");
         });
     }
-
 </script>
 
 </body>
