@@ -35,10 +35,14 @@
             font-weight: bold;
             font-family: 'Arial', sans-serif; /* Set font-family to sans-serif */
         }
+        rect.range:hover {
+            fill: blue;
+        }
     </style>
 </head>
 <body>
 
+<div id="tooltip" style="position: absolute; visibility: hidden; background-color: lightgrey; color: black; padding: 5px; border-radius: 5px; font-size: small; font-family: Arial, sans-serif;"></div>
 <div id="instruction">Open with Live Server VSCode extension. HTML preview will not show the data.</div>
 <div id="title">Workspace Analysis Visualization</div>
 <div id="box">
@@ -61,8 +65,11 @@
         var normalizedPoolStart = 0;
         var normalizedPoolEnd = 100;
         var normalizedRanges = data.ranges.map(range => ({
-            from: normalize(range.from, data.pool_range.from, data.pool_range.to, normalizedPoolStart, normalizedPoolEnd),
-            to: normalize(range.to, data.pool_range.from, data.pool_range.to, normalizedPoolStart, normalizedPoolEnd)
+            from: range.from,
+            to: range.to,
+            name: range.name,
+            normalizedFrom: normalize(range.from, data.pool_range.from, data.pool_range.to, normalizedPoolStart, normalizedPoolEnd),
+            normalizedTo: normalize(range.to, data.pool_range.from, data.pool_range.to, normalizedPoolStart, normalizedPoolEnd)
         }));
 
         // Set up the SVG container
@@ -79,17 +86,35 @@
             .attr("height", 50) // Adjust the height as needed
             .attr("fill", "lightgreen");
 
-        // Add occupied ranges with intensity based on overlap
-        svg.selectAll("rect.range")
-            .data(normalizedRanges)
-            .enter().append("rect")
-            .attr("class", "range")
-            .attr("x", d => d.from + "%")
-            .attr("y", 0)
-            .attr("width", d => d.to - d.from + "%")
-            .attr("height", 50) // Adjust the height as needed
-            .attr("fill", "red")
-            .style("opacity", 0.33); // Adjust the opacity as needed for intensity
+    // Tooltip setup
+    var tooltip = d3.select("#tooltip");
+
+    // Add occupied ranges with intensity based on overlap
+    svg.selectAll("rect.range")
+        .data(normalizedRanges)
+        .enter().append("rect")
+        .attr("class", "range")
+        .attr("x", d => d.normalizedFrom + "%")
+        .attr("y", 0)
+        .attr("width", d => d.normalizedTo - d.normalizedFrom + "%")
+        .attr("height", 50) // Adjust the height as needed
+        .attr("fill", "red")
+        .style("opacity", 0.33) // Adjust the opacity as needed for intensity
+        .on("mouseover", function(d) {
+    var event = d3.event; // Use d3.event to get the current event in D3 v5
+    tooltip.style("visibility", "visible")
+           .text(`${d.name}: ${d.from}-${d.to}`)
+           .style("top", (event.pageY - 10) + "px")
+           .style("left",(event.pageX + 10) + "px");
+        })
+        .on("mousemove", function() {
+            var event = d3.event; // Again, use d3.event here
+            tooltip.style("top", (event.pageY - 10) + "px")
+                .style("left", (event.pageX + 10) + "px");
+        })
+        .on("mouseout", function() {
+            tooltip.style("visibility", "hidden");
+        });
     }
 
 </script>
