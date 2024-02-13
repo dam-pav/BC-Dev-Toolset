@@ -2,6 +2,7 @@ Clear-Host
 
 $scriptRoot = $PSScriptRoot
 . $scriptRoot/common/WorkspaceMgt.ps1
+. $scriptPath/common/PublishApps.ps1
 
 # Make sure Docker is running
 Test-DockerProcess
