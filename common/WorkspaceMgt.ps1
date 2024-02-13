@@ -133,10 +133,10 @@ function Write-LaunchJSON {
                         $configuration | Add-Member -MemberType NoteProperty -Name server -Value "http://$($remote.container)"
                         if (($configuration.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") -or ($appJSON.application -ge [Version]"19.0.0.0")) {
                             $configuration | Add-Member -MemberType NoteProperty -Name serverInstance -Value "BC"
+                            $configuration | Add-Member -MemberType NoteProperty -Name tenant -Value "default"
                         } else {
                             $configuration | Add-Member -MemberType NoteProperty -Name serverInstance -Value "NAV"
                         }
-                        $configuration | Add-Member -MemberType NoteProperty -Name tenant -Value "default"
                         $configuration | Add-Member -MemberType NoteProperty -Name authentication -Value $remote.authentication
                     }
                     "Cloud" { 

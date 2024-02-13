@@ -26,7 +26,7 @@ if (-not (Test-Path -Path $dataFilePath)) {
         $From = 50000
     } else {
         try {
-            $From = [int16]$From
+            $From = [int]$From
         }
         catch {
             $From = 0
@@ -40,7 +40,7 @@ if (-not (Test-Path -Path $dataFilePath)) {
         $To = 59999
     } else {
         try {
-            $To = [int16]$To
+            $To = [int]$To
         }
         catch {
             $To = 0
