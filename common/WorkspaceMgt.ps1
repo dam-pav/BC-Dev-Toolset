@@ -287,6 +287,7 @@ function Build-Settings {
         $defaultSettings | Add-Member -MemberType NoteProperty -Name certificateFile -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name packageOutputPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name dependenciesPath -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name shortcuts -Value "None"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
 
         # add container configuration
@@ -673,6 +674,7 @@ function New-DockerContainer {
             credential = $credential
             auth = $auth
             artifactUrl = $artifactUrl
+            shortcuts = $settingsJSON.shortcuts
         }
 
         if ($configuration.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") {
