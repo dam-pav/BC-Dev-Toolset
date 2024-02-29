@@ -14,10 +14,12 @@ Initialize-Context `
     -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
 
-Publish-Apps2Docker `
+Publish-Apps `
     -scriptPath $scriptPath `
     -settingsJSON $settingsJSON `
     -workspaceJSON $workspaceJSON `
     -runtime $true
+    -targetType "Dev" `
+    -skipMissing
 
 Write-Done

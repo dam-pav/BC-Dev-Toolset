@@ -11,11 +11,16 @@ Initialize-Context `
     -settingsJSON ([ref]$settingsJSON) `
     -workspaceJSON ([ref]$workspaceJSON)
 
-Publish-Apps2Remote `
+if (-not ($authContext)) {
+    $authContext = @{}
+}
+Publish-Apps `
     -scriptPath $scriptPath `
     -settingsJSON $settingsJSON `
     -workspaceJSON $workspaceJSON `
     -targetType "Test" `
     -runtime $true
+    -skipMissing `
+    -authContext ([ref]$authContext)
 
 Write-Done
