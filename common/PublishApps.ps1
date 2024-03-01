@@ -48,6 +48,7 @@ function Publish-Apps {
     $sortedApps = (Get-SortedApps -workspaceJSON $workspaceJSON)
     $rootFolder = (Get-Item $scriptPath).Parent
     $appList = @()
+    $ex = @()
 
     foreach ($configuration in $($settingsJSON.configurations | Where-Object  { $_.targetType -eq $targetType })) {
         Write-Host "Deploying apps to '$($configuration.name)'." -ForegroundColor Blue
@@ -73,7 +74,7 @@ function Publish-Apps {
             $appReady = Test-Path $appFile
             if ($appReady -eq $false) {
                 if ($skipMissing) {
-                    Write-Host "$appFile does not exist. Deployment will be skipped." -ForegroundColor Red
+                    Write-Host "$appFile does not exist. Deployment will be skipped." -ForegroundColor Grey
                 } else {
                     throw "$appFile does not exist. Please build all apps before attempting deployment."
                 }
@@ -93,13 +94,16 @@ function Publish-Apps {
                         $renewAuthContext = $true
                     }
     
-                    if ($renewAuthContext) {
+                    if ($renewAuthContext -eq $true) {
                         #get authenticated
-                        Start-Process "https://microsoft.com/devicelogin"
                         $authContext.Value = New-BcAuthContext `
                             -includeDeviceLogin `
                             -tenantID $configuration.tenant `
                             -refreshToken $refreshToken
+                        $continue = Confirm-Option "Continue?" -defaultYes $true
+                        if ($continue -eq $false)
+                            throw "Deployment aborted."
+                        Start-Process "https://microsoft.com/devicelogin"
                     }
                     
                     $params = @{
@@ -108,10 +112,19 @@ function Publish-Apps {
                         appFiles = $appList
                     }
 
+                    Write-Host ""
+                    Write-Host "Running " -ForegroundColor green -NoNewline
                     if ($targetType = 'Dev') {
-                        Publish-BcContainerApp @params
+                        Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
+                        Write-Host ":" -ForegroundColor green
+                        Publish-BcContainerApp -ErrorAction SilentlyContinue -ErrorVariable ex @params
                     } else {
-                        Publish-PerTenantExtensionApps @params
+                        Write-Host "Publish-PerTenantExtensionApps" -ForegroundColor Blue -NoNewline
+                        Write-Host ":" -ForegroundColor green
+                        Publish-PerTenantExtensionApps -ErrorAction SilentlyContinue -ErrorVariable ex @params
+                    }
+                    if ($ex.length -gt 0) {
+                        Write-Host "There was an error." -ForegroundColor Red
                     }
                 }
                 'Container' {
@@ -123,10 +136,14 @@ function Publish-Apps {
                         scope = 'Tenant'
                         sync = $true
                     }
+                    Write-Host ""
+                    Write-Host "Running " -ForegroundColor green -NoNewline
+                    Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
+                    Write-Host ":" -ForegroundColor green
                     Publish-BcContainerApp -ErrorAction SilentlyContinue -ErrorVariable ex @params
-                    if ($ex) {
-                        Write-Host "An error occurred:" -ForegroundColor Red
-                        Write-Host $ex.Exception -ForegroundColor Red
+                    if ($ex.length -gt 0) {
+                        Write-Host "There was an error." -ForegroundColor Red
+                        #Write-Host $ex.Exception -ForegroundColor Red
                     }
                 }
                 'OnPrem' {

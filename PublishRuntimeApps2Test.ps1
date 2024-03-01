@@ -19,7 +19,7 @@ Publish-Apps `
     -settingsJSON $settingsJSON `
     -workspaceJSON $workspaceJSON `
     -targetType "Test" `
-    -runtime $true
+    -runtime $true `
     -skipMissing `
     -authContext ([ref]$authContext)
 

@@ -18,7 +18,7 @@ Publish-Apps `
     -scriptPath $scriptPath `
     -settingsJSON $settingsJSON `
     -workspaceJSON $workspaceJSON `
-    -runtime $true
+    -runtime $true `
     -targetType "Dev" `
     -skipMissing
 
