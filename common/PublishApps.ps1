@@ -101,8 +101,9 @@ function Publish-Apps {
                             -tenantID $configuration.tenant `
                             -refreshToken $refreshToken
                         $continue = Confirm-Option "Continue?" -defaultYes $true
-                        if ($continue -eq $false)
+                        if ($continue -eq $false) {
                             throw "Deployment aborted."
+                        }
                         Start-Process "https://microsoft.com/devicelogin"
                     }
                     
