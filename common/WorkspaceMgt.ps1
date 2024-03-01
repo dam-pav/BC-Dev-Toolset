@@ -292,7 +292,8 @@ function Build-Settings {
 
         # add container configuration
         $remoteConfiguration = [PSCustomObject]@{}
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "$workspaceName Default"
+        #$remoteConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "$workspaceName Default"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "Local"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverType -Value "Container"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name targetType -Value "Dev"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name container -Value $workspaceName.Replace(' ','-')
