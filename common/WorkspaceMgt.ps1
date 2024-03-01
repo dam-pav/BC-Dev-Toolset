@@ -824,6 +824,7 @@ function Update-Workspace {
 
         $bcdevtoolset = [PSCustomObject]@{}
         $bcdevtoolset | Add-Member -MemberType NoteProperty -Name country -Value "w1"
+        $bcdevtoolset | Add-Member -MemberType NoteProperty -Name selectArtifact -Value "Closest"
         $bcdevtoolset | Add-Member -MemberType NoteProperty -Name configurations -Value @($remoteConfiguration)
 
         $workspaceJSON.settings | Add-Member -MemberType NoteProperty -Name bcdevtoolset -Value @($bcdevtoolset)
