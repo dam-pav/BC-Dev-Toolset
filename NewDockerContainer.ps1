@@ -35,8 +35,9 @@ $success = $false
 $success = New-DockerContainer `
     -testMode $false `
     -scriptPath $scriptRoot `
-    -appJSON $appJSON  `
-    -settingsJSON $settingsJSON
+    -appJSON $appJSON `
+    -settingsJSON $settingsJSON `
+    -selectArtifact $workspaceJSON.settings.bcdevtoolset.selectArtifact
 
 
 if ($success -eq $true) {
