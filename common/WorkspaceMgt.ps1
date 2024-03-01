@@ -638,7 +638,9 @@ function New-DockerContainer {
         [Parameter(Mandatory=$true)]
         [PSObject] $appJSON,
         [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON
+        [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)]
+        [string] $selectArtifact
     )
     
     $configurationFound = $false
@@ -653,12 +655,23 @@ function New-DockerContainer {
         if ($appJSON.application -eq "") {
             throw "Artifact URL could not be determined based on $appPath\app.json. Processing aborted."
         } else {
-            Write-Host "Retrieving artifact URL for $($configuration.environmentType) app version $($appJSON.application)."
+            if ($selectArtifact -eq 'Closest') {
+                Write-Host "Retrieving artifact URL for $($configuration.environmentType) app version $($appJSON.application)."
+            } else {
+                Write-Host "Retrieving $selectArtifact artifact URL."
+            }
         }
 
-        Write-Host "Get-BcArtifactUrl -version $($appJSON.application) -type $($configuration.environmentType) -country $($settingsJSON.country) -select 'Closest'" -ForegroundColor Green
         if (-not $testmode) {
-            $artifactUrl = Get-BcArtifactUrl -version $appJSON.application -type $configuration.environmentType -country $settingsJSON.country -select 'Closest'
+            $Parameters = @{
+                type = $configuration.environmentType
+                country = $settingsJSON.country
+                select = $selectArtifact
+            }
+            if ($selectArtifact -eq 'Closest') {
+                $Parameters.version = $appJSON.application
+            }
+            $artifactUrl = Get-BcArtifactUrl @Parameters
             if ("$artifactUrl" -eq "") {
                 throw "Artifact URL could not be determined for $($configuration.environmentType) app version $($appJSON.application). Processing aborted."
             } else {
