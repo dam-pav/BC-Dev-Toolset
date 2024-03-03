@@ -170,7 +170,7 @@ launch.json
 You might have already initialized git with these folders and files. In that case mere modification of *.gitignore* will not suffice. You will need to run
 
 ```
-git rm BC-Dev-Toolset -r -f
+git rm BC-Dev-Toolset -r -f --cached
 ```
 
 in order to remove the folder and the containing files from git. Also, you might also need to run
