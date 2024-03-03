@@ -200,6 +200,7 @@ to remove the files from git. Beware, this actually deletes the files from the c
     "powershell.cwd": "BC-Dev-Toolset",
     "bcdevtoolset": {
       "country": "w1",
+      "selectArtifact": "Closest",
       "configurations":  [
         {
           "name": "Test environment",
@@ -219,6 +220,7 @@ Its most obvious role is to define the folders included in the workspace. In add
 We also use it as a vessel to carry configuration relevant to the workspace. The root attribute ***bcdevtoolset*** can specify:
 
 * ***country***: optional, sets the platform country version. The default is "w1".
+* ***selectArtifact***: "Closest" (default), "Latest"
 * ***configurations***: Specify a list of remote deployments. Valid attributes (an approximate match of attributes for ***configurations*** in *launch.json*):
 
   * ***name***: a distinctive name for the configuration. This value is mandatory; the list entry will be ignored if ***name*** has an empty value or if the value is "sample".
