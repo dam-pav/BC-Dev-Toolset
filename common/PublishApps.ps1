@@ -100,26 +100,27 @@ function Publish-Apps {
                             -includeDeviceLogin `
                             -tenantID $configuration.tenant `
                             -refreshToken $refreshToken
-                        $continue = Confirm-Option "Continue?" -defaultYes $true
-                        if ($continue -eq $false) {
-                            throw "Deployment aborted."
-                        }
-                        Start-Process "https://microsoft.com/devicelogin"
+                        #$continue = Confirm-Option "Continue?" -defaultYes $true
+                        #if ($continue -eq $false) {
+                        #    throw "Deployment aborted."
+                        #}
+                        #Start-Process "https://microsoft.com/devicelogin"
                     }
                     
                     $params = @{
                         bcAuthContext = $authContext.Value
                         environment = $configuration.environmentName
-                        appFiles = $appList
                     }
 
                     Write-Host ""
                     Write-Host "Running " -ForegroundColor green -NoNewline
-                    if ($targetType = 'Dev') {
+                    if ($targetType -eq 'Dev') {
+                        $params.appFile = $appList
                         Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
                         Write-Host ":" -ForegroundColor green
                         Publish-BcContainerApp -ErrorAction SilentlyContinue -ErrorVariable ex @params
                     } else {
+                        $params.appFiles = $appList
                         Write-Host "Publish-PerTenantExtensionApps" -ForegroundColor Blue -NoNewline
                         Write-Host ":" -ForegroundColor green
                         Publish-PerTenantExtensionApps -ErrorAction SilentlyContinue -ErrorVariable ex @params
