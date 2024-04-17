@@ -179,7 +179,7 @@ in order to remove the folder and the containing files from git. Also, you might
 git rm */launch.json --cached
 ```
 
-to remove the files from git. Beware, this actually deletes the files from the current branch, not just the tracking. You will need to commit these changes.
+to remove the files from git. You will need to commit these changes. Beware, this actually deletes the files from the current branch, not just the tracking.
 
 ### *repository*.code-workspace
 
