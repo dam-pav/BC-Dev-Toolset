@@ -1,6 +1,6 @@
 # default toolset folder name
 $toolsetFolderName = 'BC-Dev-Toolset'
-
+$hostHelperFolder = 'C:\ProgramData\BcContainerHelper'
 function Write-LaunchJSON {
     Param (
         [Parameter(Mandatory=$true)]
@@ -448,7 +448,7 @@ function Get-PackageParams {
 
 function Export-BcContainerRuntimePackage {
     Param (
-        [string] $containerName = $bcContainerHelperConfig.defaultContainerName,
+        [string] $containerName,
         [Parameter(Mandatory=$true)]
         [string] $appName,
         [Parameter(Mandatory=$true)]
@@ -458,7 +458,7 @@ function Export-BcContainerRuntimePackage {
         [string] $certificateFile        
     )
 
-    $containerPackageFile = Join-Path $bcContainerHelperConfig.hostHelperFolder "Extensions\$containerName\my\$packageFileName"
+    $containerPackageFile = Join-Path $hostHelperFolder "Extensions\$containerName\my\$packageFileName"
     $PackageFile = Join-Path $packageFilePath $packageFileName
     
     # Extract the package
