@@ -31,13 +31,17 @@ foreach ($appPath in $workspaceJSON.folders.path) {
 }
 
 # Build a new container
+$selectArtifact = "Closest"
+if ($workspaceJSON.settings.bcdevtoolset.selectArtifact) {
+    $selectArtifact = $workspaceJSON.settings.bcdevtoolset.selectArtifact
+}
 $success = $false
 $success = New-DockerContainer `
     -testMode $false `
     -scriptPath $scriptRoot `
     -appJSON $appJSON `
     -settingsJSON $settingsJSON `
-    -selectArtifact $workspaceJSON.settings.bcdevtoolset.selectArtifact
+    -selectArtifact $selectArtifact
 
 
 if ($success -eq $true) {

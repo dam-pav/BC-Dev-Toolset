@@ -369,7 +369,7 @@ function Initialize-Context {
     # Read settings.json
     $settingsJSONvalue = Get-Content -Path $settingsPath | ConvertFrom-Json
 
-    # Add configurations from code-workspace
+    # Add country from code-workspace
     $country = ''
     if ($workspaceJSON.value.settings.bcdevtoolset.country) {
         $country = $workspaceJSON.value.settings.bcdevtoolset.country
@@ -379,6 +379,13 @@ function Initialize-Context {
     }
 
     $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name country -Value $country
+
+    # Add missing defaults
+    if ($null -eq $settingsJSONvalue.shortcuts) {
+        $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name shortcuts -Value "None"
+    }
+    
+    # Add configurations from code-workspace
     foreach ($remote in $workspaceJSON.value.settings.bcdevtoolset.configurations) {
         $settingsJSONvalue.configurations = $settingsJSONvalue.configurations + $remote
     }
