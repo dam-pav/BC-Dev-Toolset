@@ -74,14 +74,14 @@ function Publish-Apps {
             $appReady = Test-Path $appFile
             if ($appReady -eq $false) {
                 if ($skipMissing) {
-                    Write-Host "$appFile does not exist. Deployment will be skipped." -ForegroundColor Grey
+                    Write-Host "$appFile does not exist. Deployment will be skipped." -ForegroundColor Gray
                 } else {
                     throw "$appFile does not exist. Please build all apps before attempting deployment."
                 }
             }
 
             if ($appReady -eq $true) {
-                Write-Host "Adding '$appFile' to deployment list." -ForegroundColor Gray
+                Write-Host "Adding '$appFile' to deployment list." -ForegroundColor Green
                 $appList += $appFile
             }
         }

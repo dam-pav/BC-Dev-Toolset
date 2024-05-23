@@ -1,6 +1,6 @@
 # default toolset folder name
 $toolsetFolderName = 'BC-Dev-Toolset'
-
+$hostHelperFolder = 'C:\ProgramData\BcContainerHelper'
 function Write-LaunchJSON {
     Param (
         [Parameter(Mandatory=$true)]
@@ -369,7 +369,7 @@ function Initialize-Context {
     # Read settings.json
     $settingsJSONvalue = Get-Content -Path $settingsPath | ConvertFrom-Json
 
-    # Add configurations from code-workspace
+    # Add country from code-workspace
     $country = ''
     if ($workspaceJSON.value.settings.bcdevtoolset.country) {
         $country = $workspaceJSON.value.settings.bcdevtoolset.country
@@ -379,6 +379,13 @@ function Initialize-Context {
     }
 
     $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name country -Value $country
+
+    # Add missing defaults
+    if ($null -eq $settingsJSONvalue.shortcuts) {
+        $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name shortcuts -Value "None"
+    }
+    
+    # Add configurations from code-workspace
     foreach ($remote in $workspaceJSON.value.settings.bcdevtoolset.configurations) {
         $settingsJSONvalue.configurations = $settingsJSONvalue.configurations + $remote
     }
@@ -448,7 +455,7 @@ function Get-PackageParams {
 
 function Export-BcContainerRuntimePackage {
     Param (
-        [string] $containerName = $bcContainerHelperConfig.defaultContainerName,
+        [string] $containerName,
         [Parameter(Mandatory=$true)]
         [string] $appName,
         [Parameter(Mandatory=$true)]
@@ -458,7 +465,7 @@ function Export-BcContainerRuntimePackage {
         [string] $certificateFile        
     )
 
-    $containerPackageFile = Join-Path $bcContainerHelperConfig.hostHelperFolder "Extensions\$containerName\my\$packageFileName"
+    $containerPackageFile = Join-Path $hostHelperFolder "Extensions\$containerName\my\$packageFileName"
     $PackageFile = Join-Path $packageFilePath $packageFileName
     
     # Extract the package
