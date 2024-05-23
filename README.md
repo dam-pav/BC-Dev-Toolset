@@ -144,10 +144,12 @@ Starting a new workspace and including the toolset should be easy.
 * ***CreateRuntimePackage.ps1***: creates Runtime packages, using the local Docker instance.
 * ***NewDockerContainer.ps1***: creates a Docker container with a Sandbox BC platform version determined by the first app.json found. If an existing container with the same name is found, it gets removed and replaced. Doesn't support multiplatform (apps for different platform versions) projects.
 * ***PublishDependencies2Docker.ps1***: publish apps from the *dependenciesPath* to the local Docker instance, identified as *serverType* of *Container*.
-* ***PublishApps2Docker.ps1***: publish apps as PTE (as opposed to Dev) to the local Docker instance.
-* ***PublishApps2Test.ps1***: publish apps as PTE to the configurations specified in *settings.json*, with the *targetType* value of *Test*.
-* ***PublishRuntimeApps2Docker.ps1***: publish *runtime* apps as PTE to the local Docker instance.
-* ***PublishRuntimeApps2Test.ps1***: publish *runtime* apps as PTE to configuration specified in *settings.json*, with the *targetType* value of *Test*.
+* ***PublishApps2Docker.ps1***: publish apps as PTE or Global (as opposed to Dev) to the local Docker instance.
+* ***PublishApps2Production.ps1***: publish apps as PTE or Global (if OnPrem) to the configurations specified in *settings.json*, with the *targetType* value of *Production*.
+* ***PublishApps2Test.ps1***: publish apps as PTE or Global (if OnPrem) to the configurations specified in *settings.json*, with the *targetType* value of *Test*.
+* ***PublishRuntimeApps2Docker.ps1***: publish *runtime* apps as Global to the local Docker instance.
+* ***PublishRuntimeApps2Production.ps1***: publish *runtime* apps as Global to configuration specified in *settings.json*, with the *targetType* value of *Production*.
+* ***PublishRuntimeApps2Test.ps1***: publish *runtime* apps as Global to configuration specified in *settings.json*, with the *targetType* value of *Test*.
 * ***UnpublishDockerApps.ps1***: unpublish all the apps in the workspace from the locally created Docker instance.
 * ***UnpublishTestApps.ps1***: unpublish all the apps in the workspace from the remote servers specified in *settings.json*, with the *targetType* value of *Test*.
 * ***UpdateLaunchJson.ps1***: creates or/and updates *launch.json* configurations for all apps in the workspace. It takes care of default local configuration for Docker and, in addition, for all remote configurations defined in *settings.json*.
@@ -245,4 +247,5 @@ Use *settings.json* to personalize your scripts behaviour. If not found, a *sett
 * ***packageOutputPath***: Specify a specific folder path to group the Runtime packages. If empty, a runtime subfolder will automatically be created and used in the project. Remember to use double backslashes for full paths. For instance, for an actual path of "c:\\project\\packages" you will need to use "c:\\\\project\\\packages\".
 * ***dependenciesPath***: Specify a specific folder path to where the required app packages are stored. Again, remember to use double backslashes for full paths.
 * ***shortcuts***: Decide where you want Docker to place shortcuts for the new containers it creates. Can be *None*, *Desktop* or *StartMenu*. While the Docker's default is Desktop, the toolsets's default is *None*.
+* ***loadOnPremMgtModule***: Handling OnPrem deployments might require loading of the management module. This is where you specify its location in your specific context.
 * ***configurations***: Locally personalized additional list of remote deployments. Valid attributes (a subset of attributes for ***configurations*** in *launch.json*). Same structure as defined for *.code-workspace*. Both lists are used.

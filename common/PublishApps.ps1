@@ -149,12 +149,16 @@ function Publish-Apps {
                     }
                 }
                 'OnPrem' {
+                    Import-Module $settingsJSON.loadOnPremMgtModule
                     foreach ($appFile in $appList) {
                         $App = Get-NAVAppInfo -Path $appFile
+                        Write-Host "Removing '$($App.name)'" -ForegroundColor Green
+                        Uninstall-NAVApp -ServerInstance $configuration.serverInstance -Name $App.name 
+                        Unpublish-NAVApp -ServerInstance $configuration.serverInstance -Name $App.name
                         Write-Host "Deploying $($App.name)" -ForegroundColor Gray
                         Publish-NAVApp -ServerInstance $configuration.serverInstance -Path $appFile -SkipVerification -Scope Global
-                        Sync-NAVApp -ServerInstance $configuration.serverInstance -Name $App.name
-                        Install-NAVApp -ServerInstance $configuration.serverInstance -Name $App.name
+                        Sync-NAVApp -ServerInstance $configuration.serverInstance -Name $App.name -Version $App.Version
+                        Install-NAVApp -ServerInstance $configuration.serverInstance -Name $App.name -Version $App.Version
                     }
                 }
                 Default {
