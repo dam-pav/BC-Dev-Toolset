@@ -24,7 +24,7 @@ function Publish-Dependencies2Docker {
             #Write-Host "Publish-BcContainerApp -containerName $($configuration.container) -appFile $appFile -skipVerification -install -scope Tenant" -ForegroundColor Green
             Publish-BcContainerApp -ErrorAction SilentlyContinue -containerName $configuration.container -appFile $appList -skipVerification -install -scope Tenant -sync
         }
-        Write-Host "Dependencies deployed." -ForegroundColor Green
+        Write-Host "Dependency deployment is done. Please verify the outcome." -ForegroundColor Green
     } else {
         Write-Host "No dependencies to deploy." -ForegroundColor Green
     }
