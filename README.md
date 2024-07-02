@@ -231,7 +231,7 @@ We also use it as a vessel to carry configuration relevant to the workspace. The
   * ***server***: Valid for server types SelfHosted or OnPrem.
   * ***serverInstance***: Valid for server type OnPrem.
   * ***container***: The name for the Docker container. The default value is the name of the workspace. Valid for server type Container.
-  * ***port***: Valid for OnPrem.
+  * ***port***: The development port. Valid for OnPrem.
   * ***environmentType***: Type of BC instance to create. Valid values are *Sandbox* or *OnPrem*. Default value is *Sandbox*. Valid for server type Container and Cloud.
   * ***environmentName***: Valid for Cloud or SelfHosted.
   * ***tenant***: Valid for Cloud or OnPrem.
