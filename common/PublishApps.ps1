@@ -39,6 +39,7 @@ function Publish-Apps {
         [Parameter(Mandatory=$true)]
         [PSObject] $workspaceJSON,
         [Parameter(Mandatory=$true)]
+        [ValidateSet("Dev", "Test", "Production")]
         [string] $targetType,
         [bool] $runtime = $false,
         [switch] $skipMissing,
@@ -177,6 +178,7 @@ function Unpublish-Apps {
         [Parameter(Mandatory=$true)]
         [PSObject] $workspaceJSON,
         [Parameter(Mandatory=$true)]
+        [ValidateSet("Dev", "Test", "Production")]
         [string] $targetType
     )
 

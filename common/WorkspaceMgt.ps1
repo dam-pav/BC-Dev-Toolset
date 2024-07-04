@@ -63,10 +63,10 @@ function Write-LaunchJSON {
             $configurationValid = $false
             Write-Host "settings.json: please supply the mandatory value for 'configurations' attribute 'name'." -ForegroundColor Red
         }
-        if (-not ($remote.serverType -in ("Container","Cloud","SelfHosted","OnPrem"))) {
+        if (-not ($remote.serverType -in ("Container","Cloud","OnPrem"))) {
             $configurationValid = $false
             if ($remote.name -ne "sample") {
-                Write-Host "settings.json: please supply the mandatory value for 'configurations' attribute 'serverType'. Valid values are: Container, Cloud, SelfHosted and OnPrem." -ForegroundColor Red
+                Write-Host "settings.json: please supply the mandatory value for 'configurations' attribute 'serverType'. Valid values are: Container, Cloud and OnPrem." -ForegroundColor Red
             }
         }
         if ($configurationValid) {
@@ -157,24 +157,6 @@ function Write-LaunchJSON {
                         $configuration | Add-Member -MemberType NoteProperty -Name environmentName -Value $remote.environmentName
                         $configuration | Add-Member -MemberType NoteProperty -Name tenant -Value $remote.tenant
                     }
-                    "SelfHosted" { 
-                        if ($configuration.PSObject.Properties['serverInstance']) {
-                            Write-Host "'serverInstance' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
-                        }
-                        if ($remote.PSObject.Properties['environmentType']) {
-                            Write-Host "'environmentType' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
-                        }
-                        $configuration | Add-Member -MemberType NoteProperty -Name environmentType -Value $newEnvironmentType
-                        $configuration | Add-Member -MemberType NoteProperty -Name environmentName -Value $remote.environmentName
-                        $configuration | Add-Member -MemberType NoteProperty -Name server -Value $remote.server
-                        $configuration | Add-Member -MemberType NoteProperty -Name authentication -Value $remote.authentication
-                        if (($remote.tenant -eq "") -or -not ($remote.tenant))  {
-                            $remoteTenant = "default"
-                        } else {
-                            $remoteTenant = $remote.tenant
-                        }
-                        $configuration | Add-Member -MemberType NoteProperty -Name tenant -Value $remoteTenant
-                    }
                     "OnPrem" { 
                         if ($configuration.PSObject.Properties['environmentName']) {
                             Write-Host "'environmentName' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
@@ -194,7 +176,7 @@ function Write-LaunchJSON {
                         $configuration | Add-Member -MemberType NoteProperty -Name tenant -Value $remoteTenant
                     }
                     Default {
-                        Write-Host "settings.json: valid values for 'remoteConfiguration' attribute 'serverType' are Container, Cloud, SelfHosted and OnPrem." -ForegroundColor Red
+                        Write-Host "settings.json: valid values for 'remoteConfiguration' attribute 'serverType' are Container, Cloud and OnPrem." -ForegroundColor Red
                     }
                 }
             }

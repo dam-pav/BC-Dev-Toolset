@@ -226,14 +226,14 @@ We also use it as a vessel to carry configuration relevant to the workspace. The
 * ***configurations***: Specify a list of remote deployments. Valid attributes (an approximate match of attributes for ***configurations*** in *launch.json*):
 
   * ***name***: a distinctive name for the configuration. This value is mandatory; the list entry will be ignored if ***name*** has an empty value or if the value is "sample".
-  * ***serverType***: Accepted values are Container, *Cloud*, *SelfHosted* or *OnPrem*. Mandatory.
-  * ***targetType***: Accepted values are Dev, *Test*, *Production*.
-  * ***server***: Valid for server types SelfHosted or OnPrem.
-  * ***serverInstance***: Valid for server type OnPrem.
-  * ***container***: The name for the Docker container. The default value is the name of the workspace. Valid for server type Container.
-  * ***port***: Valid for OnPrem.
-  * ***environmentType***: Type of BC instance to create. Valid values are *Sandbox* or *OnPrem*. Default value is *Sandbox*. Valid for server type Container and Cloud.
-  * ***environmentName***: Valid for Cloud or SelfHosted.
+  * ***serverType***: Accepted values are *Container*, *Cloud* or *OnPrem*. Mandatory.
+  * ***targetType***: Accepted values are *Dev*, *Test*, *Production*.
+  * ***server***: Valid for server type *OnPrem*.
+  * ***serverInstance***: Valid for server type *OnPrem*.
+  * ***container***: The name for the Docker container. The default value is the name of the workspace. Valid for server type *Container*.
+  * ***port***: Valid for *OnPrem*.
+  * ***environmentType***: Type of BC instance to create. Valid values are *Sandbox* or *OnPrem*. Default value is *Sandbox*. Valid for server type *Container* and *Cloud*.
+  * ***environmentName***: Valid for Cloud.
   * ***tenant***: Valid for Cloud or OnPrem.
   * ***authentication***: Valid for Container or OnPrem. Default value is *UserPassword*.
   * ***admin*** and ***password***: The default user for the Docker BC instance.
