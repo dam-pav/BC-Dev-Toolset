@@ -437,6 +437,7 @@ function Get-PackageParams {
 
 function Export-BcContainerRuntimePackage {
     Param (
+        [Parameter(Mandatory=$true)]
         [string] $containerName,
         [Parameter(Mandatory=$true)]
         [string] $appName,
@@ -839,6 +840,45 @@ function Update-Workspace {
 
     # initialize settings.json
     Build-Settings (Join-Path $toolsetFolderName "settings.json") $workspaceName
+}
+
+function Install-FontsToContainer {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $workspaceJSON,
+        [Parameter(Mandatory=$true)]
+        [ValidateSet("Dev", "Test", "Production")]
+        [string] $targetType
+    )
+
+    $fontFolder = ".\src\report\" # TODO: make into setting
+    $ex = @()
+
+    foreach ($configuration in $($settingsJSON.configurations | Where-Object  { $_.targetType -eq $targetType })) {
+        Write-Host "Deploying apps to '$($configuration.name)'." -ForegroundColor Blue
+        switch ($configuration.serverType) {
+            'Container' {
+                $params = @{
+                    containerName = $configuration.container
+                    path = $fontFolder
+                }
+                Write-Host ""
+                Write-Host "Running " -ForegroundColor green -NoNewline
+                Write-Host "Add-FontsToBcContainer" -ForegroundColor Blue -NoNewline
+                Write-Host ":" -ForegroundColor green
+                Add-FontsToBcContainer -ErrorAction SilentlyContinue -ErrorVariable ex @params
+                if ($ex.length -gt 0) {
+                    Write-Host "There was an error." -ForegroundColor Red
+                    #Write-Host $ex.Exception -ForegroundColor Red
+                }
+            }
+            Default {
+                Write-Host "Cannot install fonts to serverType $serverType." -ForegroundColor Blue
+            }
+        }
+    }
 }
 
 function Get-Symbols {

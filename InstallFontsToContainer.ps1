@@ -14,11 +14,9 @@ Initialize-Context `
     -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
 
-Publish-Apps `
-    -scriptPath $scriptPath `
+Install-FontsToContainer `
     -settingsJSON $settingsJSON `
     -workspaceJSON $workspaceJSON `
-    -targetType "Dev" `
-    -skipMissing
+    -targetType "Dev"
 
 Write-Done
