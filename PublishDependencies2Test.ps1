@@ -4,9 +4,6 @@ $scriptPath = $PSScriptRoot
 . $scriptPath/common/WorkspaceMgt.ps1
 . $scriptPath/common/PublishApps.ps1
 
-# Make sure Docker is running
-Test-DockerProcess
-
 $settingsJSON = @{}
 $workspaceJSON = @{}
 Initialize-Context `
@@ -18,8 +15,8 @@ if (-not ($authContext)) {
     $authContext = @{}
 }
 Publish-Dependencies `
-    -settingsJSON $settingsJSON
-    -targetType "Dev" `
+    -settingsJSON $settingsJSON `
+    -targetType "Test" `
     -authContext ([ref]$authContext)
 
 Write-Done

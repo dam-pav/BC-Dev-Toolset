@@ -1,8 +1,12 @@
 
-function Publish-Dependencies2Docker {
+function Publish-Dependencies {
     Param (
         [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON
+        [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)]
+        [ValidateSet("Dev", "Test", "Production")]
+        [string] $targetType,
+        [ref] $authContext
     )
     Write-Host "" -ForegroundColor Blue
     Write-Host "Deploying dependencies." -ForegroundColor Blue
@@ -18,15 +22,86 @@ function Publish-Dependencies2Docker {
         }
     }
     
-    if ($appList.length -gt 0) {
-        foreach ($configuration in $($settingsJSON.configurations | Where-Object { $_.targetType -eq "Dev" -and $_.serverType -eq "Container" })) {
-            Write-Host "Deploying dependencies to '$($configuration.name)'." -ForegroundColor Blue
-            #Write-Host "Publish-BcContainerApp -containerName $($configuration.container) -appFile $appFile -skipVerification -install -scope Tenant" -ForegroundColor Green
-            Publish-BcContainerApp -ErrorAction SilentlyContinue -containerName $configuration.container -appFile $appList -skipVerification -install -scope Tenant -sync
+    foreach ($configuration in $($settingsJSON.configurations | Where-Object { $_.targetType -eq $targetType })) {
+        Write-Host "Deploying dependencies to '$($configuration.name)'." -ForegroundColor Blue
+        if ($appList.length -gt 0) {
+            switch ($configuration.serverType) {
+                'Cloud' { 
+                    if ($authContext.value.AccessToken) {
+                        $renewAuthContext = Confirm-Option "Do you want to request a new Authentication context?"
+                    } else {
+                        $renewAuthContext = $true
+                    }
+    
+                    if ($renewAuthContext -eq $true) {
+                        #get authenticated
+                        $authContext.Value = New-BcAuthContext `
+                            -includeDeviceLogin `
+                            -tenantID $configuration.tenant `
+                            -refreshToken $refreshToken
+                        #$continue = Confirm-Option "Continue?" -defaultYes $true
+                        #if ($continue -eq $false) {
+                        #    throw "Deployment aborted."
+                        #}
+                        #Start-Process "https://microsoft.com/devicelogin"
+                    }
+                    
+                    $params = @{
+                        bcAuthContext = $authContext.Value
+                        environment = $configuration.environmentName
+                    }
+
+                    Write-Host ""
+                    Write-Host "Running " -ForegroundColor green -NoNewline
+                    if ($targetType -eq 'Dev') {
+                        $params.appFile = $appList
+                        Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
+                        Write-Host ":" -ForegroundColor green
+                        Publish-BcContainerApp -ErrorAction SilentlyContinue -ErrorVariable ex @params
+                    } else {
+                        $params.appFiles = $appList
+                        Write-Host "Publish-PerTenantExtensionApps" -ForegroundColor Blue -NoNewline
+                        Write-Host ":" -ForegroundColor green
+                        Publish-PerTenantExtensionApps -ErrorAction SilentlyContinue -ErrorVariable ex @params
+                    }
+                    if ($ex.length -gt 0) {
+                        Write-Host "There was an error." -ForegroundColor Red
+                    }
+                }
+                'Container' {
+                    $params = @{
+                        containerName = $configuration.container
+                        appFile = $appList
+                        skipVerification = $true
+                        install = $true
+                        scope = 'Tenant'
+                        sync = $true
+                    }
+                    Write-Host ""
+                    Write-Host "Running " -ForegroundColor green -NoNewline
+                    Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
+                    Write-Host ":" -ForegroundColor green
+                    Publish-BcContainerApp -ErrorAction SilentlyContinue -ErrorVariable ex @params
+                    }
+                'OnPrem' {
+                    #Import-Module $settingsJSON.loadOnPremMgtModule
+                    . $settingsJSON.loadOnPremMgtModule
+                    foreach ($appFile in $appList) {
+                        $App = Get-NAVAppInfo -Path $appFile
+                        Write-Host "Removing '$($App.name)'" -ForegroundColor Green
+                        Uninstall-NAVApp -ServerInstance $configuration.serverInstance -Name $App.name 
+                        Unpublish-NAVApp -ServerInstance $configuration.serverInstance -Name $App.name
+                        Write-Host "Deploying $($App.name)" -ForegroundColor Green
+                        Publish-NAVApp -ServerInstance $configuration.serverInstance -Path $appFile -SkipVerification -Scope Global
+                        Sync-NAVApp -ServerInstance $configuration.serverInstance -Name $App.name -Version $App.Version
+                        Install-NAVApp -ServerInstance $configuration.serverInstance -Name $App.name -Version $App.Version
+                    }
+                }
+            }
+            Write-Host "Dependency deployment is done. Please verify the outcome." -ForegroundColor Green
+        } else {
+            Write-Host "No dependencies to deploy." -ForegroundColor Green
         }
-        Write-Host "Dependency deployment is done. Please verify the outcome." -ForegroundColor Green
-    } else {
-        Write-Host "No dependencies to deploy." -ForegroundColor Green
     }
 }
 
@@ -150,7 +225,8 @@ function Publish-Apps {
                     }
                 }
                 'OnPrem' {
-                    Import-Module $settingsJSON.loadOnPremMgtModule
+                    #Import-Module $settingsJSON.loadOnPremMgtModule
+                    . $settingsJSON.loadOnPremMgtModule
                     foreach ($appFile in $appList) {
                         $App = Get-NAVAppInfo -Path $appFile
                         Write-Host "Removing '$($App.name)'" -ForegroundColor Green
