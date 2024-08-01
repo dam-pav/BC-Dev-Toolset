@@ -14,12 +14,8 @@ Initialize-Context `
     -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
 
-if (-not ($authContext)) {
-    $authContext = @{}
-}
 Publish-Dependencies `
-    -settingsJSON $settingsJSON
-    -targetType "Dev" `
-    -authContext ([ref]$authContext)
+    -settingsJSON $settingsJSON `
+    -targetType "Dev"
 
 Write-Done

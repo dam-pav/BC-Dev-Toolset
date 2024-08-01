@@ -48,8 +48,9 @@ if ($success -eq $true) {
     # Deploy external apps
     Write-Host ""
     Write-Host "Deploying apps with dependencies to the new container." -ForegroundColor Green
-    Publish-Dependencies2Docker `
-        -settingsJSON $settingsJSON
+    Publish-Dependencies `
+        -settingsJSON $settingsJSON `
+        -targetType "Dev"
 
     # Update environments
     Write-Host ""
