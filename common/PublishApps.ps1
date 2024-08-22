@@ -8,8 +8,8 @@ function Publish-Dependencies {
         [string] $targetType,
         [ref] $authContext
     )
-    Write-Host "" -ForegroundColor Blue
-    Write-Host "Deploying dependencies." -ForegroundColor Blue
+    #Write-Host "" -ForegroundColor Blue
+    #Write-Host "Deploying dependencies." -ForegroundColor Blue
     $filterExtension = ".app"  # Replace with the file extension you want to filter by
     $appList = @()
     
