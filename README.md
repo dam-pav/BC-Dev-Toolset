@@ -36,18 +36,60 @@ You are also welcome to apply as contributor. As a contributor you will implicit
 ## Prerequisites
 
 1. A **Windows Pro** or **Windows Enterprise** edition.
-   Unfortunately, Docker Desktop doesn't allow Windows containers on Windows Home. If you don't have access to any of the above, you won't be able to develop for BC using Docker. You might still find scripts that are not related to Docker useful.
-2. **Docker Desktop**.
+   Docker Desktop doesn't allow Windows containers on Windows Home. Not tested yet but using Docker Engine (without Docker Desktop) on Windows Home might also prove non viable.
+   If you don't have access to any of the above, you won't be able to develop for BC using Docker. You might still find scripts that are not related to Docker useful for instance, if you only use actual environments.
+   Make sure your BIOS has virtualization enabled. Hyper-V feature might appear to be enabled, but won't work without proper HW support.
+2. Try the option that works for you
 
-   ```
-   winget install -e --id Docker.DockerDesktop
-   ```
+   1. **Docker Desktop**.
 
-   You will need to switch to Windows containers. In order to do that, running this in a PowerShell prompt might help:
+      ```
+      winget install -e --id Docker.DockerDesktop
+      ```
 
-   ```
-   & $Env:ProgramFiles\Docker\Docker\DockerCli.exe -SwitchDaemon
-   ```
+      You will need to switch to Windows containers. In order to do that, running this in a PowerShell prompt might help:
+
+      ```
+      & $Env:ProgramFiles\Docker\Docker\DockerCli.exe -SwitchDaemon
+      ```
+   2. **Docker Engine** (no Docker Desktop license required)
+      Select and download the appropriate binary package, probably the latest, from
+      [Index of win/static/stable/x86_64/](https://download.docker.com/win/static/stable/x86_64/)
+
+      Unpack the content. A good location might be c:\docker.
+
+      Check user groups under "Edit local users and group". The usual group name would be  docker-users and if it was created by some installation such as Docker Desktop it will contain the admin user.  Add anyone who needs to run docker to this group.
+
+      The alternative is to use a group that already contains your user account, such as Users. Update the Json file below accordingly.
+
+      Create a new config file daemon.json, containing this:
+
+      ```
+      {
+                      "group": "docker-users"
+      }
+      ```
+
+      Or, if you don't want or have no right to manage local groups, this should work just as fine:
+
+      ```
+      {
+                      "group": "Users"
+      }
+      ```
+
+      Open Powershell as administrator. Run:
+
+      ```
+        Enable-WindowsOptionalFeature -Online -FeatureName Containers -All
+        Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -All
+
+        setx /M PATH "$($env:path);c:\docker"
+
+        New-Service -Name Docker -BinaryPathName "C:\docker\dockerd.exe  --run-service --config-file C:\docker\daemon.json" -DisplayName "Docker Engine" -StartupType "Automatic"
+      ```
+
+      Restart your PC.
 3. **GIT**.
    You will need CLI for git. A good way to install it on a Windows PC is using WinGet:
 
@@ -61,15 +103,16 @@ You are also welcome to apply as contributor. As a contributor you will implicit
    ```
    winget install -e --id Microsoft.VisualStudioCode
    ```
+
+   If you are not running Docker Desktop (or even if you are) I advise using the VS Code plugin named Docker, released by Microsoft.
 5. **BcContainerHelper**.
 
-   None of this would be possible without the BcContainerHelper. Hats off.
+   None of this would be possible without the BcContainerHelper. Hats off to Freddy.
 
    Run Powershell as admin, then:
 
    ```
-   Install-PackageProvider -Name NuGet -force
-   Install-Module BcContainerHelper -force
+   Install-Module -Name BcContainerHelper
    ```
 
    You can learn more at the [GitHub BcContainerHelper repository](https://github.com/microsoft/navcontainerhelper).
