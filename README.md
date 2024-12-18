@@ -2,7 +2,7 @@
 
 ## Why?
 
-If you are a BC developer, you spend an inordinate amount of time manually executing operations such as preparing your development tools and set up, preparing and deploying packages and so on. I'm sure you'd rather spend that time doing something less dull and repetitive.
+If you are a BC developer, you might have to spend an inordinate amount of time manually executing operations such as preparing your development tools and set up, preparing and deploying packages and so on. I'm sure you'd rather spend that time doing something less dull and repetitive.
 
 The things that the toolset will enable you to do once it is set up:
 
@@ -69,6 +69,8 @@ You are also welcome to apply as contributor. As a contributor you will implicit
                       "group": "docker-users"
       }
       ```
+
+      You need to set up the docker-users user group yourself of course.
 
       Or, if you don't want or have no right to manage local groups, this should work just as fine:
 
