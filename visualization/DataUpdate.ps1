@@ -18,6 +18,12 @@ $dataFilePath = Join-Path -Path $scriptPath -ChildPath "visualization/data.json"
 
 # Check if the data file exists, and if not, create it
 if (-not (Test-Path -Path $dataFilePath)) {
+    Write-Host "**************************************************************************" -ForegroundColor Green
+    Write-Host "* If your workspace contains apps occupying the same range of id's, then *" -ForegroundColor Green
+    Write-Host "* this information is not part of individual app.json files. You will be *" -ForegroundColor Green
+    Write-Host "* asked to input the overall range manually.                             *" -ForegroundColor Green
+    Write-Host "**************************************************************************" -ForegroundColor Green
+    Write-Host ""
     Write-Host "Creating a new data.json..." -ForegroundColor Blue
     $From = 0
     $To = 0
