@@ -1,26 +1,24 @@
 Clear-Host
 
-$scriptPath = $PSScriptRoot
+$scriptPath = (get-item $PSScriptRoot).Parent
 . $scriptPath/common/WorkspaceMgt.ps1
 . $scriptPath/common/PublishApps.ps1
+
+# Make sure Docker is runningDocker is running
+Test-DockerProcess
 
 $settingsJSON = @{}
 $workspaceJSON = @{}
 Initialize-Context `
-    -scriptPath $scriptPath `
-    -settingsJSON ([ref]$settingsJSON) `
+    -scriptPath $scriptPath  `
+    -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
 
-if (-not ($authContext)) {
-    $authContext = @{}
-}
-Publish-Apps `
+
+Unpublish-Apps `
     -scriptPath $scriptPath `
     -settingsJSON $settingsJSON `
     -workspaceJSON $workspaceJSON `
-    -targetType "Test" `
-    -runtime $true `
-    -skipMissing `
-    -authContext ([ref]$authContext)
+    -targetType "Dev"
 
 Write-Done

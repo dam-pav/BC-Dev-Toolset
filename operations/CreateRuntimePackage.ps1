@@ -1,6 +1,6 @@
 ﻿Clear-Host
 
-$scriptPath = $PSScriptRoot
+$scriptPath = (get-item $PSScriptRoot).Parent
 . $scriptPath/common/WorkspaceMgt.ps1
 
 # Make sure Docker is running

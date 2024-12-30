@@ -203,7 +203,112 @@ function Write-LaunchJSON {
     $launchJSON | ConvertTo-Json -Depth 10 | Format-Json | Set-Content -Path $launchFilename -Force
 }
 
-# Formats JSON in a nicer format than the built-in ConvertTo-Json does.
+function Show-Menu {
+    param (
+        [string]$Title = 'Please select an option:',
+        [string]$NoTypeTitle = 'Or type your selection:',
+        [array]$Options
+    )
+
+    if (-not $Options) {
+        Write-Host "No options provided for the menu." -ForegroundColor Red
+        return
+    }
+
+    $selectionIndex = 0
+    $done = $false
+
+    # Function to display the menu in-place
+    function Display-Menu {
+        Write-Host $Title.PadRight(50) -ForegroundColor Blue
+        
+        # Iterate through each option and print it
+        $padlength = $([string]$($Options.Length)).Length
+        for ($i = 0; $i -lt $Options.Length; $i++) {
+            $seq = [string]$($i+1)
+            $seq = $seq.PadLeft($padlength)
+            if ($i -eq $selectionIndex) {
+                Write-Host "-> [$seq] $($Options[$i].Text)" -ForegroundColor Green
+            } else {
+                Write-Host "   [$seq] $($Options[$i].Text)"
+            }
+        }
+    }
+
+    # Capture the starting position before drawing the menu
+    $startingPosition = [Console]::GetCursorPosition().Item2
+    $manualOptionNo = ''
+
+    # Main loop to handle key input
+    while (-not $done) {
+        # Validate manual numbering
+        $intValue = [int]$manualOptionNo
+        $manualOptionValid = (($intValue -ge 1) -and ($intValue -le $Options.Length))
+        if ($manualOptionValid -eq $true) {
+            $selectionIndex = $intValue - 1
+        }
+
+        # Restore the cursor position to the start of the menu
+        [Console]::SetCursorPosition(0, $startingPosition)
+        Display-Menu
+
+        Write-Host $NoTypeTitle -NoNewline
+        if ($manualOptionValid) {
+            Write-Host $manualOptionNo -NoNewline -ForegroundColor Green
+        }
+        else {
+            Write-Host $manualOptionNo -NoNewline -ForegroundColor Red
+        }
+        Write-Host "".PadRight(50)
+
+        $startingPosition = [Console]::GetCursorPosition().Item2 - $Options.Length - 2
+        if ($startingPosition -lt 0) {
+            $startingPosition = 0
+        }
+
+        $key = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+
+        #Write-Host $key
+        #$startingPosition = $startingPosition - 1
+
+        switch ($key.VirtualKeyCode) {
+            8 { # Backspace
+                if ($manualOptionNo.Length -gt 0) {
+                    $manualOptionNo = $manualOptionNo.Substring(0, $manualOptionNo.Length - 1)
+                }
+             }
+            27 { #Esc key
+                Write-Host "Selection canceled." -ForegroundColor Green
+                $done = $true  # Exit the loop
+            }
+            38 { # Up arrow
+                $selectionIndex = ($selectionIndex - 1 + $Options.Length) % $Options.Length
+                $manualOptionNo = ''
+            }
+            40 { # Down arrow
+                $selectionIndex = ($selectionIndex + 1) % $Options.Length
+                $manualOptionNo = ''
+            }
+            {($_ -ge 48) -and ($_ -le 57) } { # keys 0 - 9
+                $manualOptionNo += "$($_-48)"
+            }
+            13 { # Enter key
+                # Ensure to avoid overwriting menu when showing selection output
+                # Move cursor to a clear line after menu display for result output
+                [Console]::SetCursorPosition(0, $startingPosition + $Options.Length + 2 )
+                Write-Host "You selected: $($Options[$selectionIndex].Text)"
+                $scriptPath = $Options[$selectionIndex].ScriptPath
+                if (Test-Path $scriptPath) {
+                    Write-Host "Running script: $scriptPath"
+                    & $scriptPath
+                } else {
+                    Write-Host "Script not found at path: $scriptPath" -ForegroundColor Red
+                }
+                $done = $true  # Exit the loop
+            }
+        }
+    }
+}
 function Confirm-Option {
     Param (
         [Parameter(Mandatory=$true)]
@@ -234,6 +339,7 @@ function Confirm-Option {
     return($Confirm.ToUpper() -eq $answerYes.ToUpper())
 }
 
+# Formats JSON in a nicer format than the built-in ConvertTo-Json does.
 function Format-Json([Parameter(Mandatory, ValueFromPipeline)][String] $json) {
     $indent = 0;
     ($json -Split "`n" | ForEach-Object {

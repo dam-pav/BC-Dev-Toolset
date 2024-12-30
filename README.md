@@ -186,6 +186,10 @@ Starting a new workspace and including the toolset should be easy.
 
 ## Toolset scripts
 
+For your convenience, all available functionality can be started using the ***RunOperation.ps1*** script found in the root of the repository. Select the required operation from the menu and confirm by pressing *Enter*. You can select the operation by typing in the option number as well.
+
+The menu runs the following scripts. These scripts can be found in the *operations* subfolder.
+
 * ***CreateRuntimePackage.ps1***: creates Runtime packages, using the local Docker instance.
 * ***NewDockerContainer.ps1***: creates a Docker container with a Sandbox BC platform version determined by the first app.json found. If an existing container with the same name is found, it gets removed and replaced. Doesn't support multiplatform (apps for different platform versions) projects.
 * ***PublishDependencies2Docker.ps1***: publish apps from the *dependenciesPath* to the local Docker instance, identified as *serverType* of *Container*.
