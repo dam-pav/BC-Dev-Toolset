@@ -879,6 +879,26 @@ function Update-Gitignore {
     }
 }
 
+function Add-Subfolders{
+    Param (
+        [Parameter(Mandatory=$true)]
+        [ref] $workspaceJSON,
+        [Parameter(Mandatory=$true)]
+        [string] $basePath,
+        [Parameter(Mandatory=$true)]
+        [string] $appPath
+    )
+    
+    $filteredFolders = Get-ChildItem -Path $appPath -Directory
+    foreach ($folder in $filteredFolders) {
+        if (Test-Path $(Join-Path $folder 'app.json')) {
+            $relativePath = Resolve-Path -Path $folder -Relative -RelativeBasePath $basePath
+            $workspaceJSON.value.folders = $workspaceJSON.value.folders + [PSCustomObject]@{
+                path = $relativePath
+            }
+        }
+    }
+}
 function Update-Workspace {
     Write-Host ""
     Write-Host "Updating the .code-workspace file..." -ForegroundColor Gray
@@ -887,6 +907,9 @@ function Update-Workspace {
     $filterExtension = ".code-workspace"  # Replace with the file extension you want to filter by
     
     # List all files in the folder and filter by extension
+    if ((-not $Global:workspaceRootPath) -or ($Global:workspaceRootPath -eq '')) {
+        $Global:workspaceRootPath = $(Get-Item $$).Directory
+    }
     $filteredFiles = Get-ChildItem -Path $Global:workspaceRootPath.FullName | Where-Object { $_.Extension -eq $filterExtension }
     
     # Check if there are any matching files
@@ -895,13 +918,16 @@ function Update-Workspace {
         # there IS no workspace
         $workspaceJSON = [PSCustomObject]@{}
         $workspaceJSON | Add-Member -MemberType NoteProperty -Name folders -Value @()
-        $workspaceJSON.folders = $workspaceJSON.folders + [PSCustomObject]@{
-            path = '.'
-        }
-        #$workspacePath = $(Get-Item $PSScriptRoot).Parent.Parent
-        $workspacePath = $Global:workspaceRootPath
 
-        $workspaceName = $workspacePath -split '\.' | Select-Object -First 1
+        # detect any apps in any of the subfolders
+        Add-Subfolders ([ref]$workspaceJSON) $Global:workspaceRootPath $Global:workspaceRootPath
+
+        #$workspacePath = $(Get-Item $PSScriptRoot).Parent.Parent
+        #$workspaceName = $workspacePath -split '\.' | Select-Object -First 1
+
+        $workspacePath = $Global:workspaceRootPath
+        $workspaceName = $workspacePath.Name
+
         Write-Host "Workspace definition not found, creating workspace $workspaceName." -ForegroundColor Gray
         $workspacePath = $workspaceName + $filterExtension
     } else {
