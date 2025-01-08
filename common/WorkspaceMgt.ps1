@@ -818,7 +818,7 @@ function Update-Gitignore {
     # Specify the file path
     $filePath = ".gitignore"
 
-    # Verify that this is a repository
+    # Verify that this is a repository # NOT the folder where the script is located but from where it is ran
     if (-not (Test-Path '.git')) {
         Write-Host "This is not a repository. A '$filePath' is not required." -ForegroundColor Green
         return
@@ -910,10 +910,7 @@ function Update-Workspace {
     
     # List all files in the folder and filter by extension
     if ((-not $Global:workspaceRootPath) -or ($Global:workspaceRootPath -eq '')) {
-        if ($null -eq $$) {
-            throw "Please run the script from shell (PS)."
-        }
-        $Global:workspaceRootPath = $(Get-Item $$).Directory
+        $Global:workspaceRootPath = Get-Item '.' # NOT the folder where the script is located but from where it is ran
     }
     $filteredFiles = Get-ChildItem -Path $Global:workspaceRootPath.FullName | Where-Object { $_.Extension -eq $filterExtension }
     
