@@ -897,7 +897,9 @@ function Add-Subfolders{
                 path = $relativePath
             }
         }
+        Add-Subfolders ([ref]$workspaceJSON.value) $basePath $folder
     }
+
 }
 function Update-Workspace {
     Write-Host ""
@@ -908,6 +910,9 @@ function Update-Workspace {
     
     # List all files in the folder and filter by extension
     if ((-not $Global:workspaceRootPath) -or ($Global:workspaceRootPath -eq '')) {
+        if ($null -eq $$) {
+            throw "Please run the script from shell (PS)."
+        }
         $Global:workspaceRootPath = $(Get-Item $$).Directory
     }
     $filteredFiles = Get-ChildItem -Path $Global:workspaceRootPath.FullName | Where-Object { $_.Extension -eq $filterExtension }
@@ -921,9 +926,6 @@ function Update-Workspace {
 
         # detect any apps in any of the subfolders
         Add-Subfolders ([ref]$workspaceJSON) $Global:workspaceRootPath $Global:workspaceRootPath
-
-        #$workspacePath = $(Get-Item $PSScriptRoot).Parent.Parent
-        #$workspaceName = $workspacePath -split '\.' | Select-Object -First 1
 
         $workspacePath = $Global:workspaceRootPath
         $workspaceName = $workspacePath.Name
