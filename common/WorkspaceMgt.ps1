@@ -873,6 +873,10 @@ function Update-Gitignore {
     $lines | Set-Content $filePath -Encoding UTF8
 
     Write-Host "$filePath updated." -ForegroundColor Green
+
+    if ($Global:workspaceRootPath -eq '') {
+        $Global:workspaceRootPath = $(Get-Item $filePath).Directory
+    }
 }
 
 function Update-Workspace {
@@ -883,7 +887,7 @@ function Update-Workspace {
     $filterExtension = ".code-workspace"  # Replace with the file extension you want to filter by
     
     # List all files in the folder and filter by extension
-    $filteredFiles = Get-ChildItem -Path $workspaceRootPath.FullName | Where-Object { $_.Extension -eq $filterExtension }
+    $filteredFiles = Get-ChildItem -Path $Global:workspaceRootPath.FullName | Where-Object { $_.Extension -eq $filterExtension }
     
     # Check if there are any matching files
     if ($filteredFiles.Count -eq 0) {
@@ -894,10 +898,12 @@ function Update-Workspace {
         $workspaceJSON.folders = $workspaceJSON.folders + [PSCustomObject]@{
             path = '.'
         }
-        $workspacePath = $(Get-Item $PSScriptRoot).Parent.Parent
+        #$workspacePath = $(Get-Item $PSScriptRoot).Parent.Parent
+        $workspacePath = $Global:workspaceRootPath
+
         $workspaceName = $workspacePath -split '\.' | Select-Object -First 1
         Write-Host "Workspace definition not found, creating workspace $workspaceName." -ForegroundColor Gray
-        $workspacePath = "$workspaceName.code-workspace"
+        $workspacePath = $workspaceName + $filterExtension
     } else {
         # Read *.code-workspace
         $workspaceJSON = Get-Content -Path $filteredFiles[0].FullName | ConvertFrom-Json
