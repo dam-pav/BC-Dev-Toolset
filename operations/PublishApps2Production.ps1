@@ -1,13 +1,13 @@
 Clear-Host
 
-$scriptPath = (get-item $PSScriptRoot).Parent
-. $scriptPath/common/WorkspaceMgt.ps1
-. $scriptPath/common/PublishApps.ps1
+$scriptRoot = (get-item $PSScriptRoot).Parent
+. $scriptRoot/common/WorkspaceMgt.ps1
+. $scriptRoot/common/PublishApps.ps1
 
 $settingsJSON = @{}
 $workspaceJSON = @{}
 Initialize-Context `
-    -scriptPath $scriptPath `
+    -scriptPath $scriptRoot `
     -settingsJSON ([ref]$settingsJSON) `
     -workspaceJSON ([ref]$workspaceJSON)
 
@@ -15,7 +15,7 @@ if (-not ($authContext)) {
     $authContext = @{}
 }
 Publish-Apps `
-    -scriptPath $scriptPath `
+    -scriptPath $scriptRoot `
     -settingsJSON $settingsJSON `
     -workspaceJSON $workspaceJSON `
     -targetType "Production" `

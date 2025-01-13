@@ -1,8 +1,8 @@
 Clear-Host
 
-$scriptPath = (get-item $PSScriptRoot).Parent
-. $scriptPath/common/WorkspaceMgt.ps1
-. $scriptPath/common/PublishApps.ps1
+$scriptRoot = (get-item $PSScriptRoot).Parent
+. $scriptRoot/common/WorkspaceMgt.ps1
+. $scriptRoot/common/PublishApps.ps1
 
 # Make sure Docker is running
 Test-DockerProcess
@@ -10,7 +10,7 @@ Test-DockerProcess
 $settingsJSON = @{}
 $workspaceJSON = @{}
 Initialize-Context `
-    -scriptPath $scriptPath  `
+    -scriptPath $scriptRoot  `
     -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
 

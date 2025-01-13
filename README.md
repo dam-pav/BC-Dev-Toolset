@@ -31,15 +31,15 @@ This toolset is a work in continuous progress. Any usage is subject to a MIT lic
 
 If you want to reach out to the developer, please open an issue at *[BC-Dev-Toolset](https://github.com/dam-pav/BC-Dev-Toolset/issues)*.
 
-You are also welcome to apply as contributor. As a contributor you will implicitly agree to a [Contributor License Agreement](documentation/CLA.md). By accepting the agreement you will declare that you have the right to grant this project the rights to use your contribution anf that you in fact do grant this right of use.
+You are also welcome to apply as contributor. As a contributor you will implicitly agree to a [Contributor License Agreement](documentation/CLA.md). By accepting the agreement you will declare that you have the right to grant this project the rights to use your contribution and that you in fact do grant this right of use.
 
 ## Prerequisites
 
 1. A **Windows Pro** or **Windows Enterprise** edition.
-   Docker Desktop doesn't allow Windows containers on Windows Home. Not tested yet but using Docker Engine (without Docker Desktop) on Windows Home might also prove non viable.
-   If you don't have access to any of the above, you won't be able to develop for BC using Docker. You might still find scripts that are not related to Docker useful for instance, if you only use actual environments.
+   Docker requires requires Hyper-V and a feature named Containers to work on Windows. Windows Home does not provide these features.
+2. If you don't have access to any of the above, you won't be able to develop for BC using Docker. You might still find scripts that are not related to Docker useful for instance, if you only use actual environments.
    Make sure your BIOS has virtualization enabled. Hyper-V feature might appear to be enabled, but won't work without proper HW support.
-2. Try the option that works for you
+3. Try the option that works for you
 
    1. **Docker Desktop**.
 
@@ -52,7 +52,12 @@ You are also welcome to apply as contributor. As a contributor you will implicit
       ```
       & $Env:ProgramFiles\Docker\Docker\DockerCli.exe -SwitchDaemon
       ```
-   2. **Docker Engine** (no Docker Desktop license required)
+   2. 
+   3. 
+   4. 
+   5. 
+   6. 
+   7. **Docker Engine** (no Docker Desktop license required)
       Select and download the appropriate binary package, probably the latest, from
       [Index of win/static/stable/x86_64/](https://download.docker.com/win/static/stable/x86_64/)
 
@@ -86,13 +91,13 @@ You are also welcome to apply as contributor. As a contributor you will implicit
         Enable-WindowsOptionalFeature -Online -FeatureName Containers -All
         Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -All
 
-        setx /M PATH "$($env:path);c:\docker"
+        [System.Environment]::SetEnvironmentVariable('path',"$($env:path);c:\docker",'Machine')
 
         New-Service -Name Docker -BinaryPathName "C:\docker\dockerd.exe  --run-service --config-file C:\docker\daemon.json" -DisplayName "Docker Engine" -StartupType "Automatic"
       ```
 
-      Restart your PC.
-3. **GIT**.
+      Make sure your installation folder was added to the PATH environment variable successfully. If the variable is longer then than 1024 characters it might misbehave despite the official limit of 32,767 characters, depending how it is used. SET and SETX truncate the var to 1024 characters. Other methods mith allow up to 2048 characters. If you can open your terminal and run 'docker' from any path other that the where you installed it, the you are good to go. Restart your PC.
+4. **GIT**.
    You will need CLI for git. A good way to install it on a Windows PC is using WinGet:
 
    ```
@@ -100,22 +105,24 @@ You are also welcome to apply as contributor. As a contributor you will implicit
    ```
 
    After the installation is done, close your PS terminal sessions and start a new to get access to git.
-4. **Visual Studio Code**.
+5. **Visual Studio Code**.
 
    ```
    winget install -e --id Microsoft.VisualStudioCode
    ```
 
    If you are not running Docker Desktop (or even if you are) I advise using the VS Code plugin named Docker, released by Microsoft.
-5. **BcContainerHelper**.
+6. **BcContainerHelper**.
 
    None of this would be possible without the BcContainerHelper. Hats off to Freddy.
 
    Run Powershell as admin, then:
 
    ```
-   Install-Module -Name BcContainerHelper
+   Install-Module BcContainerHelper -force
    ```
+
+   This might not always work, reporting that module 'BcContainerHelper' cannot be found. Could be because powershellgallery.com is down, apparently this happens. In this case there is alternative: FreddyDK provided this script: [Install-BcContainerHelper.ps1]([https://github.com/BusinessCentralApps/HelloWorld/blob/master/scripts/Install-BcContainerHelper.ps1]()). Download and run.
 
    You can learn more at the [GitHub BcContainerHelper repository](https://github.com/microsoft/navcontainerhelper).
 

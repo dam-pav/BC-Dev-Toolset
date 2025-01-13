@@ -1,20 +1,20 @@
 ﻿Clear-Host
 
-$scriptPath = (get-item $PSScriptRoot).Parent.FullName
+$scriptRoot = (get-item $PSScriptRoot).Parent
 
-. $scriptPath/common/WorkspaceMgt.ps1
+. $scriptRoot/common/WorkspaceMgt.ps1
 
 $settingsJSON = @{}
 $workspaceJSON = @{}
 Initialize-Context `
-    -scriptPath $scriptPath  `
+    -scriptPath $scriptRoot  `
     -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
 
 Write-Host ""
 
 # Create the data file path
-$dataFilePath = Join-Path -Path $scriptPath -ChildPath "visualization/data.json"
+$dataFilePath = Join-Path -Path $scriptRoot -ChildPath "visualization/data.json"
 
 # Check if the data file exists, and if not, create it
 if (-not (Test-Path -Path $dataFilePath)) {
@@ -73,7 +73,7 @@ $ranges = @()
 foreach ($appPath in $workspaceJSON.folders.path) {
     $appJSON = @{}
     Get-AppJSON `
-        -scriptPath $scriptPath  `
+        -scriptPath $scriptRoot  `
         -appPath $appPath  `
         -appJSON ([ref]$appJSON)
     
