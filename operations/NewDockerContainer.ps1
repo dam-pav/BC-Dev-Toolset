@@ -1,6 +1,6 @@
 Clear-Host
 
-$scriptRoot = $PSScriptRoot
+$scriptRoot = (get-item $PSScriptRoot).Parent
 . $scriptRoot/common/WorkspaceMgt.ps1
 . $scriptRoot/common/PublishApps.ps1
 
