@@ -73,6 +73,7 @@ function Publish-Dependencies {
                         containerName = $configuration.container
                         appFile = $appList
                         skipVerification = $true
+                        ignoreIfAppExists = $true
                         install = $true
                         scope = 'Tenant'
                         sync = $true
