@@ -893,6 +893,7 @@ function Add-Subfolders{
     foreach ($folder in $filteredFolders) {
         if (Test-Path $(Join-Path $folder 'app.json')) {
             $relativePath = Resolve-Path -Path $folder -Relative -RelativeBasePath $basePath
+            $relativePath = $relativePath.Substring(2) # remove .\ from the beginning
             $workspaceJSON.value.folders = $workspaceJSON.value.folders + [PSCustomObject]@{
                 path = $relativePath
             }

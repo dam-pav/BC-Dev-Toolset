@@ -52,11 +52,6 @@ You are also welcome to apply as contributor. As a contributor you will implicit
       ```
       & $Env:ProgramFiles\Docker\Docker\DockerCli.exe -SwitchDaemon
       ```
-   2. 
-   3. 
-   4. 
-   5. 
-   6. 
    7. **Docker Engine** (no Docker Desktop license required)
       Select and download the appropriate binary package, probably the latest, from
       [Index of win/static/stable/x86_64/](https://download.docker.com/win/static/stable/x86_64/)
