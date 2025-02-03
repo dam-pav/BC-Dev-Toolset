@@ -52,7 +52,7 @@ You are also welcome to apply as contributor. As a contributor you will implicit
       ```
       & $Env:ProgramFiles\Docker\Docker\DockerCli.exe -SwitchDaemon
       ```
-   7. **Docker Engine** (no Docker Desktop license required)
+   2. **Docker Engine** (no Docker Desktop license required)
       Select and download the appropriate binary package, probably the latest, from
       [Index of win/static/stable/x86_64/](https://download.docker.com/win/static/stable/x86_64/)
 
@@ -91,7 +91,7 @@ You are also welcome to apply as contributor. As a contributor you will implicit
         New-Service -Name Docker -BinaryPathName "C:\docker\dockerd.exe  --run-service --config-file C:\docker\daemon.json" -DisplayName "Docker Engine" -StartupType "Automatic"
       ```
 
-      Make sure your installation folder was added to the PATH environment variable successfully. If the variable is longer then than 1024 characters it might misbehave despite the official limit of 32,767 characters, depending how it is used. SET and SETX truncate the var to 1024 characters. Other methods mith allow up to 2048 characters. If you can open your terminal and run 'docker' from any path other that the where you installed it, the you are good to go. Restart your PC.
+      Make sure your installation folder was added to the PATH environment variable successfully. If the variable is longer then than 1024 characters it might misbehave despite the official limit of 32,767 characters, depending how it is used. SET and SETX truncate the var to 1024 characters. Other methods migth allow up to 2048 characters. If you can open your terminal and run 'docker' from any path other that the where you installed it, the you are good to go. Restart your PC.
 4. **GIT**.
    You will need CLI for git. A good way to install it on a Windows PC is using WinGet:
 
@@ -120,6 +120,8 @@ You are also welcome to apply as contributor. As a contributor you will implicit
    This might not always work, reporting that module 'BcContainerHelper' cannot be found. Could be because powershellgallery.com is down, apparently this happens. In this case there is alternative: FreddyDK provided this script: [Install-BcContainerHelper.ps1]([https://github.com/BusinessCentralApps/HelloWorld/blob/master/scripts/Install-BcContainerHelper.ps1]()). Download and run.
 
    You can learn more at the [GitHub BcContainerHelper repository](https://github.com/microsoft/navcontainerhelper).
+
+   *Note: the module is being updated from time to time. For your convenience, and update option is available in the list of Operations.*
 
 ## **Starting a new workspace**
 
