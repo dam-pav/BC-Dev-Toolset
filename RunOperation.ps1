@@ -20,6 +20,7 @@ $menuOptions = @(
     @{ Text = "Unpublish all workspace apps from Docker container"; ScriptPath = Join-Path $scriptPath $operations 'UnpublishDockerApps.ps1' }
     @{ Text = "Unpublish all workspace apps from test environments"; ScriptPath = Join-Path $scriptPath $operations 'UnpublishTestApps.ps1' }
     @{ Text = "Prepare object id range data for visualization"; ScriptPath = Join-Path $scriptPath $visualization 'DataUpdate.ps1' }
+    @{ Text = "Update BcContainerHelper module"; ScriptPath = Join-Path $scriptPath $operations 'UpdateBcContainerHelper.ps1' }
 )
 
 # Call the function with custom options
