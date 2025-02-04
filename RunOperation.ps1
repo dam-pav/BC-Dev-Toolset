@@ -7,6 +7,7 @@ $visualization = 'visualization'
 $menuOptions = @(
     @{ Text = "Create/Overwrite Docker container based on the first app.json found in the workspace"; ScriptPath = Join-Path $scriptPath $operations 'NewDockerContainer.ps1' }
     @{ Text = "Update launch.json files in all apps in the workspace"; ScriptPath = Join-Path $scriptPath $operations 'UpdateLaunchJson.ps1' }
+    @{ Text = "Update license files in all containers"; ScriptPath = Join-Path $scriptPath $operations 'UpdateBcLicenseContainer.ps1' }
     #@{ Text = "Install fonts from the configuration to the existing container"; ScriptPath = Join-Path $scriptPath $operations 'InstallFontsToContainer.ps1' }
     @{ Text = "Publish dependencies from the configuration to the existing container"; ScriptPath = Join-Path $scriptPath $operations 'PublishDependencies2Docker.ps1' }
     @{ Text = "Publish dependencies from the configuration to test environments"; ScriptPath = Join-Path $scriptPath $operations 'PublishDependencies2Test.ps1' }

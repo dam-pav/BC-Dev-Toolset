@@ -812,6 +812,46 @@ function New-DockerContainer {
     $true
 }
 
+function Update-BcLicense {
+    Param (
+        [bool] $testMode = $false,
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON
+    )
+    
+    $configurationFound = $false
+    foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "Container")) {
+        $configurationFound = $true
+
+        if ($settingsJSON.licenseFile -eq "") {
+            throw "A license file is not specified in Settings. Processing aborted."
+        }
+            
+        $Parameters = @{
+            restart = $true
+            containerName = $configuration.container
+            licenseFile = $settingsJSON.licenseFile
+        }
+
+        if (-not $testmode) {
+            Import-BcContainerLicense @Parameters
+        }
+
+        Write-Host "The docker instance $($configuration.container) should have the new license installed." -ForegroundColor Green
+        Write-Host ""
+    }
+
+    if (-not $configurationFound) {
+        Write-Host "No Docker configurations found." -ForegroundColor Red
+        $false
+        return
+    }
+
+    $true
+}
+
 function Update-Gitignore {
     Write-Host ""
 
