@@ -459,8 +459,8 @@ function Initialize-Context {
 
     # Add country from code-workspace
     $country = ''
-    if ($workspaceJSON.value.settings.bcdevtoolset.country) {
-        $country = $workspaceJSON.value.settings.bcdevtoolset.country
+    if ($workspaceJSON.value.settings."dam-pav.bcdevtoolset".country) {
+        $country = $workspaceJSON.value.settings."dam-pav.bcdevtoolset".country
     }
     if ($country -eq '') {
         $country = "w1"
@@ -474,7 +474,7 @@ function Initialize-Context {
     }
     
     # Add configurations from code-workspace
-    foreach ($remote in $workspaceJSON.value.settings.bcdevtoolset.configurations) {
+    foreach ($remote in $workspaceJSON.value.settings."dam-pav.bcdevtoolset".configurations) {
         $settingsJSONvalue.configurations = $settingsJSONvalue.configurations + $remote
     }
     # finally, pass the object
@@ -990,9 +990,9 @@ function Update-Workspace {
         $workspaceJSON | Add-Member -MemberType NoteProperty -Name settings -Value $([PSCustomObject]@{})
     }
 
-    # Check if bcdevtoolset exists
-    if (-not ($workspaceJSON.settings.bcdevtoolset)) {
-        # Add bcdevtoolset with a sample remoteConfiguration to code-workspace
+    # Check if "dam-pav.bcdevtoolset" exists
+    if (-not ($workspaceJSON.settings."dam-pav.bcdevtoolset")) {
+        # Add "dam-pav.bcdevtoolset" with a sample remoteConfiguration to code-workspace
         $remoteConfiguration = [PSCustomObject]@{}
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "sample"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverType -Value ""
@@ -1009,7 +1009,7 @@ function Update-Workspace {
         $bcdevtoolset | Add-Member -MemberType NoteProperty -Name selectArtifact -Value "Closest"
         $bcdevtoolset | Add-Member -MemberType NoteProperty -Name configurations -Value @($remoteConfiguration)
 
-        $workspaceJSON.settings | Add-Member -MemberType NoteProperty -Name bcdevtoolset -Value @($bcdevtoolset)
+        $workspaceJSON.settings | Add-Member -MemberType NoteProperty -Name "dam-pav.bcdevtoolset" -Value @($bcdevtoolset)
     }
 
     # finally, save the updated workspace file

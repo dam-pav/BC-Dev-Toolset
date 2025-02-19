@@ -253,7 +253,7 @@ to remove the files from git. You will need to commit these changes. Beware, thi
   "settings": {
     "liveServer.settings.multiRootWorkspaceName": "BC-Dev-Toolset",
     "powershell.cwd": "BC-Dev-Toolset",
-    "bcdevtoolset": {
+    "dam-pav.bcdevtoolset": {
       "country": "w1",
       "selectArtifact": "Closest",
       "configurations":  [
@@ -272,7 +272,7 @@ to remove the files from git. You will need to commit these changes. Beware, thi
 
 Its most obvious role is to define the folders included in the workspace. In addition to folders containing separate apps we need to make sure one additional folder, containing the toolset, is also included.
 
-We also use it as a vessel to carry configuration relevant to the workspace. The root attribute ***bcdevtoolset*** can specify:
+We also use it as a vessel to carry configuration relevant to the workspace. The root attribute ***dam-pav.bcdevtoolset*** can specify:
 
 * ***country***: optional, sets the platform country version. The default is "w1".
 * ***selectArtifact***: "Closest" (default), "Latest"
