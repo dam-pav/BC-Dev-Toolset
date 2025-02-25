@@ -32,8 +32,8 @@ foreach ($appPath in $workspaceJSON.folders.path) {
 
 # Build a new container
 $selectArtifact = "Closest"
-if ($workspaceJSON.settings.bcdevtoolset.selectArtifact) {
-    $selectArtifact = $workspaceJSON.settings.bcdevtoolset.selectArtifact
+if ($workspaceJSON.settings."dam-pav.bcdevtoolset".selectArtifact) {
+    $selectArtifact = $workspaceJSON.settings."dam-pav.bcdevtoolset".selectArtifact
 }
 $success = $false
 $success = New-DockerContainer `
