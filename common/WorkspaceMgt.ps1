@@ -978,8 +978,8 @@ function Update-Workspace {
         Write-Host "Workspace found: $workspaceName" -ForegroundColor Gray
     }
 
-    $filteredFolders = $workspaceJSON.folders | Where-Object { $_.path -eq $toolsetFolderName }
-    if ($filteredFolders.Count -eq 0) {
+    $toolsetFolders = $workspaceJSON.folders | Where-Object { $_.path -eq $toolsetFolderName }
+    if ($toolsetFolders.Count -eq 0) {
         $workspaceJSON.folders = $workspaceJSON.folders + [PSCustomObject]@{
             path = $toolsetFolderName
         }
