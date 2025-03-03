@@ -154,7 +154,7 @@ It is best that the paths are relative to the workspace root, the location of th
 
 Starting a new workspace and including the toolset should be easy.
 
-1. Define a *repository.code-workspace* file (replace *repository* with a proper name). The name of the repository will become the default name for your Docker container. Your repository might already include such a file.
+1. Define a *project.code-workspace* file (replace *project* with a proper name). The name of the project will become the default name for your Docker container. Your repository might already include such a file.
    You can create the workspace from VS Code, but creating it manually works just as well. You can also skip this step in which case the file will be create automatically by the toolset initialization.
 2. Acquire a clone of the BC-Dev-Toolset repository.
 
@@ -190,7 +190,7 @@ Starting a new workspace and including the toolset should be easy.
 
 ## Toolset scripts
 
-For your convenience, all available functionality can be started using the ***RunOperation.ps1*** script found in the root of the repository. Select the required operation from the menu and confirm by pressing *Enter*. You can select the operation by typing in the option number as well.
+For your convenience, all available functionality can be started using the ***RunOperation.ps1*** script found in the root of the BC-Dev-Toolset repository. Select the required operation from the menu and confirm by pressing *Enter*. You can select the operation by typing in the option number as well.
 
 The menu runs the following scripts. These scripts can be found in the *operations* subfolder.
 
@@ -222,6 +222,8 @@ BC-Dev-Toolset/
 launch.json
 ```
 
+Ignoring a BC-Dev-Toolset folder is only necessary if you are placing the folder within the project repository. You can avoid this by using relative paths.
+
 You might have already initialized git with these folders and files. In that case mere modification of *.gitignore* will not suffice. You will need to run
 
 ```
@@ -236,7 +238,7 @@ git rm */launch.json --cached
 
 to remove the files from git. You will need to commit these changes. Beware, this actually deletes the files from the current branch, not just the tracking.
 
-### *repository*.code-workspace
+### *project.code-workspace*
 
 *.code-workspace is a configuration file for VSCode. For instance:
 
@@ -244,7 +246,7 @@ to remove the files from git. You will need to commit these changes. Beware, thi
 {
   "folders": [
     {
-      "path": "App"
+      "path": "Project/App"
     },
 	{
       "path": "BC-Dev-Toolset"
@@ -270,7 +272,13 @@ to remove the files from git. You will need to commit these changes. Beware, thi
 
 ```
 
-Its most obvious role is to define the folders included in the workspace. In addition to folders containing separate apps we need to make sure one additional folder, containing the toolset, is also included.
+#### Folders
+
+The most obvious role of a workspace is to define the folders included. The path element can specify both absolute and relative paths. It makes sense to use relative paths, of course. A relative path is relative to the location of the .code-workspace file. You can set a structure of folders underneath so that paths such as "Project/App" is perfectly valid. This way you can exclude the BC-Dev-Toolset folder and the workspace definition itself from the file structure of the project without changes in gitignore.
+
+#### Settings
+
+In addition to folders containing separate apps we need to make sure one additional folder, containing the toolset, is also included.
 
 We also use it as a vessel to carry configuration relevant to the workspace. The root attribute ***dam-pav.bcdevtoolset*** can specify:
 
@@ -293,7 +301,15 @@ We also use it as a vessel to carry configuration relevant to the workspace. The
 
 ### *settings.json*
 
-Use *settings.json* to personalize your scripts behaviour. If not found, a *settings.json* file will be created for you when any of the scripts is first run, with default values.
+VS Code usually provides three levels of scope:
+
+- User: any settings are stored in the PC user profile. This is broader than any single project the user is working on.
+- Workspace: the settings are stored in the .code-workspace json file. This is closer to the project scope, but migth not be local if the workpace is made part of the project repository. In a different sense, but this is still broader than a single project.
+- Folder: a single folder specified in the workspace. So, much narrower than a single project, by definition.
+
+The idea behind BC-Dev-Tools is that a developer needs to manage app development within a workspace, but the resources required are mostly local to the PC. Some of the setting must be customizable per both Project and the User. VS Code does not provide such a scope. That is why we keep a separate BC-Dev-Tools per each project and ose *settings.json* to customize your scripts behaviour.
+
+If not found, a *settings.json* file will be created for you when any of the scripts is first run, with default values.
 
 * ***licenseFile***: Specify if you have one. Mandatory for Runtime packages.
 * ***certificateFile***: Specify if you have one. Mandatory for Runtime packages.
