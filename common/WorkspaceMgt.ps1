@@ -938,7 +938,7 @@ function Add-Subfolders{
                 path = $relativePath
             }
         }
-        Add-Subfolders ([ref]$workspaceJSON.value) $appPath $folder
+        Add-Subfolders ([ref]$workspaceJSON.value) $appPath $folder.FullName
     }
 
 }
