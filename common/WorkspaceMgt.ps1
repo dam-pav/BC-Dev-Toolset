@@ -928,7 +928,7 @@ function Add-Subfolders{
         [Parameter(Mandatory=$true)]
         [string] $appPath
     )
-    
+    Write-Host "Peeking into '$appPath'" -ForegroundColor Gray
     $filteredFolders = Get-ChildItem -Path $appPath -Directory
     foreach ($folder in $filteredFolders) {
         if (Test-Path $(Join-Path $folder 'app.json')) {
