@@ -752,10 +752,19 @@ function New-DockerContainer {
         if ($appJSON.application -eq "") {
             throw "Artifact URL could not be determined based on $appPath\app.json. Processing aborted."
         } else {
+            $appJSONapplication = $appJSON.application
             if ($selectArtifact -eq 'Closest') {
                 Write-Host "Retrieving artifact URL for $($configuration.environmentType) app version $($appJSON.application)."
             } else {
-                Write-Host "Retrieving $selectArtifact artifact URL."
+                $versionParts = $appJSONapplication -split '\.'
+                $cleanVersion = @()
+                for ($i = $versionParts.Length - 1; $i -ge 0; $i--) {
+                    if ($versionParts[$i] -ne "0" -or $cleanVersion.Count -gt 0) {
+                        $cleanVersion = ,$versionParts[$i] + $cleanVersion
+                    }
+                }
+                $appJSONapplication = $cleanVersion -join '.'
+                Write-Host "Retrieving $selectArtifact artifact URL for version $appJSONapplication."
             }
         }
 
@@ -763,10 +772,8 @@ function New-DockerContainer {
             $Parameters = @{
                 type = $configuration.environmentType
                 country = $settingsJSON.country
+                version = $appJSONapplication
                 select = $selectArtifact
-            }
-            if ($selectArtifact -eq 'Closest') {
-                $Parameters.version = $appJSON.application
             }
             $artifactUrl = Get-BcArtifactUrl @Parameters
             if ("$artifactUrl" -eq "") {
@@ -775,6 +782,104 @@ function New-DockerContainer {
                 Write-Host "Using artifact URL $artifactUrl."
             }
         }
+
+        <# AVAILABLE PARAMETERS
+        [switch] $accept_eula,
+        [switch] $accept_insiderEula,
+        [switch] $accept_outdated = $true,
+        [string] $containerName = $bcContainerHelperConfig.defaultContainerName,
+        [string] $imageName = "",
+        [string] $artifactUrl = "", 
+        [Alias('navDvdPath')]
+        [string] $dvdPath = "", 
+        [Alias('navDvdCountry')]
+        [string] $dvdCountry = "",
+        [Alias('navDvdVersion')]
+        [string] $dvdVersion = "",
+        [Alias('navDvdPlatform')]
+        [string] $dvdPlatform = "",
+        [string] $locale = "",
+        [switch] $setServiceTierUserLocale,
+        [string] $licenseFile = "",
+        [PSCredential] $Credential = $null,
+        [string] $authenticationEMail = "",
+        [string] $AadTenant = "",
+        [string] $AadAppId = "",
+        [string] $AadAppIdUri = "",
+        [string] $memoryLimit = "",
+        [string] $sqlMemoryLimit = "",
+        [ValidateSet('','process','hyperv')]
+        [string] $isolation = "",
+        [string] $databaseServer = "",
+        [string] $databaseInstance = "",
+        [string] $databasePrefix = "",
+        [string] $databaseName = "",
+        [switch] $replaceExternalDatabases,
+        [string] $bakFile = "",
+        [string] $bakFolder = "",
+        [PSCredential] $databaseCredential = $null,
+        [ValidateSet('None','Desktop','StartMenu','CommonStartMenu','CommonDesktop','DesktopFolder','CommonDesktopFolder')]
+        [string] $shortcuts='Desktop',
+        [switch] $updateHosts,
+        [switch] $useSSL,
+        [switch] $installCertificateOnHost,
+        [switch] $includeAL,
+        [string] $runTxt2AlInContainer = $containerName,
+        [switch] $includeCSide,
+        [switch] $enableSymbolLoading,
+        [switch] $enableTaskScheduler,
+        [switch] $doNotExportObjectsToText,
+        [switch] $alwaysPull,
+        [switch] $forceRebuild,
+        [switch] $useBestContainerOS,
+        [string] $useGenericImage,
+        [switch] $assignPremiumPlan,
+        [switch] $multitenant,
+        [switch] $filesOnly,
+        [string[]] $addFontsFromPath = @(""),
+        [hashtable] $featureKeys = $null,
+        [switch] $clickonce,
+        [switch] $includeTestToolkit,
+        [switch] $includeTestLibrariesOnly,
+        [switch] $includeTestFrameworkOnly,
+        [switch] $includePerformanceToolkit,
+        [ValidateSet('no','on-failure','unless-stopped','always')]
+        [string] $restart='unless-stopped',
+        [ValidateSet('Windows','NavUserPassword','UserPassword','AAD')]
+        [string] $auth='Windows',
+        [int] $timeout = 1800,
+        [int] $sqlTimeout = 300,
+        [string[]] $additionalParameters = @(),
+        $myScripts = @(),
+        [string] $TimeZoneId = $null,
+        [int] $WebClientPort,
+        [int] $FileSharePort,
+        [int] $ManagementServicesPort,
+        [int] $ClientServicesPort,
+        [int] $SoapServicesPort,
+        [int] $ODataServicesPort,
+        [int] $DeveloperServicesPort,
+        [int[]] $PublishPorts = @(),
+        [string] $PublicDnsName,
+        [string] $network = "",
+        [string] $hostIP = "",
+        [string] $macAddress = "",
+        [string] $IP = "",
+        [string] $dns = "",
+        [switch] $useTraefik,
+        [switch] $useCleanDatabase,
+        [switch] $useNewDatabase,
+        [switch] $runSandboxAsOnPrem,
+        [switch] $doNotCopyEntitlements,
+        [string[]] $copyTables = @(),
+        [switch] $dumpEventLog,
+        [switch] $doNotCheckHealth,
+        [switch] $doNotUseRuntimePackages = $true,
+        [string] $vsixFile = "",
+        [string] $applicationInsightsKey,
+        [scriptblock] $finalizeDatabasesScriptBlock,
+        [switch] $useSqlServerModule = $bcContainerHelperConfig.useSqlServerModule
+        #>
 
         $Parameters = @{
             accept_eula = $true
@@ -785,7 +890,7 @@ function New-DockerContainer {
             auth = $auth
             artifactUrl = $artifactUrl
             shortcuts = $settingsJSON.shortcuts
-        }
+            }
 
         if ($configuration.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") {
                 $Parameters.runSandboxAsOnPrem = $true
