@@ -295,6 +295,7 @@ We also use it as a vessel to carry configuration relevant to the workspace. The
   * ***port***: Valid for *OnPrem*.
   * ***environmentType***: Type of BC instance to create. Valid values are *Sandbox* or *OnPrem*. Default value is *Sandbox*. Valid for server type *Container* and *Cloud*.
   * ***environmentName***: Valid for Cloud.
+  * ***includeTestToolkit***: Valid for server type Container.
   * ***tenant***: Valid for Cloud or OnPrem.
   * ***authentication***: Valid for Container or OnPrem. Default value is *UserPassword*.
   * ***admin*** and ***password***: The default user for the Docker BC instance.

@@ -899,6 +899,10 @@ function New-DockerContainer {
         if ($settingsJSON.licenseFile -ne "") {
             $Parameters.licenseFile = $settingsJSON.licenseFile
         }
+
+        if ($settingsJSON.includeTestToolkit -eq 'true') {
+            $Parameters.includeTestToolkit = $true
+        }
             
         if (-not $testmode) {
             New-BcContainer @Parameters
