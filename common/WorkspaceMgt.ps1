@@ -386,6 +386,7 @@ function Build-Settings {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name targetType -Value "Dev"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name container -Value $workspaceName.Replace(' ','-')
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name includeTestToolkit -Value "false"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value "UserPassword"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value "admin"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value "P@ssw0rd"
@@ -402,6 +403,7 @@ function Build-Settings {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name port -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentName -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name includeTestToolkit -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name tenant -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value ""
@@ -1108,10 +1110,16 @@ function Update-Workspace {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name targetType -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name server -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverInstance -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name container -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name port -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentName -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name includeTestToolkit -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name tenant -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value ""
+
 
         $bcdevtoolset = [PSCustomObject]@{}
         $bcdevtoolset | Add-Member -MemberType NoteProperty -Name country -Value "w1"

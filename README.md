@@ -152,6 +152,20 @@ Either way there is one requirement you must follow. Each separate app needs to 
 
 It is best that the paths are relative to the workspace root, the location of the *.code-workspace* file, but full paths should work as well.
 
+> There is a difference on how you write paths values and you can use this to your advantage. If a path is using  backslashes, such as:
+>
+>     c:\\\projects\\\project\\\app
+>
+> then the toolkit will understand this is a full path and not treat it as relative to the workspace location. If you want to write a relative path, use slashes. For instance:
+>
+>     project/app
+>
+> or
+>
+>     ../../otherproject/app
+>
+> Don't mix the two kinds of slashes.
+
 Starting a new workspace and including the toolset should be easy.
 
 1. Define a *project.code-workspace* file (replace *project* with a proper name). The name of the project will become the default name for your Docker container. Your repository might already include such a file.
@@ -186,30 +200,11 @@ Starting a new workspace and including the toolset should be easy.
    4. I do recommend to add **`launch.json`** to *.gitignore*. of the main repository in case of  These files are personalized per developer and managed by the toolset.
 3. If you copied the toolset folder from another project, be sure to review and adjust the preexisting *settings.json*. If you delete it, it will be recreated with default values when you run any script.
 4. Same goes for the preexisting *visualization\data.json*. Until run *visualization\\DataUpdate.ps1* and recreate the data, it might show wrong information.
-5. You can create your first Docker container now by running ***NewDockerContainer.ps1***.
+5. You can create your first Docker container.
 
-## Toolset scripts
+## Running the Toolset operations
 
 For your convenience, all available functionality can be started using the ***RunOperation.ps1*** script found in the root of the BC-Dev-Toolset repository. Select the required operation from the menu and confirm by pressing *Enter*. You can select the operation by typing in the option number as well.
-
-The menu runs the following scripts. These scripts can be found in the *operations* subfolder.
-
-* ***CreateRuntimePackage.ps1***: creates Runtime packages, using the local Docker instance.
-* ***NewDockerContainer.ps1***: creates a Docker container with a Sandbox BC platform version determined by the first app.json found. If an existing container with the same name is found, it gets removed and replaced. Doesn't support multiplatform (apps for different platform versions) projects.
-* ***PublishDependencies2Docker.ps1***: publish apps from the *dependenciesPath* to the local Docker instance, identified as *serverType* of *Container*.
-* ***PublishApps2Docker.ps1***: publish apps as PTE or Global (as opposed to Dev) to the local Docker instance.
-* ***PublishApps2Production.ps1***: publish apps as PTE or Global (if OnPrem) to the configurations specified in *settings.json*, with the *targetType* value of *Production*.
-* ***PublishApps2Test.ps1***: publish apps as PTE or Global (if OnPrem) to the configurations specified in *settings.json*, with the *targetType* value of *Test*.
-* ***PublishRuntimeApps2Docker.ps1***: publish *runtime* apps as Global to the local Docker instance.
-* ***PublishRuntimeApps2Production.ps1***: publish *runtime* apps as Global to configuration specified in *settings.json*, with the *targetType* value of *Production*.
-* ***PublishRuntimeApps2Test.ps1***: publish *runtime* apps as Global to configuration specified in *settings.json*, with the *targetType* value of *Test*.
-* ***UnpublishDockerApps.ps1***: unpublish all the apps in the workspace from the locally created Docker instance.
-* ***UnpublishTestApps.ps1***: unpublish all the apps in the workspace from the remote servers specified in *settings.json*, with the *targetType* value of *Test*.
-* ***UpdateLaunchJson.ps1***: creates or/and updates *launch.json* configurations for all apps in the workspace. It takes care of default local configuration for Docker and, in addition, for all remote configurations defined in *settings.json*.
-* The ***visualisation*** subfolder contains additional scripting:
-  * ***DataUpdate.ps1***: collects and updates the data.json. *data.json* currently contains all the ranges from all the apps in the workspace.
-  * ***WorkspaceAnalysis.html***: currently contains a visual mapping of the ranges collected in *data.json*. It will not function as a HTML preview, because it runs jscript. To view the page, use the VSCode extension, "Live Server".
-* The ***common*** subfolder contains scripts with helper functions. Not to be run directly.
 
 ## Setup
 
