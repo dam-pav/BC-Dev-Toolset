@@ -900,7 +900,7 @@ function New-DockerContainer {
             $Parameters.licenseFile = $settingsJSON.licenseFile
         }
 
-        if ($settingsJSON.includeTestToolkit -eq 'true') {
+        if ($configuration.includeTestToolkit -eq 'true') {
             $Parameters.includeTestToolkit = $true
         }
             
