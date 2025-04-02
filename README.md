@@ -154,15 +154,15 @@ It is best that the paths are relative to the workspace root, the location of th
 
 > There is a difference on how you write paths values and you can use this to your advantage. If a path is using  backslashes, such as:
 >
->     c:\\\projects\\\project\\\app
+> c:\\\projects\\\project\\\app
 >
 > then the toolkit will understand this is a full path and not treat it as relative to the workspace location. If you want to write a relative path, use slashes. For instance:
 >
->     project/app
+> project/app
 >
 > or
 >
->     ../../otherproject/app
+> ../../otherproject/app
 >
 > Don't mix the two kinds of slashes.
 
@@ -312,5 +312,5 @@ If not found, a *settings.json* file will be created for you when any of the scr
 * ***packageOutputPath***: Specify a specific folder path to group the Runtime packages. If empty, a runtime subfolder will automatically be created and used in the project. Remember to use double backslashes for full paths. For instance, for an actual path of "c:\\project\\packages" you will need to use "c:\\\\project\\\packages\".
 * ***dependenciesPath***: Specify a specific folder path to where the required app packages are stored. Again, remember to use double backslashes for full paths.
 * ***shortcuts***: Decide where you want Docker to place shortcuts for the new containers it creates. Can be *None*, *Desktop* or *StartMenu*. While the Docker's default is Desktop, the toolsets's default is *None*.
-* ***loadOnPremMgtModule***: Handling OnPrem deployments might require loading of the management module. This is where you specify its location in your specific context. Essentially, the path to NavAdminTool.ps1.
+* ***loadOnPremMgtModule***: Handling OnPrem deployments might require loading of the management module. This is where you specify its location in your specific context. Essentially, the path to NavAdminTool.ps1. This only works if you are running the scripts at the server host.
 * ***configurations***: Locally personalized additional list of remote deployments. Valid attributes (a subset of attributes for ***configurations*** in *launch.json*). Same structure as defined for *.code-workspace*. Both lists are used.
