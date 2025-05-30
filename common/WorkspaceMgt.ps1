@@ -923,6 +923,33 @@ function New-DockerContainer {
     $true
 }
 
+function Update-ContainerServerConfiguration {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON
+    )
+    
+    $configurationFound = $false
+    foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "Container")) {
+        $configurationFound = $true
+
+        Invoke-ScriptInNavContainer -containername $configuration.container -scriptblock {
+
+            # TODO: replace with actual setup to define any KeyName and KeyValue
+            Set-NavServerConfiguration -ServerInstance BC -KeyName NavHttpClientMaxTimeout -KeyValue '00:30:00' -ApplyTo ConfigFile #possible ApplyTo options: ConfigFile,Memory,All
+
+            Set-NavServerInstance -ServerInstance BC -restart
+        }
+
+        Write-Host "The docker instance $($configuration.container) should now have the configuration updated." -ForegroundColor Green
+        Write-Host ""
+    }
+
+    if (-not $configurationFound) {
+        Write-Host "No Docker configurations found." -ForegroundColor Red
+    }
+}
+
 function Update-BcLicense {
     Param (
         [bool] $testMode = $false,
