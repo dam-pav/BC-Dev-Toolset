@@ -1,1 +1,1 @@
-Install-Module BcContainerHelper -force
+Update-Module BcContainerHelper -force

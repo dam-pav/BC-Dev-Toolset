@@ -935,7 +935,7 @@ function Update-ContainerServerConfiguration {
 
         Invoke-ScriptInNavContainer -containername $configuration.container -scriptblock {
 
-            # TODO: replace with actual setup to define any KeyName and KeyValue
+            # TODO: replace with actual setup to define a list of any KeyName and KeyValue
             Set-NavServerConfiguration -ServerInstance BC -KeyName NavHttpClientMaxTimeout -KeyValue '00:30:00' -ApplyTo ConfigFile #possible ApplyTo options: ConfigFile,Memory,All
 
             Set-NavServerInstance -ServerInstance BC -restart
