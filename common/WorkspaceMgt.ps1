@@ -934,19 +934,19 @@ function Update-ContainerServerConfiguration {
         $configurationFound = $true
 
         Invoke-ScriptInNavContainer -containername $configuration.container -scriptblock {
+            Param($settings)
 
-            if ($settingsJSON.serverConfiguration) {
-                foreach ($config in $settingsJSON.serverConfiguration) {
-                    if ($config.KeyName -and $config.KeyValue) {
-                        Write-Host "Setting $($config.KeyName) to $($config.KeyValue)" -ForegroundColor Gray
-                        Set-NavServerConfiguration -ServerInstance BC -KeyName $config.KeyName -KeyValue $config.KeyValue -ApplyTo ConfigFile #possible ApplyTo options: ConfigFile,Memory,All
-                    }
+            if ($settings.serverConfiguration) {
+                foreach ($config in $settings.serverConfiguration) {
+                    Write-Host "Verifying: the old value for $($config.KeyName) is $(Get-NavServerConfiguration -ServerInstance BC -KeyName $config.KeyName)" -ForegroundColor Gray
+                    Write-Host "Setting $($config.KeyName) to $($config.KeyValue)" -ForegroundColor Gray
+                    Set-NavServerConfiguration -ServerInstance BC -KeyName $config.KeyName -KeyValue $config.KeyValue -ApplyTo ConfigFile #possible ApplyTo options: ConfigFile,Memory,All
+                    Write-Host "Verifying: the new value for $($config.KeyName) is $(Get-NavServerConfiguration -ServerInstance BC -KeyName $config.KeyName)" -ForegroundColor Gray
                 }
             }
 
-
             Set-NavServerInstance -ServerInstance BC -restart
-        }
+        } -ArgumentList $configuration
 
         Write-Host "The docker instance $($configuration.container) should now have the configuration updated." -ForegroundColor Green
         Write-Host ""
