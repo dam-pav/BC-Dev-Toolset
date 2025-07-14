@@ -45,6 +45,12 @@ $success = New-DockerContainer `
 
 
 if ($success -eq $true) {
+    # Apply server configuration
+    Write-Host ""
+    Write-Host "Applying server configuration to the new container." -ForegroundColor Green
+    Update-ContainerServerConfiguration `
+        -settingsJSON $settingsJSON
+
     # Deploy external apps
     Write-Host ""
     Write-Host "Deploying apps with dependencies to the new container." -ForegroundColor Green

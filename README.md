@@ -255,6 +255,27 @@ to remove the files from git. You will need to commit these changes. Beware, thi
       "selectArtifact": "Closest",
       "configurations":  [
         {
+          "name": "Local",
+          "serverType": "Container",
+          "targetType": "Dev",
+          "container": "TEST",
+          "environmentType": "Sandbox",
+          "includeTestToolkit": "true",
+          "authentication": "UserPassword",
+          "admin": "admin",
+          "password": "P@ssw0rd",
+          "serverConfiguration": [
+            {
+              "KeyName": "NavHttpClientMaxTimeout",
+              "KeyValue": "00:30:00"
+            },
+            {
+              "KeyName": "EnableTaskScheduler",
+              "KeyValue": true
+            }
+          ]
+        },
+        {
           "name": "Test environment",
                   "serverType": "Cloud",
                   "environmentName": "TEST",
@@ -294,6 +315,7 @@ We also use it as a vessel to carry configuration relevant to the workspace. The
   * ***tenant***: Valid for Cloud or OnPrem.
   * ***authentication***: Valid for Container or OnPrem. Default value is *UserPassword*.
   * ***admin*** and ***password***: The default user for the Docker BC instance.
+  * ***serverConfiguration***: a list of pairs of ***KeyName* **and ***KeyValue* **values.
 
 ### *settings.json*
 
