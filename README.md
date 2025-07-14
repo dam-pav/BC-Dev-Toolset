@@ -58,7 +58,7 @@ You are also welcome to apply as contributor. As a contributor you will implicit
 
       Unpack the content. A good location might be c:\docker.
 
-      Check user groups under "Edit local users and group". The usual group name would be  docker-users and if it was created by some installation such as Docker Desktop it will contain the admin user.  Add anyone who needs to run docker to this group.
+      Now, to set up permissions. Check user groups under "Edit local users and group". The usual group name would be  docker-users and if it was created by some installation such as Docker Desktop it will contain the admin user.  Add anyone who needs to run docker to this group.
 
       The alternative is to use a group that already contains your user account, such as Users. Update the Json file below accordingly.
 
@@ -91,9 +91,9 @@ You are also welcome to apply as contributor. As a contributor you will implicit
         New-Service -Name Docker -BinaryPathName "C:\docker\dockerd.exe  --run-service --config-file C:\docker\daemon.json" -DisplayName "Docker Engine" -StartupType "Automatic"
       ```
 
-      Make sure your installation folder was added to the PATH environment variable successfully. If the variable is longer then than 1024 characters it might misbehave despite the official limit of 32,767 characters, depending how it is used. SET and SETX truncate the var to 1024 characters. Other methods migth allow up to 2048 characters. If you can open your terminal and run 'docker' from any path other that the where you installed it, the you are good to go. Restart your PC.
+      Make sure your installation folder was added to the PATH environment variable successfully. If the variable is longer then than 1024 characters it might misbehave despite the official limit of 32,767 characters, depending how it is used. SET and SETX truncate the var to 1024 characters, I do not recommend this method. Other methods might allow up to 2048 characters. If you can open your terminal and run 'docker' from any path other that from where you installed it, the you are good to go. Restart your PC.
 4. **GIT**.
-   You will need CLI for git. A good way to install it on a Windows PC is using WinGet:
+   You will need CLI for git. A good way to install it on a Windows PC is using WinGet. If you don't have WinGet yet, check [these GitHub repository releases](https://github.com/microsoft/winget-cli/releases/). Install using msixbundle.
 
    ```
    winget install -e --id Git.Git
@@ -106,7 +106,7 @@ You are also welcome to apply as contributor. As a contributor you will implicit
    winget install -e --id Microsoft.VisualStudioCode
    ```
 
-   If you are not running Docker Desktop (or even if you are) I advise using the VS Code plugin named Docker, released by Microsoft.
+   If you are not running Docker Desktop (or even if you are) I advise using the VS Code plugin named 'Container Tools', released by Microsoft.
 6. **BcContainerHelper**.
 
    None of this would be possible without the BcContainerHelper. Hats off to Freddy.
