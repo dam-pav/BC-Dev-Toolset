@@ -129,7 +129,7 @@ There are two scenarios for workspaces, in relation to repositories they handle.
 
 ---
 
-1. A workspace can contain one or more separate repositories, some of them containing an app of its own. The workspace definition in not included in any of them. It can include other otherwise independent folders, not necessarily containing apps. This is perfect for the developer that wants to use the toolset casually without involving it in any workflows.
+1. A workspace can contain one or more separate repositories, some of them containing an app of its own. The workspace definition is not included in any of them. It can include other otherwise independent folders, not necessarily containing apps. This is perfect for the developer that wants to use the toolset casually without involving it in any workflows.
 2. The workspace can be part of a main repository. The main repository contains an arbitrary number of folders, some of them might contain apps. This is great for the developer that wants to predefine resources and setup for all team members.
 
 ---
@@ -197,10 +197,10 @@ Starting a new workspace and including the toolset should be easy.
       **`BC-Dev-Toolset/`**
       Failing to exclude the toolset folder from main repository git will cause changes to your main repository with every update to the toolset. I do not recommend this.
       You can prevent updates from the toolset's origin by removing the *BC-Dev-Toolset\\.git* folder. I also do not recommend this.
-   4. I do recommend to add **`launch.json`** to *.gitignore*. of the main repository in case of  These files are personalized per developer and managed by the toolset.
+   4. I do recommend to add **`launch.json`** to *.gitignore*. These files are personalized per developer and managed by the toolset.
 3. If you copied the toolset folder from another project, be sure to review and adjust the preexisting *settings.json*. If you delete it, it will be recreated with default values when you run any script.
-4. Same goes for the preexisting *visualization\data.json*. Until run *visualization\\DataUpdate.ps1* and recreate the data, it might show wrong information.
-5. You can create your first Docker container.
+4. Same goes for the preexisting *visualization\data.json*. Until you run *visualization\\DataUpdate.ps1* and recreate the data, it might show wrong information.
+5. You can now create your first Docker container.
 
 ## Running the Toolset operations
 
@@ -231,7 +231,7 @@ in order to remove the folder and the containing files from git. Also, you might
 git rm */launch.json --cached
 ```
 
-to remove the files from git. You will need to commit these changes. Beware, this actually deletes the files from the current branch, not just the tracking.
+to remove the files from git. You will need to commit these changes. Beware, this might actually delete the files from the current branch, not just the tracking.
 
 ### *project.code-workspace*
 
@@ -322,10 +322,10 @@ We also use it as a vessel to carry configuration relevant to the workspace. The
 VS Code usually provides three levels of scope:
 
 - User: any settings are stored in the PC user profile. This is broader than any single project the user is working on.
-- Workspace: the settings are stored in the .code-workspace json file. This is closer to the project scope, but migth not be local if the workpace is made part of the project repository. In a different sense, but this is still broader than a single project.
+- Workspace: the settings are stored in the .code-workspace json file. This is closer to the project scope, but migth not be local if the workspace is made part of the project repository. In a different sense, but this is still broader than a single project.
 - Folder: a single folder specified in the workspace. So, much narrower than a single project, by definition.
 
-The idea behind BC-Dev-Tools is that a developer needs to manage app development within a workspace, but the resources required are mostly local to the PC. Some of the setting must be customizable per both Project and the User. VS Code does not provide such a scope. That is why we keep a separate BC-Dev-Tools per each project and ose *settings.json* to customize your scripts behaviour.
+> The idea behind BC-Dev-Tools is that a developer needs to manage app development within a workspace, but the resources required are mostly local to their particular workstation. Some of the setting must be customizable per both Project and the User. VS Code does not provide such a scope. That is why we keep a separate BC-Dev-Tools per each project and use *settings.json* to customize your scripts behaviour.
 
 If not found, a *settings.json* file will be created for you when any of the scripts is first run, with default values.
 
