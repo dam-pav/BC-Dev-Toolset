@@ -5,6 +5,8 @@ $visualization = 'visualization'
 
 # Operation list
 $menuOptions = @(
+    @{ Text = "Update BcContainerHelper module"; ScriptPath = Join-Path $scriptPath $operations 'UpdateBcContainerHelper.ps1' }
+    @{ Text = "Clear App and translation artifacts"; ScriptPath = Join-Path $scriptPath $operations 'ClearAppArtifacts.ps1' }
     @{ Text = "Create/Overwrite Docker container based on the first app.json found in the workspace"; ScriptPath = Join-Path $scriptPath $operations 'NewDockerContainer.ps1' }
     @{ Text = "Update launch.json files in all apps in the workspace"; ScriptPath = Join-Path $scriptPath $operations 'UpdateLaunchJson.ps1' }
     @{ Text = "Update license files in all containers"; ScriptPath = Join-Path $scriptPath $operations 'UpdateBcLicenseContainer.ps1' }
@@ -22,7 +24,6 @@ $menuOptions = @(
     @{ Text = "Unpublish all workspace apps from Docker container"; ScriptPath = Join-Path $scriptPath $operations 'UnpublishDockerApps.ps1' }
     @{ Text = "Unpublish all workspace apps from test environments"; ScriptPath = Join-Path $scriptPath $operations 'UnpublishTestApps.ps1' }
     @{ Text = "Prepare object id range data for visualization"; ScriptPath = Join-Path $scriptPath $visualization 'DataUpdate.ps1' }
-    @{ Text = "Update BcContainerHelper module"; ScriptPath = Join-Path $scriptPath $operations 'UpdateBcContainerHelper.ps1' }
 )
 
 # Call the function with custom options

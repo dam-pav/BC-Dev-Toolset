@@ -714,17 +714,39 @@ function Write-Done() {
 function Clear-Artifacts {
     Param (
         [Parameter(Mandatory=$true)]
-        [string] $scriptPath
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $workspaceJSON
     )
-    $workspaceRootPath = (Get-Item $scriptPath).Parent
-    
+    $workspaceRootPath = (get-item $scriptPath).parent
+
     if (Confirm-Option -question "Do you want to clear the translation files?") {
-        Get-ChildItem -Path $workspaceRootPath.FullName -Include *.g.xlf -Recurse | Remove-Item
+        foreach ($appPath in $workspaceJSON.folders.path) {
+            # Read app.json
+            if (-not $appPath.Contains('\')) {
+                $appPath = Join-Path $workspaceRootPath.Fullname $appPath
+            }
+
+            # Confirm it is an app folder
+            if (Test-Path $(Join-Path $appPath "app.json")) {
+                Get-ChildItem -Path $appPath -Include *.g.xlf -Recurse | Remove-Item
+            }
+        }
         Write-Host "Translation files cleared." -ForegroundColor Blue
     }
     
     if (Confirm-Option -question "Do you want to clear all APP files? You will need to download symbols for all projects.") {
-        Get-ChildItem -Path $workspaceRootPath.FullName -Include *.app -Recurse | Remove-Item
+        foreach ($appPath in $workspaceJSON.folders.path) {
+            # Read app.json
+            if (-not $appPath.Contains('\')) {
+                $appPath = Join-Path $workspaceRootPath.Fullname $appPath
+            }
+
+            # Confirm it is an app folder
+            if (Test-Path $(Join-Path $appPath "app.json")) {
+                Get-ChildItem -Path $appPath -Include *.app -Recurse | Remove-Item
+            }
+        }
         Write-Host "APP files cleared." -ForegroundColor Blue
     }
 }

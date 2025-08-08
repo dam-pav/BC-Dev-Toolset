@@ -7,15 +7,16 @@ $scriptRoot = (get-item $PSScriptRoot).Parent
 # Make sure Docker is running
 Test-DockerProcess
 
-# Not exactly related, but can help when switching between builds with different names. Expect prompts.
-Clear-Artifacts -scriptPath $scriptRoot
-
+# Initialize context
 $settingsJSON = @{}
 $workspaceJSON = @{}
 Initialize-Context `
     -scriptPath $scriptRoot  `
     -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
+
+# Not exactly related, but can help when switching between builds with different names. Expect prompts.
+Clear-Artifacts -scriptPath $scriptRoot -workspaceJSON $workspaceJSON
 
 # Find the first extension setup. Assume all extensions require the same platform version.
 $appJSON = @{}
