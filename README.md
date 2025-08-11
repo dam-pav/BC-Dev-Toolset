@@ -25,6 +25,8 @@ The purpose of this toolset is the management of local Windows or Widows Server 
 
 It relies on information about your project/app that is already available from *app.json* or *repo.code-workspace*. Only the information that is not already there needs to be added to toolset's own settings. Part of the toolset's setting are developer's own preferences, while other, such as the locations of test environments, can be made available from within the repository, so that developers don't have to manage those manually.
 
+> The information about the required container artifact version is retrieved from the first app and its app.json. The relevant element is "application". If you manage this value manually, make sure you don't fiddle with the "platform" element as well. The "platform" element informs your environment about which symbols to download and the app versions are not always aligned with the container (platform) version. In fact, more usually than not they contain older versions that had no reason to be updated. The chief example is the System app which is not realeased as often as other apps.
+
 It doesn't have an output or an artifact. The solution is the repository itself, with its ability to be integrated into projects. You can sever its tie to the origin by deleting the .git folder - that will prevent it from keeping itself up to date if that is what you want.
 
 This toolset is a work in continuous progress. Any usage is subject to a MIT license as specified in the repository.
