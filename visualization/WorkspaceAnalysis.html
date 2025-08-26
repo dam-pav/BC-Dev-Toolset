@@ -107,20 +107,43 @@ fetch('./data.json')
     })
     .catch(error => console.error('Error loading JSON:', error));
     function visualizeRangePool(data, newPoolRange) {
-        // Normalize pool_range and range values
-        var normalize = function (value, min, max, normalizedMin, normalizedMax) {
-            return (value - min) / (max - min) * (normalizedMax - normalizedMin) + normalizedMin;
-        };
+        // Compute clipped, normalized positions using inclusive ranges to avoid tiny gaps
+        var poolMin = newPoolRange.from;
+        var poolMax = newPoolRange.to;
+        // Treat IDs as discrete inclusive values; poolCount is used for inclusive width mapping
+        var poolCount = (poolMax - poolMin) + 1;
 
-        var normalizedPoolStart = 0;
-        var normalizedPoolEnd = 100;
-        var normalizedRanges = data.ranges.map(range => ({
-            from: range.from,
-            to: range.to,
-            name: range.name,
-            normalizedFrom: normalize(range.from, newPoolRange.from, newPoolRange.to, normalizedPoolStart, normalizedPoolEnd),
-            normalizedTo: normalize(range.to, newPoolRange.from, newPoolRange.to, normalizedPoolStart, normalizedPoolEnd)
-        }));
+        // Helper to clamp a value
+        var clamp = function (val, min, max) { return Math.max(min, Math.min(max, val)); };
+
+        // Build normalized range descriptors only for ranges that intersect the pool
+        var normalizedRanges = data.ranges
+            .map(function(range) {
+                var clippedFrom = Math.max(range.from, poolMin);
+                var clippedTo = Math.min(range.to, poolMax);
+                if (clippedTo < clippedFrom) {
+                    return null; // no intersection
+                }
+
+                // Position in percent (0..100). Use inclusive width so back-to-back ranges butt without gaps.
+                var xPct = 100 * (clippedFrom - poolMin) / poolCount;
+                var wPct = 100 * (clippedTo - clippedFrom + 1) / poolCount;
+
+                // Clamp to stay fully within the pool ribbon
+                xPct = clamp(xPct, 0, 100);
+                wPct = clamp(wPct, 0, 100 - xPct);
+
+                return {
+                    from: range.from,
+                    to: range.to,
+                    name: range.name,
+                    clippedFrom: clippedFrom,
+                    clippedTo: clippedTo,
+                    xPct: xPct,
+                    wPct: wPct
+                };
+            })
+            .filter(function(d) { return d !== null && d.wPct > 0; });
 
         // Clear existing SVG content
         d3.select("#visualization svg").remove();
@@ -133,9 +156,9 @@ fetch('./data.json')
 
         // Create a base ribbon
         svg.append("rect")
-            .attr("x", normalizedPoolStart + "%")
+            .attr("x", 0 + "%")
             .attr("y", 0)
-            .attr("width", normalizedPoolEnd - normalizedPoolStart + "%")
+            .attr("width", 100 + "%")
             .attr("height", 50) // Adjust the height as needed
             .attr("fill", "lightgreen");
 
@@ -147,23 +170,24 @@ fetch('./data.json')
         .data(normalizedRanges)
         .enter().append("rect")
         .attr("class", "range")
-        .attr("x", d => d.normalizedFrom + "%")
+        .attr("x", function(d) { return d.xPct.toFixed(6) + "%"; })
         .attr("y", 0)
-        .attr("width", d => d.normalizedTo - d.normalizedFrom + "%")
+        .attr("width", function(d) { return d.wPct.toFixed(6) + "%"; })
         .attr("height", 50) // Adjust the height as needed
         .attr("fill", "red")
         .style("opacity", 0.33) // Adjust the opacity as needed for intensity
         .on("mouseover", function(d) {
-    var event = d3.event; // Use d3.event to get the current event in D3 v5
-    tooltip.style("visibility", "visible")
-           .text(`${d.name}: ${d.from}-${d.to}`)
-           .style("top", (event.pageY - 10) + "px")
-           .style("left",(event.pageX + 10) + "px");
+            var event = d3.event; // Use d3.event to get the current event in D3 v5
+            var label = `${d.name}: ${d.clippedFrom}-${d.clippedTo}`;
+            tooltip.style("visibility", "visible")
+                   .text(label)
+                   .style("top", (event.pageY - 10) + "px")
+                   .style("left",(event.pageX + 10) + "px");
         })
         .on("mousemove", function() {
             var event = d3.event; // Again, use d3.event here
             tooltip.style("top", (event.pageY - 10) + "px")
-                .style("left", (event.pageX + 10) + "px");
+                   .style("left", (event.pageX + 10) + "px");
         })
         .on("mouseout", function() {
             tooltip.style("visibility", "hidden");
