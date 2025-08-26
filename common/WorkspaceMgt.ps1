@@ -343,6 +343,10 @@ function Confirm-Option {
 function Format-Json([Parameter(Mandatory, ValueFromPipeline)][String] $json) {
     $indent = 0;
     ($json -Split "`n" | ForEach-Object {
+        if (($_.TrimEnd().Substring(0, $_.TrimEnd().Length - 1)) -match '[\{\[]') {
+            # This line contains but does not end with [ or {, increment the indentation level
+            $indent++
+        }
         if ($_ -match '[\}\]]\s*,?\s*$') {
             # This line ends with ] or }, decrement the indentation level
             $indent--
@@ -414,6 +418,44 @@ function Build-Settings {
         Write-Host "$settingsPath created." -ForegroundColor Green
         }
 }
+function Select-IndexFromList {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $Title,
+        [Parameter(Mandatory=$true)]
+        [array] $Options,
+        [Parameter(Mandatory=$false)]
+        [int] $DefaultIndex = 0
+    )
+
+    if (-not $Options -or $Options.Count -eq 0) {
+        throw "No options provided for selection."
+    }
+
+    if ($DefaultIndex -lt 0 -or $DefaultIndex -ge $Options.Count) {
+        $DefaultIndex = 0
+    }
+
+    Write-Host ""; Write-Host $Title -ForegroundColor Blue
+    for ($i = 0; $i -lt $Options.Count; $i++) {
+        $marker = if ($i -eq $DefaultIndex) { '*' } else { ' ' }
+        Write-Host ("[{0}] {1} {2}" -f ($i+1), $Options[$i], $marker)
+    }
+
+    while ($true) {
+        $prompt = "Select an option [1..{0}] (Enter={1}): " -f $Options.Count, ($DefaultIndex+1)
+        $input = Read-Host -Prompt $prompt
+        if ([string]::IsNullOrWhiteSpace($input)) { return $DefaultIndex }
+
+        $n = 0
+        if ([int]::TryParse($input, [ref]$n)) {
+            if ($n -ge 1 -and $n -le $Options.Count) {
+                return ($n - 1)
+            }
+        }
+        Write-Host "Invalid selection. Please enter a number between 1 and $($Options.Count)." -ForegroundColor Red
+    }
+}
 function Initialize-Context {
     Param (
         [Parameter(Mandatory=$true)]
@@ -433,10 +475,21 @@ function Initialize-Context {
     
     # Check if there are any matching files
     if ($filteredFiles.Count -gt 0) {
-        # Read *.code-workspace
-        $workspaceJSON.Value = Get-Content -Path $filteredFiles[0].FullName | ConvertFrom-Json
-        $workspaceName = $filteredFiles[0].Name
-        $workspaceName = $workspaceName -split '\.' | Select-Object -First 1
+        # If multiple workspace files exist, let the user pick which one to use
+        $selectedFile = $null
+        if ($filteredFiles.Count -eq 1) {
+            $selectedFile = $filteredFiles[0]
+        } else {
+            $options = @()
+            foreach ($f in $filteredFiles) { $options += $f.Name }
+            $idx = Select-IndexFromList -Title "Multiple workspace files found. Please select one:" -Options $options -DefaultIndex 0
+            $selectedFile = $filteredFiles[$idx]
+        }
+
+        # Read selected *.code-workspace
+    $workspaceJSON.Value = Get-Content -Path $selectedFile.FullName | ConvertFrom-Json
+    $workspaceName = $selectedFile.Name
+    $workspaceName = $workspaceName -split '\.' | Select-Object -First 1
     } else {
         # throw "No $filterExtension files found in the folder."
         # there IS no workspace
@@ -1138,9 +1191,19 @@ function Update-Workspace {
         Write-Host "Workspace definition not found, creating workspace $workspaceName." -ForegroundColor Gray
         $workspacePath = $workspaceName + $filterExtension
     } else {
-        # Read *.code-workspace
-        $workspaceJSON = Get-Content -Path $filteredFiles[0].FullName | ConvertFrom-Json
-        $workspacePath = $filteredFiles[0].Name
+        # Read *.code-workspace; if multiple exist, let the user choose
+        $selectedFile = $null
+        if ($filteredFiles.Count -eq 1) {
+            $selectedFile = $filteredFiles[0]
+        } else {
+            $options = @()
+            foreach ($f in $filteredFiles) { $options += $f.Name }
+            $idx = Select-IndexFromList -Title "Multiple workspace files found. Please select one:" -Options $options -DefaultIndex 0
+            $selectedFile = $filteredFiles[$idx]
+        }
+
+        $workspaceJSON = Get-Content -Path $selectedFile.FullName | ConvertFrom-Json
+        $workspacePath = $selectedFile.Name
         $workspaceName = $workspacePath -split '\.' | Select-Object -First 1
         Write-Host "Workspace found: $workspaceName" -ForegroundColor Gray
     }
