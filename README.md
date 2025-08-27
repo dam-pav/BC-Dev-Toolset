@@ -174,7 +174,7 @@ Starting a new workspace and including the toolset should be easy.
    You can create the workspace from VS Code, but creating it manually works just as well. You can also skip this step in which case the file will be create automatically by the toolset initialization.
 2. Acquire a clone of the BC-Dev-Toolset repository.
 
-   1. The easiest way is to get ***[initBCDevToolset.ps1](https://github.com/dam-pav/BC-Dev-Toolset/blob/main/common/initBCDevToolset.ps1)***, save it to the root of your repository (beside the *code-workspace* file) and run it with Powershell. This script executes substeps *ii* through *iv* for you. You might run into some trouble with the execution policy, since the script is not digitally signed (might happen in near future). In such event please bypass the policy by running:
+   1. The easiest way is to get ***[initBCDevToolset.ps1](initBCDevToolset.ps1)***, save it to the root of your repository (beside the *code-workspace* file) and run it with Powershell. This script executes substeps *ii* through *iv* for you. You might run into some trouble with the execution policy, since the script is not digitally signed (might happen in near future). In such event please bypass the policy by running:
 
       ```
       Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
