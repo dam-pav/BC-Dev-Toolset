@@ -973,6 +973,11 @@ function New-DockerContainer {
                 $Parameters.runSandboxAsOnPrem = $true
             }
 
+        if (Confirm-Option -question "Do you want to perform a complete pull of all artifacts? This will take longer time but ensure you have the latest base image and artifacts." -defaultYes:$false) {
+            $Parameters.alwaysPull = $true
+            Write-Host "All artifacts will be pulled." -ForegroundColor Blue
+        }
+
         if ($settingsJSON.licenseFile -ne "") {
             $Parameters.licenseFile = $settingsJSON.licenseFile
         }
