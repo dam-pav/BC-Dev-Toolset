@@ -1370,3 +1370,38 @@ function Build-Headers
     $h = @{Authorization=("Basic {0}" -f $ba);'Accept-Encoding'='gzip,deflate'}   
     $h
 }
+
+function Show-OperationMenu {
+    param(
+        [string]$ScriptPath = $PSScriptRoot
+    )
+    
+    $operations = 'operations'
+    $visualization = 'visualization'
+
+    # Operation list
+    $menuOptions = @(
+        @{ Text = "Update BcContainerHelper module"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateBcContainerHelper.ps1' }
+        @{ Text = "Clear App and translation artifacts"; ScriptPath = Join-Path $ScriptPath $operations 'ClearAppArtifacts.ps1' }
+        @{ Text = "Create/Overwrite Docker container based on the first app.json found in the workspace"; ScriptPath = Join-Path $ScriptPath $operations 'NewDockerContainer.ps1' }
+        @{ Text = "Update launch.json files in all apps in the workspace"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateLaunchJson.ps1' }
+        @{ Text = "Update license files in all containers"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateBcLicenseContainer.ps1' }
+        @{ Text = "Update server configuration in all containers"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateBcContainerServerConfiguration.ps1' }
+        #@{ Text = "Install fonts from the configuration to the existing container"; ScriptPath = Join-Path $ScriptPath $operations 'InstallFontsToContainer.ps1' }
+        @{ Text = "Publish dependencies from the configuration to the existing container"; ScriptPath = Join-Path $ScriptPath $operations 'PublishDependencies2Docker.ps1' }
+        @{ Text = "Publish dependencies from the configuration to test environments"; ScriptPath = Join-Path $ScriptPath $operations 'PublishDependencies2Test.ps1' }
+        @{ Text = "Publish all apps in the workspace to Docker container"; ScriptPath = Join-Path $ScriptPath $operations 'PublishApps2Docker.ps1' }
+        @{ Text = "Publish all apps in the workspace to production environments"; ScriptPath = Join-Path $ScriptPath $operations 'PublishApps2Production.ps1' }
+        @{ Text = "Publish all apps in the workspace to test environments"; ScriptPath = Join-Path $ScriptPath $operations 'PublishApps2Test.ps1' }
+        @{ Text = "Create runtime packages for all apps in the workspace"; ScriptPath = Join-Path $ScriptPath $operations 'CreateRuntimePackage.ps1' }
+        @{ Text = "Publish runtime packages (stored) to the existing container"; ScriptPath = Join-Path $ScriptPath $operations 'PublishRuntimeApps2Docker.ps1' }
+        @{ Text = "Publish runtime packages (stored) to production environments"; ScriptPath = Join-Path $ScriptPath $operations 'PublishRuntimeApps2Production.ps1' }
+        @{ Text = "Publish runtime packages (stored) to test environments"; ScriptPath = Join-Path $ScriptPath $operations 'PublishRuntimeApps2Test.ps1' }
+        @{ Text = "Unpublish all workspace apps from Docker container"; ScriptPath = Join-Path $ScriptPath $operations 'UnpublishDockerApps.ps1' }
+        @{ Text = "Unpublish all workspace apps from test environments"; ScriptPath = Join-Path $ScriptPath $operations 'UnpublishTestApps.ps1' }
+        @{ Text = "Prepare object id range data for visualization"; ScriptPath = Join-Path $ScriptPath $visualization 'DataUpdate.ps1' }
+    )
+
+    # Call the function with custom options
+    Show-Menu -Title "Select a script to run [press Enter to select, ESC to abort selection]:" -Options $menuOptions
+}
