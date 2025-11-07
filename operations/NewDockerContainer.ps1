@@ -18,6 +18,12 @@ Initialize-Context `
 # Not exactly related, but can help when switching between builds with different names. Expect prompts.
 Clear-Artifacts -scriptPath $scriptRoot -workspaceJSON $workspaceJSON
 
+# Ask whether to pull full artifacts
+$pullFullArtifact = (Confirm-Option -question "Do you want to perform a complete pull of all artifacts? This will take longer but ensure you have the latest base image and artifacts. Do this if your previous pull attempt resulted in errors during container deployment, such as version mismatches between data and components." -defaultYes:$false)
+if ($pullFullArtifact) {
+    Write-Host "All artifacts will be pulled." -ForegroundColor Blue
+}
+
 # Find the first extension setup. Assume all extensions require the same platform version.
 $appJSON = @{}
 foreach ($appPath in $workspaceJSON.folders.path) {
@@ -42,7 +48,8 @@ $success = New-DockerContainer `
     -scriptPath $scriptRoot `
     -appJSON $appJSON `
     -settingsJSON $settingsJSON `
-    -selectArtifact $selectArtifact
+    -selectArtifact $selectArtifact `
+    -pullFullArtifact $pullFullArtifact
 
 
 if ($success -eq $true) {

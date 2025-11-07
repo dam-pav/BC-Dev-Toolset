@@ -814,7 +814,9 @@ function New-DockerContainer {
         [Parameter(Mandatory=$true)]
         [PSObject] $settingsJSON,
         [Parameter(Mandatory=$true)]
-        [string] $selectArtifact
+        [string] $selectArtifact,
+        [Parameter(Mandatory=$true)]
+        [bool] $pullFullArtifact
     )
     
     $configurationFound = $false
@@ -973,9 +975,8 @@ function New-DockerContainer {
                 $Parameters.runSandboxAsOnPrem = $true
             }
 
-        if (Confirm-Option -question "Do you want to perform a complete pull of all artifacts? This will take longer but ensure you have the latest base image and artifacts. Do this if your previous pull attempt resulted in errors during container deployment, such as version mismatches between data and components." -defaultYes:$false) {
+        if ($pullFullArtifact) {
             $Parameters.alwaysPull = $true
-            Write-Host "All artifacts will be pulled." -ForegroundColor Blue
         }
 
         if ($settingsJSON.licenseFile -ne "") {
