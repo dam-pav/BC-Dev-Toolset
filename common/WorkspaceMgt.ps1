@@ -980,7 +980,12 @@ function New-DockerContainer {
         }
 
         if ($settingsJSON.licenseFile -ne "") {
-            $Parameters.licenseFile = $settingsJSON.licenseFile
+            if (-not (Test-Path -Path $settingsJSON.licenseFile)) {
+                Write-Host "WARNING: The license file '$($settingsJSON.licenseFile)' could not be found. Verify and install the license as a separate step." -ForegroundColor Red
+            }
+            else {
+                $Parameters.licenseFile = $settingsJSON.licenseFile
+            }
         }
 
         if ($configuration.includeTestToolkit -eq 'true') {
