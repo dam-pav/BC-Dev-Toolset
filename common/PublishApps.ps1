@@ -75,6 +75,7 @@ function Publish-Dependencies {
                         skipVerification = $true
                         ignoreIfAppExists = $true
                         install = $true
+                        upgrade = $true
                         scope = 'Tenant'
                         sync = $true
                     }
