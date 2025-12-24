@@ -39,9 +39,10 @@ You are also welcome to apply as contributor. As a contributor you will implicit
 
 1. A **Windows Pro** or **Windows Enterprise** edition.
    Docker requires requires Hyper-V and a feature named Containers to work on Windows. Windows Home does not provide these features. Make sure your BIOS has virtualization enabled. Hyper-V feature might appear to be enabled, but won't work without proper HW support.
-2. If you don't have access to any of the above, you won't be able to develop for BC using Docker. You might still find scripts that are not related to Docker useful for instance, if you only use actual environments.Try the option that works for you
-3. 1. **Docker Desktop**.
+  If you don't have access to any of the above, you won't be able to develop for BC using Docker. You might still find scripts that are not related to Docker useful, for instance, if you only use actual environments.
+2. Try the option that works for you
 
+   1. **Docker Desktop**.
       ```
       winget install -e --id Docker.DockerDesktop
       ```
@@ -91,7 +92,7 @@ You are also welcome to apply as contributor. As a contributor you will implicit
       ```
 
       Make sure your installation folder was added to the PATH environment variable successfully. If the variable is longer then than 1024 characters it might misbehave despite the official limit of 32,767 characters, depending how it is used. SET and SETX truncate the var to 1024 characters, I do not recommend this method. Other methods might allow up to 2048 characters. If you can open your terminal and run 'docker' from any path other that from where you installed it, the you are good to go. Restart your PC.
-4. **GIT**.
+5. **GIT**.
    You will need CLI for git. A good way to install it on a Windows PC is using WinGet. If you don't have WinGet yet, check [these GitHub repository releases](https://github.com/microsoft/winget-cli/releases/). Install using msixbundle.
 
    ```
@@ -99,14 +100,14 @@ You are also welcome to apply as contributor. As a contributor you will implicit
    ```
 
    After the installation is done, close your PS terminal sessions and start a new to get access to git.
-5. **Visual Studio Code**.
+6. **Visual Studio Code**.
 
    ```
    winget install -e --id Microsoft.VisualStudioCode
    ```
 
    If you are not running Docker Desktop (or even if you are) I advise using the VS Code plugin named 'Container Tools', released by Microsoft.
-6. **BcContainerHelper**.
+7. **BcContainerHelper**.
 
    None of this would be possible without the BcContainerHelper. Hats off to Freddy.
 
