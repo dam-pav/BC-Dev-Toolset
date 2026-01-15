@@ -13,12 +13,29 @@ function Publish-Dependencies {
     $filterExtension = ".app"  # Replace with the file extension you want to filter by
     $appList = @()
     
-    if ($settingsJSON.dependenciesPath -ne '') {
-        # List all files in the folder and filter by extension
-        $filteredFiles = Get-ChildItem -Path $settingsJSON.dependenciesPath | Where-Object { $_.Extension -eq $filterExtension }
-        foreach ($appFile in $filteredFiles) {
-            Write-Host "Adding '$appFile' to deployment list." -ForegroundColor Gray
-            $appList += $appFile.FullName
+    # Support both legacy dependenciesPath (single string) and new dependenciesPaths (array)
+    $pathsToProcess = @()
+    
+    # Add paths from dependenciesPaths array if it exists
+    if ($null -ne $settingsJSON.dependenciesPaths -and $settingsJSON.dependenciesPaths.Count -gt 0) {
+        $pathsToProcess += $settingsJSON.dependenciesPaths
+    }
+    
+    # Add legacy dependenciesPath if it exists
+    if ($settingsJSON.dependenciesPath -ne '' -and $null -ne $settingsJSON.dependenciesPath) {
+        $pathsToProcess += $settingsJSON.dependenciesPath
+    }
+    
+    foreach ($dependencyPath in $pathsToProcess) {
+        if (Test-Path $dependencyPath) {
+            # List all files in the folder and filter by extension
+            $filteredFiles = Get-ChildItem -Path $dependencyPath | Where-Object { $_.Extension -eq $filterExtension }
+            foreach ($appFile in $filteredFiles) {
+                Write-Host "Adding '$appFile' to deployment list." -ForegroundColor Gray
+                $appList += $appFile.FullName
+            }
+        } else {
+            Write-Host "Dependency path '$dependencyPath' does not exist. Skipping." -ForegroundColor Yellow
         }
     }
     
