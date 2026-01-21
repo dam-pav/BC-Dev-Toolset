@@ -27,11 +27,15 @@ function Publish-Dependencies {
     }
     
     foreach ($dependencyPath in $pathsToProcess) {
+        Write-Host "Looking for files in '$dependencyPath'." -ForegroundColor Blue
         if (Test-Path $dependencyPath) {
             # List all files in the folder and filter by extension
             $filteredFiles = Get-ChildItem -Path $dependencyPath | Where-Object { $_.Extension -eq $filterExtension }
+            if ($filteredFiles.Count -eq 0) {
+                Write-Host "  No dependency files found." -ForegroundColor Red
+            }
             foreach ($appFile in $filteredFiles) {
-                Write-Host "Adding '$appFile' to deployment list." -ForegroundColor Gray
+                Write-Host "  Adding '$appFile' to deployment list." -ForegroundColor Gray
                 $appList += $appFile.FullName
             }
         } else {
