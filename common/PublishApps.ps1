@@ -28,6 +28,18 @@ function Publish-Dependencies {
     
     foreach ($dependencyPath in $pathsToProcess) {
         Write-Host "Looking for files in '$dependencyPath'." -ForegroundColor Blue
+        # if the path is a zip file, verify that it exists then add it directly
+        if ($dependencyPath.ToLower().EndsWith('.zip')) {
+            if (Test-Path $dependencyPath) {
+                Write-Host "  Adding zip file '$dependencyPath' to deployment list." -ForegroundColor Gray
+                $appList += $dependencyPath
+            } else {
+                Write-Host "  Zip file '$dependencyPath' does not exist. Skipping." -ForegroundColor Yellow
+            }
+            continue
+        }
+
+        # if the path is a folder, process all files in it
         if (Test-Path $dependencyPath) {
             # List all files in the folder and filter by extension
             $filteredFiles = Get-ChildItem -Path $dependencyPath | Where-Object { $_.Extension -eq $filterExtension }
