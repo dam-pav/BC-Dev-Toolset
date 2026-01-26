@@ -1324,6 +1324,11 @@ function Invoke-Tests {
                     credential = (New-Object System.Management.Automation.PSCredential ($configuration.admin, (ConvertTo-SecureString -String $configuration.password -AsPlainText -Force)))
                     detailed = $true
                 }
+                # if $configuration.testSuite has a value, add it to the parameters
+                if ($configuration.testSuite -and $configuration.testSuite -ne "") {
+                    $params.testSuite = $configuration.testSuite
+                }                    
+
                 Write-Host ""
                 Write-Host "Running " -ForegroundColor green -NoNewline
                 Write-Host "Run-TestsInBcContainer" -ForegroundColor Blue -NoNewline
