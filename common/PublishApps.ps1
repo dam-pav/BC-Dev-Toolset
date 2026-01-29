@@ -1,4 +1,33 @@
 
+function Test-BcContainerTenantAccessible {
+    Param(
+        [Parameter(Mandatory=$true)]
+        [string] $containerName,
+        [int] $maxAttempts = 12,
+        [int] $delaySeconds = 10
+    )
+
+    if (-not $containerName) {
+        Write-Host "No container name provided to Test-BcContainerTenantAccessible." -ForegroundColor Yellow
+        return $false
+    }
+
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            Get-BcContainerAppInfo -containerName $containerName -ErrorAction Stop | Out-Null
+            if ($attempt -gt 1) { Write-Host "Container '$containerName' became accessible after $attempt attempt(s)." -ForegroundColor Green }
+            return $true
+        } catch {
+            $msg = $_.Exception.Message
+            Write-Host "Attempt $attempt/${maxAttempts}: container tenant check failed: $msg" -ForegroundColor Yellow
+            if ($attempt -lt $maxAttempts) { Start-Sleep -Seconds $delaySeconds }
+        }
+    }
+
+    Write-Host "Container tenant for '$containerName' did not become accessible after $maxAttempts attempts." -ForegroundColor Red
+    return $false
+}
+
 function Publish-Dependencies {
     Param (
         [Parameter(Mandatory=$true)]
@@ -112,6 +141,14 @@ function Publish-Dependencies {
                         scope = 'Tenant'
                         sync = $true
                     }
+                    
+                    # Verify tenant/environment accessibility before attempting publish
+                    Write-Host "Waiting for tenant/environment to become accessible before deploying to '$($configuration.name)'." -ForegroundColor Yellow
+                    if (-not (Test-BcContainerTenantAccessible -containerName $configuration.container)) {
+                        Write-Host "Skipping deployment to '$($configuration.container)' because tenant/environment is not accessible." -ForegroundColor Yellow
+                        break
+                    }
+
                     Write-Host ""
                     Write-Host "Running " -ForegroundColor green -NoNewline
                     Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
@@ -241,6 +278,13 @@ function Publish-Apps {
                     }
                 }
                 'Container' {
+                    # Verify tenant/environment accessibility before attempting publish
+                    Write-Host "Waiting for tenant/environment to become accessible before deploying to '$($configuration.name)'." -ForegroundColor Yellow
+                    if (-not (Test-BcContainerTenantAccessible -containerName $configuration.container)) {
+                        Write-Host "Skipping deployment to '$($configuration.container)' because tenant/environment is not accessible." -ForegroundColor Yellow
+                        break
+                    }
+
                     $params = @{
                         containerName = $configuration.container
                         appFile = $appList
@@ -249,6 +293,7 @@ function Publish-Apps {
                         scope = 'Tenant'
                         sync = $true
                     }
+                    
                     Write-Host ""
                     Write-Host "Running " -ForegroundColor green -NoNewline
                     Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
