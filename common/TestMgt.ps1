@@ -185,7 +185,7 @@ function Invoke-PageScriptTests {
             "-ResultDir", $testResultsPath
         )
 
-        if ($settingsJSON.headedPageScriptTest) {
+        if ($settingsJSON.pageScriptTestHeaded) {
             $npxArgs += "-Headed"
         }
 

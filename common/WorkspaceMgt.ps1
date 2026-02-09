@@ -381,7 +381,7 @@ function Build-Settings {
         $defaultSettings | Add-Member -MemberType NoteProperty -Name dependenciesPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name recordingsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestResultsPath -Value ""
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name headedPageScriptTest -Value "false"
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestHeaded -Value "false"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name shortcuts -Value "None"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
 
