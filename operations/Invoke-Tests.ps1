@@ -2,6 +2,7 @@ Clear-Host
 
 $scriptRoot = (get-item $PSScriptRoot).Parent
 . $scriptRoot/common/WorkspaceMgt.ps1
+. $scriptRoot/common/TestMgt.ps1
 
 # Make sure Docker is running
 Test-DockerProcess
