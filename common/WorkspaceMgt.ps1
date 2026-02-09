@@ -379,6 +379,9 @@ function Build-Settings {
         $defaultSettings | Add-Member -MemberType NoteProperty -Name certificateFile -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name packageOutputPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name dependenciesPath -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name recordingsPath -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestResultsPath -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name headedPageScriptTest -Value "false"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name shortcuts -Value "None"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
 
@@ -1389,6 +1392,7 @@ function Show-OperationMenu {
     # Operation list
     $menuOptions = @(
         @{ Text = "Run tests in all containers"; ScriptPath = Join-Path $ScriptPath $operations 'Invoke-Tests.ps1' }
+        @{ Text = "Run page script tests"; ScriptPath = Join-Path $ScriptPath $operations 'Invoke-PageScriptTests.ps1' }
         @{ Text = "Update BcContainerHelper module"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateBcContainerHelper.ps1' }
         @{ Text = "Clear App and translation artifacts"; ScriptPath = Join-Path $ScriptPath $operations 'ClearAppArtifacts.ps1' }
         @{ Text = "Create/Overwrite Docker container based on the first app.json found in the workspace"; ScriptPath = Join-Path $ScriptPath $operations 'NewDockerContainer.ps1' }
