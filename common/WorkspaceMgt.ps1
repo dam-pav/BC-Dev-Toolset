@@ -1393,6 +1393,7 @@ function Show-OperationMenu {
     $menuOptions = @(
         @{ Text = "Run tests in all containers"; ScriptPath = Join-Path $ScriptPath $operations 'Invoke-Tests.ps1' }
         @{ Text = "Run page script tests"; ScriptPath = Join-Path $ScriptPath $operations 'Invoke-PageScriptTests.ps1' }
+        @{ Text = "Show BcContainerHelper versions (installed and available)"; ScriptPath = Join-Path $ScriptPath $operations 'ShowBcContainerHelperVersions.ps1' }
         @{ Text = "Update BcContainerHelper module"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateBcContainerHelper.ps1' }
         @{ Text = "Clear App and translation artifacts"; ScriptPath = Join-Path $ScriptPath $operations 'ClearAppArtifacts.ps1' }
         @{ Text = "Create/Overwrite Docker container based on the first app.json found in the workspace"; ScriptPath = Join-Path $ScriptPath $operations 'NewDockerContainer.ps1' }
