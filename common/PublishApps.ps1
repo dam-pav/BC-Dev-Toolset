@@ -1,4 +1,33 @@
 
+function Test-BcContainerTenantAccessible {
+    Param(
+        [Parameter(Mandatory=$true)]
+        [string] $containerName,
+        [int] $maxAttempts = 12,
+        [int] $delaySeconds = 10
+    )
+
+    if (-not $containerName) {
+        Write-Host "No container name provided to Test-BcContainerTenantAccessible." -ForegroundColor Yellow
+        return $false
+    }
+
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            Get-BcContainerAppInfo -containerName $containerName -ErrorAction Stop | Out-Null
+            if ($attempt -gt 1) { Write-Host "Container '$containerName' became accessible after $attempt attempt(s)." -ForegroundColor Green }
+            return $true
+        } catch {
+            $msg = $_.Exception.Message
+            Write-Host "Attempt $attempt/${maxAttempts}: container tenant check failed: $msg" -ForegroundColor Yellow
+            if ($attempt -lt $maxAttempts) { Start-Sleep -Seconds $delaySeconds }
+        }
+    }
+
+    Write-Host "Container tenant for '$containerName' did not become accessible after $maxAttempts attempts." -ForegroundColor Red
+    return $false
+}
+
 function Publish-Dependencies {
     Param (
         [Parameter(Mandatory=$true)]
@@ -13,12 +42,45 @@ function Publish-Dependencies {
     $filterExtension = ".app"  # Replace with the file extension you want to filter by
     $appList = @()
     
-    if ($settingsJSON.dependenciesPath -ne '') {
-        # List all files in the folder and filter by extension
-        $filteredFiles = Get-ChildItem -Path $settingsJSON.dependenciesPath | Where-Object { $_.Extension -eq $filterExtension }
-        foreach ($appFile in $filteredFiles) {
-            Write-Host "Adding '$appFile' to deployment list." -ForegroundColor Gray
-            $appList += $appFile.FullName
+    # Support both legacy dependenciesPath (single string) and new dependenciesPaths (array)
+    $pathsToProcess = @()
+    
+    # Add paths from dependenciesPaths array if it exists
+    if ($null -ne $settingsJSON.dependenciesPaths -and $settingsJSON.dependenciesPaths.Count -gt 0) {
+        $pathsToProcess += $settingsJSON.dependenciesPaths
+    }
+    
+    # Add legacy dependenciesPath if it exists
+    if ($settingsJSON.dependenciesPath -ne '' -and $null -ne $settingsJSON.dependenciesPath) {
+        $pathsToProcess += $settingsJSON.dependenciesPath
+    }
+    
+    foreach ($dependencyPath in $pathsToProcess) {
+        Write-Host "Looking for files in '$dependencyPath'." -ForegroundColor Blue
+        # if the path is a zip file, verify that it exists then add it directly
+        if ($dependencyPath.ToLower().EndsWith('.zip')) {
+            if (Test-Path $dependencyPath) {
+                Write-Host "  Adding zip file '$dependencyPath' to deployment list." -ForegroundColor Gray
+                $appList += $dependencyPath
+            } else {
+                Write-Host "  Zip file '$dependencyPath' does not exist. Skipping." -ForegroundColor Yellow
+            }
+            continue
+        }
+
+        # if the path is a folder, process all files in it
+        if (Test-Path $dependencyPath) {
+            # List all files in the folder and filter by extension
+            $filteredFiles = Get-ChildItem -Path $dependencyPath | Where-Object { $_.Extension -eq $filterExtension }
+            if ($filteredFiles.Count -eq 0) {
+                Write-Host "  No dependency files found." -ForegroundColor Red
+            }
+            foreach ($appFile in $filteredFiles) {
+                Write-Host "  Adding '$appFile' to deployment list." -ForegroundColor Gray
+                $appList += $appFile.FullName
+            }
+        } else {
+            Write-Host "Dependency path '$dependencyPath' does not exist. Skipping." -ForegroundColor Yellow
         }
     }
     
@@ -79,6 +141,14 @@ function Publish-Dependencies {
                         scope = 'Tenant'
                         sync = $true
                     }
+                    
+                    # Verify tenant/environment accessibility before attempting publish
+                    Write-Host "Waiting for tenant/environment to become accessible before deploying to '$($configuration.name)'." -ForegroundColor Yellow
+                    if (-not (Test-BcContainerTenantAccessible -containerName $configuration.container)) {
+                        Write-Host "Skipping deployment to '$($configuration.container)' because tenant/environment is not accessible." -ForegroundColor Yellow
+                        break
+                    }
+
                     Write-Host ""
                     Write-Host "Running " -ForegroundColor green -NoNewline
                     Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
@@ -208,6 +278,13 @@ function Publish-Apps {
                     }
                 }
                 'Container' {
+                    # Verify tenant/environment accessibility before attempting publish
+                    Write-Host "Waiting for tenant/environment to become accessible before deploying to '$($configuration.name)'." -ForegroundColor Yellow
+                    if (-not (Test-BcContainerTenantAccessible -containerName $configuration.container)) {
+                        Write-Host "Skipping deployment to '$($configuration.container)' because tenant/environment is not accessible." -ForegroundColor Yellow
+                        break
+                    }
+
                     $params = @{
                         containerName = $configuration.container
                         appFile = $appList
@@ -216,6 +293,7 @@ function Publish-Apps {
                         scope = 'Tenant'
                         sync = $true
                     }
+                    
                     Write-Host ""
                     Write-Host "Running " -ForegroundColor green -NoNewline
                     Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline

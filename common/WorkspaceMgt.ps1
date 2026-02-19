@@ -379,6 +379,9 @@ function Build-Settings {
         $defaultSettings | Add-Member -MemberType NoteProperty -Name certificateFile -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name packageOutputPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name dependenciesPath -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name recordingsPath -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestResultsPath -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestHeaded -Value "false"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name shortcuts -Value "None"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
 
@@ -1306,36 +1309,6 @@ function Install-FontsToContainer {
     }
 }
 
-function Invoke-Tests {
-    Param (
-        [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON,
-        [Parameter(Mandatory=$true)]
-        [ValidateSet("Dev", "Test", "Production")]
-        [string] $targetType
-    )
-
-    foreach ($configuration in $($settingsJSON.configurations | Where-Object  { $_.targetType -eq $targetType })) {
-        Write-Host "Running tests on '$($configuration.name)'." -ForegroundColor Blue
-        switch ($configuration.serverType) {
-            'Container' {
-                $params = @{
-                    containerName = $configuration.container
-                    credential = (New-Object System.Management.Automation.PSCredential ($configuration.admin, (ConvertTo-SecureString -String $configuration.password -AsPlainText -Force)))
-                    detailed = $true
-                }
-                Write-Host ""
-                Write-Host "Running " -ForegroundColor green -NoNewline
-                Write-Host "Run-TestsInBcContainer" -ForegroundColor Blue -NoNewline
-                Write-Host ":" -ForegroundColor green
-                Run-TestsInBcContainer -ErrorAction SilentlyContinue @params
-            }
-            Default {
-                Write-Host "Cannot run tests on serverType $serverType." -ForegroundColor Blue
-            }
-        }
-    }
-}
 
 function Get-Symbols {
     Param(
@@ -1419,6 +1392,8 @@ function Show-OperationMenu {
     # Operation list
     $menuOptions = @(
         @{ Text = "Run tests in all containers"; ScriptPath = Join-Path $ScriptPath $operations 'Invoke-Tests.ps1' }
+        @{ Text = "Run page script tests"; ScriptPath = Join-Path $ScriptPath $operations 'Invoke-PageScriptTests.ps1' }
+        @{ Text = "Show BcContainerHelper versions (installed and available)"; ScriptPath = Join-Path $ScriptPath $operations 'ShowBcContainerHelperVersions.ps1' }
         @{ Text = "Update BcContainerHelper module"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateBcContainerHelper.ps1' }
         @{ Text = "Clear App and translation artifacts"; ScriptPath = Join-Path $ScriptPath $operations 'ClearAppArtifacts.ps1' }
         @{ Text = "Create/Overwrite Docker container based on the first app.json found in the workspace"; ScriptPath = Join-Path $ScriptPath $operations 'NewDockerContainer.ps1' }

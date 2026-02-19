@@ -1,3 +1,7 @@
 settings.json
 *.zip
 visualization/data.json
+package-lock.json
+package.json
+node_modules/
+test-results/.last-run.json

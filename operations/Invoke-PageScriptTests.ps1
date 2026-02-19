@@ -14,7 +14,7 @@ Initialize-Context `
     -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
 
-Invoke-Tests `
+Invoke-PageScriptTests `
     -settingsJSON $settingsJSON `
     -targetType "Dev"
 
