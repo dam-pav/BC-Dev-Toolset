@@ -112,7 +112,7 @@ function Write-LaunchJSON {
                 $launchJSON.configurations = $launchJSON.configurations + $newConfiguration
 			}
 
-			foreach ($configuration in $($launchJSON.configurations | Where-Object Name -eq $remoteConfigurationName)) {
+            foreach ($configuration in $($launchJSON.configurations | Where-Object Name -eq $remoteConfigurationName)) {
 				Write-Host "Replacing values for setup '$($configuration.name)'." -ForegroundColor Blue
                 switch ($remote.serverType) {
                     "Container" { 
@@ -189,7 +189,6 @@ function Write-LaunchJSON {
 				$configuration | Add-Member -MemberType NoteProperty -Name enableSqlInformationDebugger -Value $true
 				$configuration | Add-Member -MemberType NoteProperty -Name usePublicURLFromServer -Value $true
 				$configuration | Add-Member -MemberType NoteProperty -Name schemaUpdateMode -Value "ForceSync"
-				$configuration | Add-Member -MemberType NoteProperty -Name forceUpgrade -Value $true
 				$configuration | Add-Member -MemberType NoteProperty -Name breakOnRecordWrite -Value "None"
 				$configuration | Add-Member -MemberType NoteProperty -Name longRunningSqlStatementsThreshold -Value 500
 				$configuration | Add-Member -MemberType NoteProperty -Name numberOfSqlStatements -Value 10
