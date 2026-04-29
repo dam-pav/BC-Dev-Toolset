@@ -1385,6 +1385,13 @@ function Show-OperationMenu {
         [string]$ScriptPath = $PSScriptRoot
     )
     
+    # Verify PowerShell 7 or later
+    if ($PSVersionTable.PSVersion.Major -lt 7) {
+        Write-Host "Error: This function requires PowerShell 7 or later." -ForegroundColor Red
+        Write-Host "Current version: PowerShell $($PSVersionTable.PSVersion.Major).$($PSVersionTable.PSVersion.Minor)" -ForegroundColor Yellow
+        return
+    }
+    
     $operations = 'operations'
     $visualization = 'visualization'
 

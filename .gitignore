@@ -5,3 +5,4 @@ package-lock.json
 package.json
 node_modules/
 test-results/.last-run.json
+.altestrunner
