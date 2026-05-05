@@ -814,7 +814,8 @@ function Get-SqlBackupRootPath {
     Param (
         [Parameter(Mandatory=$true)]
         [string] $scriptPath,
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory=$false)]
+        [AllowEmptyString()]
         [string] $sqlBackupPath
     )
 
