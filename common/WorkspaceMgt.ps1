@@ -381,6 +381,7 @@ function Build-Settings {
         $defaultSettings | Add-Member -MemberType NoteProperty -Name recordingsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestResultsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestHeaded -Value "false"
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name shortcuts -Value "None"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
 
@@ -528,6 +529,9 @@ function Initialize-Context {
     # Add missing defaults
     if ($null -eq $settingsJSONvalue.shortcuts) {
         $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name shortcuts -Value "None"
+    }
+    if ($null -eq $settingsJSONvalue.sqlBackupPath) {
+        $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
     }
     
     # Add configurations from code-workspace
@@ -806,6 +810,79 @@ function Clear-Artifacts {
     }
 }
 
+function Get-SqlBackupRootPath {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [string] $sqlBackupPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($sqlBackupPath)) {
+        return ""
+    }
+
+    if ([System.IO.Path]::IsPathRooted($sqlBackupPath)) {
+        return $sqlBackupPath
+    }
+
+    return (Join-Path ((Get-Item $scriptPath).Parent).FullName $sqlBackupPath)
+}
+
+function Copy-SqlBackupSetToSharedFolder {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $containerName,
+        [Parameter(Mandatory=$true)]
+        [string] $backupRootPath,
+        [Parameter(Mandatory=$true)]
+        [string] $sharedFolderName
+    )
+
+    if (-not (Test-Path -Path $backupRootPath -PathType Container)) {
+        throw "The SQL backup folder '$backupRootPath' does not exist."
+    }
+
+    $backupFiles = @(Get-ChildItem -Path $backupRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue)
+    if ($backupFiles.Count -eq 0) {
+        throw "No .bak files found in SQL backup folder '$backupRootPath'."
+    }
+
+    $sharedBackupPath = Join-Path $hostHelperFolder "SqlBackupSets\$containerName\$sharedFolderName"
+    New-Item -ItemType Directory -Path $sharedBackupPath -Force | Out-Null
+    Get-ChildItem -Path $sharedBackupPath -Filter "*.bak" -File -ErrorAction SilentlyContinue |
+        Remove-Item -Force
+
+    foreach ($backupFile in $backupFiles) {
+        Copy-Item -Path $backupFile.FullName -Destination (Join-Path $sharedBackupPath $backupFile.Name) -Force
+    }
+
+    return $sharedBackupPath
+}
+
+function Test-HostsFileWritable {
+    $hostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"
+    try {
+        $file = [System.IO.File]::Open($hostsFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::ReadWrite)
+        $file.Close()
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Repair-HostsFilePermissions {
+    if (Test-HostsFileWritable) {
+        return $true
+    }
+
+    Write-Host "Hosts file is not writable. Running Check-BcContainerHelperPermissions -Fix to enable container hostname updates." -ForegroundColor Yellow
+    Check-BcContainerHelperPermissions -Fix
+
+    return (Test-HostsFileWritable)
+}
+
 function New-DockerContainer {
     Param (
         [bool] $testMode = $false,
@@ -965,13 +1042,18 @@ function New-DockerContainer {
         $Parameters = @{
             accept_eula = $true
             assignPremiumPlan = $true
-            updateHosts = $true
             containerName = $configuration.container
             credential = $credential
             auth = $auth
             artifactUrl = $artifactUrl
             shortcuts = $settingsJSON.shortcuts
             }
+
+        if (Repair-HostsFilePermissions) {
+            $Parameters.updateHosts = $true
+        } else {
+            throw "Hosts file is not writable after running Check-BcContainerHelperPermissions -Fix. Container hostname resolution is required, so create-container processing cannot continue."
+        }
 
         if ($configuration.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") {
                 $Parameters.runSandboxAsOnPrem = $true
@@ -995,6 +1077,26 @@ function New-DockerContainer {
         }
             
         if (-not $testmode) {
+            $backupRootPath = Get-SqlBackupRootPath `
+                -scriptPath $scriptPath `
+                -sqlBackupPath $settingsJSON.sqlBackupPath
+
+            if (-not [string]::IsNullOrWhiteSpace($backupRootPath) -and (Test-Path -Path $backupRootPath -PathType Container)) {
+                $backupFiles = @(Get-ChildItem -Path $backupRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue)
+                if ($backupFiles.Count -gt 0) {
+                    $Parameters.bakFolder = Copy-SqlBackupSetToSharedFolder `
+                        -containerName $configuration.container `
+                        -backupRootPath $backupRootPath `
+                        -sharedFolderName "NewContainer"
+
+                    Write-Host "New container will be initialized from SQL backup set '$backupRootPath'." -ForegroundColor Green
+                } else {
+                    Write-Host "No SQL backup set found. Container will use a fresh database." -ForegroundColor Gray
+                }
+            } else {
+                Write-Host "No SQL backup set found. Container will use a fresh database." -ForegroundColor Gray
+            }
+
             New-BcContainer @Parameters
         }
 
@@ -1406,6 +1508,8 @@ function Show-OperationMenu {
         @{ Text = "Update launch.json files in all apps in the workspace"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateLaunchJson.ps1' }
         @{ Text = "Update license files in all containers"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateBcLicenseContainer.ps1' }
         @{ Text = "Update server configuration in all containers"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateBcContainerServerConfiguration.ps1' }
+        @{ Text = "Create and export SQL backup set from Docker container"; ScriptPath = Join-Path $ScriptPath $operations 'BackupBcContainerDatabases.ps1' }
+        @{ Text = "Restore SQL backup set to Docker container"; ScriptPath = Join-Path $ScriptPath $operations 'RestoreBcContainerDatabases.ps1' }
         #@{ Text = "Install fonts from the configuration to the existing container"; ScriptPath = Join-Path $ScriptPath $operations 'InstallFontsToContainer.ps1' }
         @{ Text = "Publish dependencies from the configuration to the existing container"; ScriptPath = Join-Path $ScriptPath $operations 'PublishDependencies2Docker.ps1' }
         @{ Text = "Publish dependencies from the configuration to test environments"; ScriptPath = Join-Path $ScriptPath $operations 'PublishDependencies2Test.ps1' }
