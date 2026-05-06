@@ -1,5 +1,29 @@
 {
     "recommendations": [
-        "cweijan.vscode-office"
+        "cweijan.vscode-office",
+        "andrzejzwierzchowski.al-code-outline",
+        "davidfeldhoff.al-codeactions",
+        "ms-dynamics-smb.al",
+        "wbrakowski.al-navigator",
+        "martonsagi.al-object-designer",
+        "vjeko.vjeko-al-objid",
+        "jamespearson.al-test-runner",
+        "bartpermentier.al-toolbox",
+        "rasmus.al-var-helper",
+        "chunsen.bracket-select",
+        "ms-azuretools.vscode-containers",
+        "nwallace.createguid",
+        "martonsagi.nav-cside-color-theme",
+        "donjayamanne.githistory",
+        "eamodio.gitlens",
+        "nabsolutions.nab-al-tools",
+        "ryu1kn.partial-diff",
+        "ms-vscode.powershell",
+        "humao.rest-client",
+        "wayou.vscode-todo-highlight",
+        "gruntfuggly.todo-tree",
+        "vscode-icons-team.vscode-icons",
+        "waldo.crs-al-language-extension",
+        "rvanbekkum.xliff-sync"
     ]
 }
