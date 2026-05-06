@@ -42,6 +42,17 @@ You are also welcome to apply as contributor. As a contributor you will implicit
 1. A **Windows Pro** or **Windows Enterprise** edition.
    Docker requires requires Hyper-V and a feature named Containers to work on Windows. Windows Home does not provide these features. Make sure your BIOS has virtualization enabled. Hyper-V feature might appear to be enabled, but won't work without proper HW support.
    If you don't have access to any of the above, you won't be able to develop for BC using Docker. You might still find scripts that are not related to Docker useful, for instance, if you only use actual environments.
+
+   If your OS is suitable, you can proceed with the rest of the prerequisites. You can do it manually following the steps below or you can download and run ***[initPrerequisites.ps1](initPrerequisites.ps1)*** as administrator.
+
+   The script:
+   - installs the latest version of Docker Engine so if you for some reason prefer Docker Desktop you can use -SkipDockerInstall.
+   - configures the required Windows features, skip this step by using -SkipWindowsFeatures
+   - installs git, skip this step by using the switch -SkipGit
+   - installs BcContainerHelper, you can skip this step with -SkipBcContainerHelper
+
+   Visual Studio Code still needs to be installed manually. Or not, you might want to use an alternative fork: Cursor, Antigravity...
+
 2. Try the option that works for you
 
    1. **Docker Desktop**.
