@@ -7,7 +7,7 @@ If you are a BC developer, you might have to spend an inordinate amount of time 
 The things that the toolset will enable you to do once it is set up:
 
 * Creating exactly the containers your app needs based on what the apps are.
-* Backup and restore of container databases. If present, the backup is automatically used when creating a new container.
+* Backup and restore of container-compatible SQL backup sets. If present, the backup set is automatically used when creating a new container.
 * Executing tests, both "classic" and Page Scripting.
 * Handling of multi-app workspaces in Visual Studio Code.
 * Management of environment references.
@@ -29,7 +29,7 @@ It relies on information about your project/app that is already available from *
 
 > The information about the required container artifact version is retrieved from the first app and its app.json. The relevant element is "application". If you manage this value manually, make sure you don't fiddle with the "platform" element as well. The "platform" element informs your environment about which symbols to download and the app versions are not always aligned with the container (platform) version. In fact, more usually than not they contain older versions that had no reason to be updated. The chief example is the System app which is not released as often as other apps.
 
-It doesn't have an output or an artifact. The solution is the repository itself, with its ability to be integrated into projects. You can sever its tie to the origin by deleting the .git folder - that will prevent it from keeping itself up to date if that is what you want.
+This toolset's repository doesn't have an output or an artifact. The solution is the repository itself, with its ability to be integrated into projects. You can sever its tie to the origin by deleting the .git folder - that will prevent it from keeping itself up to date if that is what you want.
 
 This toolset is a work in continuous progress. Any usage is subject to a MIT license as specified in the repository.
 
@@ -41,18 +41,21 @@ You are also welcome to apply as contributor. As a contributor you will implicit
 
 1. A **Windows Pro** or **Windows Enterprise** edition.
    Docker requires requires Hyper-V and a feature named Containers to work on Windows. Windows Home does not provide these features. Make sure your BIOS has virtualization enabled. Hyper-V feature might appear to be enabled, but won't work without proper HW support.
-   If you don't have access to any of the above, you won't be able to develop for BC using Docker. You might still find scripts that are not related to Docker useful, for instance, if you only use actual environments.
+
+   If you don't have access to any of the above, you won't be able to develop for BC using Docker. You might still find scripts that are not related to Docker useful, for instance, if you only use "regular" environments without containers.
 
    If your OS is suitable, you can proceed with the rest of the prerequisites. You can do it manually following the steps below or you can download and run ***[initPrerequisites.ps1](initPrerequisites.ps1)*** as administrator.
 
+   If execution policy prevents the PowerShell script from starting, use the launcher instead: ***[initPrerequisites.bat](initPrerequisites.bat)***. You will need both the ps1 and the bat script.
+
    The script:
+
    - installs the latest version of Docker Engine so if you for some reason prefer Docker Desktop you can use -SkipDockerInstall.
    - configures the required Windows features, skip this step by using -SkipWindowsFeatures
    - installs git, skip this step by using the switch -SkipGit
    - installs BcContainerHelper, you can skip this step with -SkipBcContainerHelper
 
    Visual Studio Code still needs to be installed manually. Or not, you might want to use an alternative fork: Cursor, Antigravity...
-
 2. Try the option that works for you
 
    1. **Docker Desktop**.
@@ -135,7 +138,7 @@ You are also welcome to apply as contributor. As a contributor you will implicit
 
    You can learn more at the [GitHub BcContainerHelper repository](https://github.com/microsoft/navcontainerhelper).
 
-   *Note: the module is being updated from time to time. For your convenience, and update option is available in the list of Operations.*
+   *Note: the module is being updated from time to time. For your convenience, an update option is available in the list of Operations.*
 
 ## **Starting a new workspace**
 
@@ -192,6 +195,8 @@ Starting a new workspace and including the toolset should be easy.
       Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
       ```
 
+      For the prerequisites script in this repository, you can also launch ***[initPrerequisites.bat](initPrerequisites.bat)*** to request elevation and execute the PowerShell script with a temporary policy bypass.
+
       After this the script will run. Once you close the PS session (process is the scope), the bypass is gone.
       The script will:
 
@@ -220,6 +225,8 @@ Starting a new workspace and including the toolset should be easy.
 
 For your convenience, all available functionality can be started using the ***RunOperation.ps1*** script found in the root of the BC-Dev-Toolset repository. Select the required operation from the menu and confirm by pressing *Enter*. You can select the operation by typing in the option number as well.
 
+SQL backup operations create and consume a compatible backup set in *sqlBackupPath*. Container backups and regular BC service SQL Server backups use the same file naming convention: *app.bak* for the application database and tenant-name *.bak* files for multitenant tenants, or *database.bak* for a single-tenant database.
+
 ## Setup
 
 ### *.gitignore*
@@ -245,7 +252,7 @@ in order to remove the folder and the containing files from git. Also, you might
 git rm */launch.json --cached
 ```
 
-to remove the files from git. You will need to commit these changes. Beware, this might actually delete the files from the current branch, not just the tracking.
+to remove the files from git. You will need to commit these changes. Beware, this might actually delete the files from the current folder, not just the tracking.
 
 ### *project.code-workspace*
 
@@ -329,6 +336,8 @@ We also use it as a vessel to carry configuration relevant to the workspace. The
   * ***tenant***: Valid for Cloud or OnPrem.
   * ***authentication***: Valid for Container or OnPrem. Default value is *UserPassword*.
   * ***admin*** and ***password***: The default user for the Docker BC instance.
+  * ***databaseUser*** and ***databasePassword***: Optional SQL authentication for backing up databases from a regular SQL Server. If empty, Windows authentication is used.
+  * ***remoteUser*** and ***remotePassword***: Optional PowerShell remoting credentials for backing up databases from a remote SQL Server host. If empty, the current Windows identity is used.
   * ***serverConfiguration***: a list of pairs of ***KeyName* **and ***KeyValue* **values.
 
 ### *settings.json*
@@ -347,6 +356,7 @@ If not found, a *settings.json* file will be created for you when any of the scr
 * ***certificateFile***: Specify if you have one. Mandatory for Runtime packages.
 * ***packageOutputPath***: Specify a specific folder path to group the Runtime packages. If empty, a runtime subfolder will automatically be created and used in the project. Remember to use double backslashes for full paths. For instance, for an actual path of "c:\\project\\packages" you will need to use "c:\\\\project\\\packages\".
 * ***dependenciesPath***: Specify a specific folder path to where the required app packages are stored. Again, remember to use double backslashes for full paths.
+* ***sqlBackupPath***: Specify the local folder used by SQL backup operations. Container backup, BC service SQL Server backup, restore, and new-container initialization all use this folder as the common backup-set location.
 * ***shortcuts***: Decide where you want Docker to place shortcuts for the new containers it creates. Can be *None*, *Desktop* or *StartMenu*. While the Docker's default is Desktop, the toolsets's default is *None*.
 * ***loadOnPremMgtModule***: Handling OnPrem deployments might require loading of the management module. This is where you specify its location in your specific context. Essentially, the path to NavAdminTool.ps1. This only works if you are running the scripts at the server host.
 * ***configurations***: Locally personalized additional list of remote deployments. Valid attributes (a subset of attributes for ***configurations*** in *launch.json*). Same structure as defined for *.code-workspace*. Both lists are used.

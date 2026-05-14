@@ -1,6 +1,20 @@
 # default toolset folder name
 $toolsetFolderName = 'BC-Dev-Toolset'
-$hostHelperFolder = 'C:\ProgramData\BcContainerHelper'
+
+function Get-HostHelperFolder {
+    param(
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON
+    )
+
+    $defaultPath = 'C:\ProgramData\BcContainerHelper'
+    if ($null -ne $settingsJSON.hostHelperFolder -and -not [string]::IsNullOrWhiteSpace($settingsJSON.hostHelperFolder)) {
+        return $settingsJSON.hostHelperFolder
+    }
+
+    return $defaultPath
+}
+
 function Write-LaunchJSON {
     Param (
         [Parameter(Mandatory=$true)]
@@ -383,6 +397,7 @@ function Build-Settings {
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestHeaded -Value "false"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name shortcuts -Value "None"
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name hostHelperFolder -Value "C:\ProgramData\BcContainerHelper"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
 
         # add container configuration
@@ -415,6 +430,10 @@ function Build-Settings {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name databaseUser -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name databasePassword -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name remoteUser -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name remotePassword -Value ""
         $defaultSettings.configurations += $remoteConfiguration
 
         $defaultSettings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
@@ -514,6 +533,9 @@ function Initialize-Context {
 
     # Read settings.json
     $settingsJSONvalue = Get-Content -Path $settingsPath | ConvertFrom-Json
+
+    # Initialize host helper folder from settings, with default fallback
+    Set-Variable -Name hostHelperFolder -Value (Get-HostHelperFolder $settingsJSONvalue) -Scope Script
 
     # Add country from code-workspace
     $country = ''
@@ -1354,6 +1376,10 @@ function Update-Workspace {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name databaseUser -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name databasePassword -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name remoteUser -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name remotePassword -Value ""
 
 
         $bcdevtoolset = [PSCustomObject]@{}
@@ -1510,6 +1536,7 @@ function Show-OperationMenu {
         @{ Text = "Update license files in all containers"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateBcLicenseContainer.ps1' }
         @{ Text = "Update server configuration in all containers"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateBcContainerServerConfiguration.ps1' }
         @{ Text = "Create and export SQL backup set from Docker container"; ScriptPath = Join-Path $ScriptPath $operations 'BackupBcContainerDatabases.ps1' }
+        @{ Text = "Create and export SQL backup set from BC service SQL Server"; ScriptPath = Join-Path $ScriptPath $operations 'BackupBcServiceDatabases.ps1' }
         @{ Text = "Restore SQL backup set to Docker container"; ScriptPath = Join-Path $ScriptPath $operations 'RestoreBcContainerDatabases.ps1' }
         #@{ Text = "Install fonts from the configuration to the existing container"; ScriptPath = Join-Path $ScriptPath $operations 'InstallFontsToContainer.ps1' }
         @{ Text = "Publish dependencies from the configuration to the existing container"; ScriptPath = Join-Path $ScriptPath $operations 'PublishDependencies2Docker.ps1' }

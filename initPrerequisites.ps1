@@ -86,10 +86,21 @@ if (-not $SkipDockerInstall) {
                 throw "No Docker Engine releases found"
             }
 
-            # Sort by version (assuming format docker-xx.xx.xx.zip) and get latest
-            $latestRelease = $links | 
-                Sort-Object -Property @{ Expression = { [version]($_.href -replace '.*docker-([0-9.]+)\.zip', '$1') } } -Descending | 
-                Select-Object -First 1
+            $downloads = $links | ForEach-Object {
+                $href = $_.href
+                if ($href -match 'docker-([0-9]+(?:\.[0-9]+)*)(?:-[^/]+)?\.zip$') {
+                    [PSCustomObject]@{
+                        Link = $_
+                        Version = [version]$matches[1]
+                    }
+                }
+            }
+
+            if (-not $downloads) {
+                throw "No valid Docker Engine release versions found"
+            }
+
+            $latestRelease = $downloads | Sort-Object -Property Version -Descending | Select-Object -First 1 | Select-Object -ExpandProperty Link
 
             $downloadUrl = $releasesUrl + $latestRelease.href
             $fileName = Split-Path $downloadUrl -Leaf
@@ -106,11 +117,32 @@ if (-not $SkipDockerInstall) {
             if (Test-Path $downloadPath) {
                 Write-Success "Docker Engine downloaded to: $downloadPath"
 
-                # Extract the zip file
+                # Extract the zip file to a temporary location
                 Write-Host "Extracting Docker Engine..."
-                Expand-Archive -Path $downloadPath -DestinationPath $DockerPath -Force
+                $tempExtractPath = Join-Path $env:TEMP "docker-extract-$([System.IO.Path]::GetRandomFileName())"
+                New-Item -ItemType Directory -Path $tempExtractPath -Force | Out-Null
+                
+                Expand-Archive -Path $downloadPath -DestinationPath $tempExtractPath -Force
+                
+                # Move extracted files to target directory
+                # The zip contains a 'docker' folder, so we move its contents to $DockerPath
+                $extractedDockerPath = Join-Path $tempExtractPath "docker"
+                if (Test-Path $extractedDockerPath) {
+                    Get-ChildItem -Path $extractedDockerPath | ForEach-Object {
+                        Move-Item -Path $_.FullName -Destination $DockerPath -Force
+                    }
+                }
+                else {
+                    # If no 'docker' subfolder, move everything from temp
+                    Get-ChildItem -Path $tempExtractPath | ForEach-Object {
+                        Move-Item -Path $_.FullName -Destination $DockerPath -Force
+                    }
+                }
+                
+                # Cleanup
+                Remove-Item $tempExtractPath -Force -Recurse
                 Remove-Item $downloadPath -Force
-                Write-Success "Docker Engine extracted"
+                Write-Success "Docker Engine extracted to: $DockerPath"
 
                 # Create daemon.json configuration
                 $daemonJsonPath = Join-Path $DockerPath "daemon.json"
@@ -144,21 +176,49 @@ else {
 if (-not $SkipWindowsFeatures) {
     Write-Header "2. Enabling Windows Features"
     
+    function Enable-FeatureNonInteractive {
+        param(
+            [string]$FeatureName
+        )
+
+        Write-Host "Enabling feature: $FeatureName..."
+        Write-Host "This may take several minutes. Please wait."
+
+        $dismCommand = @(
+            "/online",
+            "/enable-feature",
+            "/featurename:$FeatureName",
+            "/all",
+            "/norestart"
+        )
+
+        $dismOutput = & dism.exe @dismCommand 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Feature '$FeatureName' enabled"
+            return $true
+        }
+
+        Write-Warning "DISM failed to enable feature '$FeatureName' (exit code $LASTEXITCODE). Falling back to Enable-WindowsOptionalFeature."
+        Write-Host $dismOutput
+
+        $featureResult = Enable-WindowsOptionalFeature -Online -FeatureName $FeatureName -All -NoRestart -Confirm:$false -ErrorAction Stop
+        if ($featureResult.RestartNeeded) {
+            Write-Warning "Feature '$FeatureName' requires system restart"
+        }
+        else {
+            Write-Success "Feature '$FeatureName' enabled"
+        }
+
+        return $true
+    }
+
     try {
         $features = @("Containers", "Microsoft-Hyper-V-All")
-        
+
         foreach ($feature in $features) {
-            Write-Host "Enabling feature: $feature..."
-            $result = Enable-WindowsOptionalFeature -Online -FeatureName $feature -All -NoRestart
-            
-            if ($result.RestartNeeded) {
-                Write-Warning "Feature '$feature' requires system restart"
-            }
-            else {
-                Write-Success "Feature '$feature' enabled"
-            }
+            Enable-FeatureNonInteractive -FeatureName $feature | Out-Null
         }
-        
+
         Write-Warning "You may need to restart your computer for changes to take effect"
     }
     catch {
@@ -334,3 +394,5 @@ For troubleshooting, see:
 "@
 
 Write-Success "`nPrerequisites installation script completed!"
+
+Read-Host -Prompt 'Press Enter to close this window and finish the script' | Out-Null
