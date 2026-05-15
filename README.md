@@ -225,7 +225,15 @@ Starting a new workspace and including the toolset should be easy.
 
 For your convenience, all available functionality can be started using the ***RunOperation.ps1*** script found in the root of the BC-Dev-Toolset repository. Select the required operation from the menu and confirm by pressing *Enter*. You can select the operation by typing in the option number as well.
 
-SQL backup operations create and consume a compatible backup set in *sqlBackupPath*. Container backups and regular BC service SQL Server backups use the same file naming convention: *app.bak* for the application database and tenant-name *.bak* files for multitenant tenants, or *database.bak* for a single-tenant database.
+### Backup & Restore
+
+Be aware that backup and restore work only within the context of the same BC release. The database defines the version which is limited to running on a specific platform (service). You cannot use this to "upgrade" your data in a meaningful way, say use a configuration from BC22 in BC27.
+
+That said; you can maintain data persistence in a couple of ways. One is to use the backup and restore functionality of *BcContainerHelper*. You can backup the current state of your container and restore it later, or share it with other developers. You can retrieve the state of a central test database and use it with your development to find test scenarios more easily or skip tedious configuration.
+
+SQL backup operations create and consume a compatible backup set in *sqlBackupPath*. Container backups and regular BC service SQL Server backups use the same file naming convention: *\<database\>.app.bak* for the application database, *\<database\>.tenant.bak* for multitenant tenant databases, or *\<database\>.database.bak* for a single-tenant database.
+
+You can follow the naming convention manually and prepare a bak set manually, if you find yourself unable to use the toolset backup scripts. A regular MS artifact based container is multi-tenant and contains three databases. *CRONUS* is the app database while the other two, *default* and *tenant*, are tenant databases.
 
 ## Setup
 

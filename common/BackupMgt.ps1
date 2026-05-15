@@ -32,9 +32,9 @@ function Copy-SqlBackupSetToSharedFolder {
         throw "The SQL backup folder '$backupRootPath' does not exist."
     }
 
-    $backupFiles = @(Get-ChildItem -Path $backupRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue)
-    if ($backupFiles.Count -eq 0) {
-        throw "No .bak files found in SQL backup folder '$backupRootPath'."
+    $backupEntries = @(Get-SqlBackupSetEntries -backupRootPath $backupRootPath)
+    if ($backupEntries.Count -eq 0) {
+        throw "No compatible .bak files found in SQL backup folder '$backupRootPath'. Expected '<database>.app.bak', '<database>.tenant.bak', or '<database>.database.bak'."
     }
 
     $sharedBackupPath = Join-Path $hostHelperFolder "SqlBackupSets\$containerName\$sharedFolderName"
@@ -42,11 +42,127 @@ function Copy-SqlBackupSetToSharedFolder {
     Get-ChildItem -Path $sharedBackupPath -Filter "*.bak" -File -ErrorAction SilentlyContinue |
         Remove-Item -Force
 
-    foreach ($backupFile in $backupFiles) {
-        Copy-Item -Path $backupFile.FullName -Destination (Join-Path $sharedBackupPath $backupFile.Name) -Force
+    foreach ($backupEntry in $backupEntries) {
+        Copy-Item -Path $backupEntry.SourcePath -Destination (Join-Path $sharedBackupPath $backupEntry.HelperFileName) -Force
     }
 
     return $sharedBackupPath
+}
+
+function Assert-BackupDatabaseNameFileSafe {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $databaseName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($databaseName)) {
+        throw "Database name is empty and cannot be used for a backup file name."
+    }
+
+    $invalidChars = [System.IO.Path]::GetInvalidFileNameChars()
+    if ($databaseName.IndexOfAny($invalidChars) -ge 0) {
+        throw "Database name '$databaseName' contains characters that cannot be used in a backup file name."
+    }
+}
+
+function Get-SqlBackupFileName {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $databaseName,
+        [Parameter(Mandatory=$true)]
+        [ValidateSet("app", "tenant", "database")]
+        [string] $databaseRole
+    )
+
+    Assert-BackupDatabaseNameFileSafe -databaseName $databaseName
+    return "$databaseName.$databaseRole.bak"
+}
+
+function Get-SqlBackupSetEntries {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $backupRootPath
+    )
+
+    $entries = @()
+    foreach ($backupFile in @(Get-ChildItem -Path $backupRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue)) {
+        if ($backupFile.Name -match '^(?<databaseName>.+)\.app\.bak$') {
+            $entries += [PSCustomObject]@{
+                SourcePath = $backupFile.FullName
+                SourceFileName = $backupFile.Name
+                DatabaseName = $Matches.databaseName
+                DatabaseRole = "app"
+                HelperFileName = "app.bak"
+            }
+            continue
+        }
+
+        if ($backupFile.Name -match '^(?<databaseName>.+)\.tenant\.bak$') {
+            $entries += [PSCustomObject]@{
+                SourcePath = $backupFile.FullName
+                SourceFileName = $backupFile.Name
+                DatabaseName = $Matches.databaseName
+                DatabaseRole = "tenant"
+                HelperFileName = "$($Matches.databaseName).bak"
+            }
+            continue
+        }
+
+        if ($backupFile.Name -match '^(?<databaseName>.+)\.database\.bak$') {
+            $entries += [PSCustomObject]@{
+                SourcePath = $backupFile.FullName
+                SourceFileName = $backupFile.Name
+                DatabaseName = $Matches.databaseName
+                DatabaseRole = "database"
+                HelperFileName = "database.bak"
+            }
+            continue
+        }
+
+        Write-Host "Ignoring backup file '$($backupFile.Name)' because it does not follow the '<database>.app.bak', '<database>.tenant.bak', or '<database>.database.bak' naming convention." -ForegroundColor Yellow
+    }
+
+    return $entries
+}
+
+function Get-BcContainerDatabaseBackupMap {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $containerName
+    )
+
+    Invoke-ScriptInBcContainer -containerName $containerName -usesession:$false -usepwsh:$false -ScriptBlock {
+        $customConfigFile = Join-Path (Get-Item "C:\Program Files\Microsoft Dynamics NAV\*\Service").FullName "CustomSettings.config"
+        [xml]$customConfig = [System.IO.File]::ReadAllText($customConfigFile)
+        $multitenant = ($customConfig.SelectSingleNode("//appSettings/add[@key='Multitenant']").Value -eq "true")
+        $databaseName = $customConfig.SelectSingleNode("//appSettings/add[@key='DatabaseName']").Value
+
+        if ($multitenant) {
+            $map = @([PSCustomObject]@{
+                HelperFileName = "app.bak"
+                ExportFileName = "$databaseName.app.bak"
+            })
+
+            $map += @(Get-NAVTenant -ServerInstance BC | ForEach-Object {
+                [PSCustomObject]@{
+                    HelperFileName = "$($_.Id).bak"
+                    ExportFileName = "$($_.DatabaseName).tenant.bak"
+                }
+            })
+
+            $map += [PSCustomObject]@{
+                HelperFileName = "tenant.bak"
+                ExportFileName = "tenant.tenant.bak"
+            }
+
+            return $map
+        }
+
+        return @([PSCustomObject]@{
+            HelperFileName = "database.bak"
+            ExportFileName = "$databaseName.database.bak"
+        })
+    }
 }
 
 function Assert-SqlBackupPath {
@@ -100,26 +216,19 @@ function Export-BcContainerSqlBackupSet {
         Get-ChildItem -Path $exportRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue |
             Remove-Item -Force
 
-        Get-ChildItem -Path $sharedBackupPath -Filter "*.bak" -File |
-            Move-Item -Destination $exportRootPath -Force
-
-        $restoreNotePath = Join-Path $exportRootPath "RESTORE_TARGET.txt"
-        $restoreNote = @(
-            "Backup set folder: $exportRootPath"
-            "Source container: $($configuration.container)"
-            ""
-            "Restore target:"
-            "Use this folder as a full BC container backup set."
-            "app.bak is restored to the application database."
-            "default.bak is restored to tenant 'default'."
-            "Other tenant-name .bak files are restored to matching tenants."
-        )
-        $restoreNote | Set-Content -Path $restoreNotePath -Encoding UTF8
+        $backupMap = @(Get-BcContainerDatabaseBackupMap -containerName $configuration.container)
+        foreach ($backupItem in $backupMap) {
+            $sourceFile = Join-Path $sharedBackupPath $backupItem.HelperFileName
+            if (-not (Test-Path -Path $sourceFile -PathType Leaf)) {
+                Write-Host "Expected backup file '$sourceFile' was not created; skipping." -ForegroundColor Yellow
+                continue
+            }
+            Move-Item -Path $sourceFile -Destination (Join-Path $exportRootPath $backupItem.ExportFileName) -Force
+        }
 
         Remove-Item -Path $sharedBackupPath -Force -Recurse
 
         Write-Host "SQL backup set exported for container '$($configuration.container)'." -ForegroundColor Green
-        Write-Host "Restore target note: $restoreNotePath" -ForegroundColor Gray
     }
 
     if (-not $configurationFound) {
@@ -151,9 +260,9 @@ function Restore-BcContainerSqlBackupSet {
             throw "The sqlBackupPath folder '$backupRootPath' does not exist."
         }
 
-        $backupFiles = @(Get-ChildItem -Path $backupRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue)
-        if ($backupFiles.Count -eq 0) {
-            throw "No .bak files found at sqlBackupPath '$backupRootPath'."
+        $backupEntries = @(Get-SqlBackupSetEntries -backupRootPath $backupRootPath)
+        if ($backupEntries.Count -eq 0) {
+            throw "No compatible .bak files found at sqlBackupPath '$backupRootPath'. Expected '<database>.app.bak', '<database>.tenant.bak', or '<database>.database.bak'."
         }
 
         $sharedRestorePath = Copy-SqlBackupSetToSharedFolder `
@@ -166,8 +275,8 @@ function Restore-BcContainerSqlBackupSet {
         Write-Host "Backup folder: $backupRootPath" -ForegroundColor Gray
         Write-Host "Shared restore folder: $sharedRestorePath" -ForegroundColor Gray
         Write-Host "Files:" -ForegroundColor Gray
-        Get-ChildItem -Path $sharedRestorePath -Filter "*.bak" -File | ForEach-Object {
-            Write-Host " - $($_.Name)" -ForegroundColor Gray
+        $backupEntries | ForEach-Object {
+            Write-Host " - $($_.SourceFileName) -> $($_.DatabaseRole) database '$($_.DatabaseName)'" -ForegroundColor Gray
         }
         Write-Host "This will replace the matching application and tenant databases in the container." -ForegroundColor Yellow
 
@@ -637,7 +746,7 @@ function Export-BcServiceSqlBackupSet {
         if ($multitenant) {
             $backupRequests += [PSCustomObject]@{
                 DatabaseName = $databaseName
-                FileName = "app.bak"
+                FileName = (Get-SqlBackupFileName -databaseName $databaseName -databaseRole "app")
             }
 
             $tenants = @($serviceDatabaseInfo.Tenants)
@@ -648,13 +757,13 @@ function Export-BcServiceSqlBackupSet {
             foreach ($tenant in $tenants) {
                 $backupRequests += [PSCustomObject]@{
                     DatabaseName = $tenant.DatabaseName
-                    FileName = "$($tenant.Id).bak"
+                    FileName = (Get-SqlBackupFileName -databaseName $tenant.DatabaseName -databaseRole "tenant")
                 }
             }
         } else {
             $backupRequests += [PSCustomObject]@{
                 DatabaseName = $databaseName
-                FileName = "database.bak"
+                FileName = (Get-SqlBackupFileName -databaseName $databaseName -databaseRole "database")
             }
         }
 
@@ -680,21 +789,7 @@ function Export-BcServiceSqlBackupSet {
                 -sqlCredential $sqlCredential
         }
 
-        $restoreNotePath = Join-Path $exportRootPath "RESTORE_TARGET.txt"
-        $restoreNote = @(
-            "Backup set folder: $exportRootPath"
-            "Source BC service instance: $serverInstance"
-            "Source SQL Server: $databaseServerInstance"
-            ""
-            "Restore target:"
-            "Use this folder as a BC SQL backup set."
-            "For multitenant backup sets, app.bak is restored to the application database and tenant-name .bak files are restored to matching tenants."
-            "For single-tenant backup sets, database.bak is restored as the single BC database."
-        )
-        $restoreNote | Set-Content -Path $restoreNotePath -Encoding UTF8
-
         Write-Host "SQL backup set exported for BC service instance '$serverInstance'." -ForegroundColor Green
-        Write-Host "Restore target note: $restoreNotePath" -ForegroundColor Gray
     }
 
     if (-not $configurationFound) {
