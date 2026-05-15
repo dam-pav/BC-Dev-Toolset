@@ -1,5 +1,6 @@
 # default toolset folder name
 $toolsetFolderName = 'BC-Dev-Toolset'
+. (Join-Path $PSScriptRoot 'BackupMgt.ps1')
 
 function Get-HostHelperFolder {
     param(
@@ -830,57 +831,6 @@ function Clear-Artifacts {
         }
         Write-Host "APP files cleared." -ForegroundColor Blue
     }
-}
-
-function Get-SqlBackupRootPath {
-    Param (
-        [Parameter(Mandatory=$true)]
-        [string] $scriptPath,
-        [Parameter(Mandatory=$false)]
-        [AllowEmptyString()]
-        [string] $sqlBackupPath
-    )
-
-    if ([string]::IsNullOrWhiteSpace($sqlBackupPath)) {
-        return ""
-    }
-
-    if ([System.IO.Path]::IsPathRooted($sqlBackupPath)) {
-        return $sqlBackupPath
-    }
-
-    return (Join-Path ((Get-Item $scriptPath).Parent).FullName $sqlBackupPath)
-}
-
-function Copy-SqlBackupSetToSharedFolder {
-    Param (
-        [Parameter(Mandatory=$true)]
-        [string] $containerName,
-        [Parameter(Mandatory=$true)]
-        [string] $backupRootPath,
-        [Parameter(Mandatory=$true)]
-        [string] $sharedFolderName
-    )
-
-    if (-not (Test-Path -Path $backupRootPath -PathType Container)) {
-        throw "The SQL backup folder '$backupRootPath' does not exist."
-    }
-
-    $backupFiles = @(Get-ChildItem -Path $backupRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue)
-    if ($backupFiles.Count -eq 0) {
-        throw "No .bak files found in SQL backup folder '$backupRootPath'."
-    }
-
-    $sharedBackupPath = Join-Path $hostHelperFolder "SqlBackupSets\$containerName\$sharedFolderName"
-    New-Item -ItemType Directory -Path $sharedBackupPath -Force | Out-Null
-    Get-ChildItem -Path $sharedBackupPath -Filter "*.bak" -File -ErrorAction SilentlyContinue |
-        Remove-Item -Force
-
-    foreach ($backupFile in $backupFiles) {
-        Copy-Item -Path $backupFile.FullName -Destination (Join-Path $sharedBackupPath $backupFile.Name) -Force
-    }
-
-    return $sharedBackupPath
 }
 
 function Test-HostsFileWritable {
