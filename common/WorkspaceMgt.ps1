@@ -122,6 +122,27 @@ function Merge-SettingsFile {
     Merge-Settings -target $target -source $settings
 }
 
+function Test-DockerContainerExists {
+    param(
+        [Parameter(Mandatory=$true)]
+        [AllowEmptyString()]
+        [string] $containerName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($containerName)) {
+        Write-Host "Container name is empty. Skipping this configuration." -ForegroundColor Red
+        return $false
+    }
+
+    $null = docker container inspect $containerName 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Docker container '$containerName' was not found. Skipping this configuration." -ForegroundColor Yellow
+        return $false
+    }
+
+    return $true
+}
+
 function Write-LaunchJSON {
     Param (
         [Parameter(Mandatory=$true)]
@@ -638,6 +659,10 @@ function Initialize-Context {
     
     # Set the path for settings.json
     $localSettingsMergedAsBase = $false
+    if ([string]::IsNullOrWhiteSpace($SettingsPath) -and [string]::IsNullOrWhiteSpace($LocalSettingsPath) -and $null -ne $selectedFile) {
+        $LocalSettingsPath = Join-Path $selectedFile.DirectoryName '.bcdevtoolset' 'settings.json'
+    }
+
     if ([string]::IsNullOrWhiteSpace($SettingsPath) -and -not [string]::IsNullOrWhiteSpace($LocalSettingsPath)) {
         $settingsPath = Resolve-SettingsPath -workspaceRootPath $workspaceRootPath.FullName -settingsPath $LocalSettingsPath
         $localSettingsMergedAsBase = $true

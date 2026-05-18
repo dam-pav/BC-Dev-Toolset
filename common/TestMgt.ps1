@@ -11,6 +11,10 @@ function Invoke-Tests {
         Write-Host "Running tests on '$($configuration.name)'." -ForegroundColor Blue
         switch ($configuration.serverType) {
             'Container' {
+                if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+                    continue
+                }
+
                 $params = @{
                     containerName = $configuration.container
                     credential = (New-Object System.Management.Automation.PSCredential ($configuration.admin, (ConvertTo-SecureString -String $configuration.password -AsPlainText -Force)))

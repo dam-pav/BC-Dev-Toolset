@@ -236,11 +236,16 @@ function ensureDefaultLocalConfiguration(localPath) {
   }
 
   const localSettings = JSON.parse(fs.readFileSync(localPath, 'utf8'));
-  if (Array.isArray(localSettings.configurations) && localSettings.configurations.length > 0) {
+  const configurations = Array.isArray(localSettings.configurations) ? localSettings.configurations : [];
+  const hasUsableConfiguration = configurations.some((configuration) => configuration.name && configuration.name !== 'sample');
+  if (hasUsableConfiguration) {
     return;
   }
 
-  localSettings.configurations = [getDefaultLocalConfiguration()];
+  localSettings.configurations = [
+    getDefaultLocalConfiguration(),
+    ...configurations.filter((configuration) => configuration.name === 'sample')
+  ];
   fs.writeFileSync(localPath, `${JSON.stringify(localSettings, null, 2)}\n`, 'utf8');
 }
 
