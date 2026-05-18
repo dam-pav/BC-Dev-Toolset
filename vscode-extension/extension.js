@@ -179,7 +179,6 @@ function getDefaultWorkspaceSettings() {
 }
 
 function getDefaultLocalSettings() {
-  const workspaceName = getWorkspaceName();
   return {
     licenseFile: '',
     certificateFile: '',
@@ -192,18 +191,23 @@ function getDefaultLocalSettings() {
     shortcuts: 'None',
     hostHelperFolder: 'C:\\ProgramData\\BcContainerHelper',
     configurations: [
-      {
-        name: 'Local',
-        serverType: 'Container',
-        targetType: 'Dev',
-        container: workspaceName.replace(/ /g, '-'),
-        environmentType: 'Sandbox',
-        includeTestToolkit: 'false',
-        authentication: 'UserPassword',
-        admin: 'admin',
-        password: 'P@ssw0rd'
-      }
+      getDefaultLocalConfiguration()
     ]
+  };
+}
+
+function getDefaultLocalConfiguration() {
+  const workspaceName = getWorkspaceName();
+  return {
+    name: 'Local',
+    serverType: 'Container',
+    targetType: 'Dev',
+    container: workspaceName.replace(/ /g, '-'),
+    environmentType: 'Sandbox',
+    includeTestToolkit: 'false',
+    authentication: 'UserPassword',
+    admin: 'admin',
+    password: 'P@ssw0rd'
   };
 }
 
@@ -224,6 +228,20 @@ function ensureBcDevToolsetWorkspaceSettings(workspaceFile) {
   workspace.settings['dam-pav.bcdevtoolset'] = getDefaultWorkspaceSettings();
   fs.writeFileSync(workspaceFile, `${JSON.stringify(workspace, null, 2)}\n`, 'utf8');
   return true;
+}
+
+function ensureDefaultLocalConfiguration(localPath) {
+  if (!fs.existsSync(localPath)) {
+    return;
+  }
+
+  const localSettings = JSON.parse(fs.readFileSync(localPath, 'utf8'));
+  if (Array.isArray(localSettings.configurations) && localSettings.configurations.length > 0) {
+    return;
+  }
+
+  localSettings.configurations = [getDefaultLocalConfiguration()];
+  fs.writeFileSync(localPath, `${JSON.stringify(localSettings, null, 2)}\n`, 'utf8');
 }
 
 function quotePowerShellArgument(value) {
@@ -259,6 +277,7 @@ async function configureWorkspace() {
   fs.mkdirSync(configPath, { recursive: true });
 
   writeJsonIfMissing(localPath, getDefaultLocalSettings());
+  ensureDefaultLocalConfiguration(localPath);
 
   ensureBcDevToolsetWorkspaceSettings(workspaceFile);
   await vscode.window.showInformationMessage('BC Dev Toolset workspace configuration is ready.');
@@ -301,9 +320,7 @@ async function runOperation() {
   const workspaceFile = getWorkspaceFileName();
   const configPath = getConfigPath();
   const localSettingsPath = resolveWorkspaceBasePath(getConfiguration().get('localSettingsPath')) || path.join(configPath, 'settings.json');
-  const localSettingsArguments = fs.existsSync(localSettingsPath)
-    ? ` -LocalSettingsPath ${quotePowerShellArgument(localSettingsPath)}`
-    : '';
+  const localSettingsArguments = ` -LocalSettingsPath ${quotePowerShellArgument(localSettingsPath)}`;
   const workspaceFileArguments = workspaceFile
     ? ` -WorkspaceFile ${quotePowerShellArgument(workspaceFile)}`
     : '';
