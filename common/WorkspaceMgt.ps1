@@ -526,28 +526,6 @@ function Build-Settings {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value "P@ssw0rd"
         $defaultSettings.configurations += $remoteConfiguration
 
-        # add sample configuration
-        $remoteConfiguration = [PSCustomObject]@{}
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "sample"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverType -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name targetType -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name server -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverInstance -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name container -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name port -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentName -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name includeTestToolkit -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name tenant -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name databaseUser -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name databasePassword -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name remoteUser -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name remotePassword -Value ""
-        $defaultSettings.configurations += $remoteConfiguration
-
         $defaultSettings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
         Write-Host "$settingsPath created." -ForegroundColor Green
         }
@@ -659,7 +637,11 @@ function Initialize-Context {
     Write-Host "Workspace Name is: $workspaceName" -ForegroundColor Gray
     
     # Set the path for settings.json
-    if ([string]::IsNullOrWhiteSpace($SettingsPath)) {
+    $localSettingsMergedAsBase = $false
+    if ([string]::IsNullOrWhiteSpace($SettingsPath) -and -not [string]::IsNullOrWhiteSpace($LocalSettingsPath)) {
+        $settingsPath = Resolve-SettingsPath -workspaceRootPath $workspaceRootPath.FullName -settingsPath $LocalSettingsPath
+        $localSettingsMergedAsBase = $true
+    } elseif ([string]::IsNullOrWhiteSpace($SettingsPath)) {
         $settingsPath = "$scriptPath\settings.json"
     } elseif ([System.IO.Path]::IsPathRooted($SettingsPath)) {
         $settingsPath = $SettingsPath
@@ -674,8 +656,10 @@ function Initialize-Context {
     $resolvedProjectSettingsPath = Resolve-SettingsPath -workspaceRootPath $workspaceRootPath.FullName -settingsPath $ProjectSettingsPath
     Merge-SettingsFile -target $settingsJSONvalue -settingsPath $resolvedProjectSettingsPath
 
-    $resolvedLocalSettingsPath = Resolve-SettingsPath -workspaceRootPath $workspaceRootPath.FullName -settingsPath $LocalSettingsPath
-    Merge-SettingsFile -target $settingsJSONvalue -settingsPath $resolvedLocalSettingsPath
+    if (-not $localSettingsMergedAsBase) {
+        $resolvedLocalSettingsPath = Resolve-SettingsPath -workspaceRootPath $workspaceRootPath.FullName -settingsPath $LocalSettingsPath
+        Merge-SettingsFile -target $settingsJSONvalue -settingsPath $resolvedLocalSettingsPath
+    }
 
     # Initialize host helper folder from settings, with default fallback
     Set-Variable -Name hostHelperFolder -Value (Get-HostHelperFolder $settingsJSONvalue) -Scope Script

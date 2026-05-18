@@ -175,7 +175,7 @@ function Assert-SqlBackupPath {
     )
 
     if ([string]::IsNullOrWhiteSpace($sqlBackupPath)) {
-        throw "The 'sqlBackupPath' setting is empty. Please set it in BC-Dev-Toolset/settings.json before $operationName."
+        throw "The 'sqlBackupPath' setting is empty. Please set it in your local BC Dev Toolset settings.json before $operationName."
     }
 }
 

@@ -52,7 +52,19 @@
     },
     "configurations": {
       "type": "array",
-      "default": [],
+      "default": [
+        {
+          "name": "Local",
+          "serverType": "Container",
+          "targetType": "Dev",
+          "container": "",
+          "environmentType": "Sandbox",
+          "includeTestToolkit": "false",
+          "authentication": "UserPassword",
+          "admin": "admin",
+          "password": "P@ssw0rd"
+        }
+      ],
       "description": "Developer-local Business Central target configuration overrides.",
       "items": {
         "$ref": "#/definitions/configuration"

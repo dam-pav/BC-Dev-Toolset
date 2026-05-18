@@ -122,6 +122,15 @@ function getConfigPath() {
   return path.join(getWorkspaceBasePath(), '.bcdevtoolset');
 }
 
+function getWorkspaceName() {
+  const workspaceFile = getWorkspaceFileName();
+  if (workspaceFile) {
+    return path.basename(workspaceFile, '.code-workspace');
+  }
+
+  return path.basename(getWorkspacePath());
+}
+
 function resolveWorkspaceBasePath(value) {
   if (!value || !value.trim()) {
     return '';
@@ -164,6 +173,35 @@ function getDefaultWorkspaceSettings() {
         databasePassword: '',
         remoteUser: '',
         remotePassword: ''
+      }
+    ]
+  };
+}
+
+function getDefaultLocalSettings() {
+  const workspaceName = getWorkspaceName();
+  return {
+    licenseFile: '',
+    certificateFile: '',
+    packageOutputPath: '',
+    dependenciesPath: '',
+    recordingsPath: '',
+    pageScriptTestResultsPath: '',
+    pageScriptTestHeaded: 'false',
+    sqlBackupPath: '',
+    shortcuts: 'None',
+    hostHelperFolder: 'C:\\ProgramData\\BcContainerHelper',
+    configurations: [
+      {
+        name: 'Local',
+        serverType: 'Container',
+        targetType: 'Dev',
+        container: workspaceName.replace(/ /g, '-'),
+        environmentType: 'Sandbox',
+        includeTestToolkit: 'false',
+        authentication: 'UserPassword',
+        admin: 'admin',
+        password: 'P@ssw0rd'
       }
     ]
   };
@@ -220,19 +258,7 @@ async function configureWorkspace() {
 
   fs.mkdirSync(configPath, { recursive: true });
 
-  writeJsonIfMissing(localPath, {
-    licenseFile: '',
-    certificateFile: '',
-    packageOutputPath: '',
-    dependenciesPath: '',
-    recordingsPath: '',
-    pageScriptTestResultsPath: '',
-    pageScriptTestHeaded: 'false',
-    sqlBackupPath: '',
-    shortcuts: 'None',
-    hostHelperFolder: 'C:\\ProgramData\\BcContainerHelper',
-    configurations: []
-  });
+  writeJsonIfMissing(localPath, getDefaultLocalSettings());
 
   ensureBcDevToolsetWorkspaceSettings(workspaceFile);
   await vscode.window.showInformationMessage('BC Dev Toolset workspace configuration is ready.');
