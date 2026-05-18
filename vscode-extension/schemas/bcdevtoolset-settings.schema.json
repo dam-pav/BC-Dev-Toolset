@@ -1,0 +1,189 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BC Dev Toolset Local Settings",
+  "description": "Developer-local BC Dev Toolset settings stored in .bcdevtoolset/settings.json.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "licenseFile": {
+      "type": "string",
+      "description": "Path to the Business Central license file."
+    },
+    "certificateFile": {
+      "type": "string",
+      "description": "Path to the certificate file used by local operations."
+    },
+    "packageOutputPath": {
+      "type": "string",
+      "description": "Path where generated packages are written."
+    },
+    "dependenciesPath": {
+      "type": "string",
+      "description": "Path containing app dependency packages."
+    },
+    "recordingsPath": {
+      "type": "string",
+      "description": "Path containing page scripting recordings."
+    },
+    "pageScriptTestResultsPath": {
+      "type": "string",
+      "description": "Path where page script test results are written."
+    },
+    "pageScriptTestHeaded": {
+      "type": [
+        "string",
+        "boolean"
+      ],
+      "description": "Whether page script tests should run headed."
+    },
+    "sqlBackupPath": {
+      "type": "string",
+      "description": "Path used for SQL backup files."
+    },
+    "shortcuts": {
+      "type": "string",
+      "default": "None",
+      "description": "Shortcut configuration mode."
+    },
+    "hostHelperFolder": {
+      "type": "string",
+      "default": "C:\\ProgramData\\BcContainerHelper",
+      "description": "BcContainerHelper host helper folder."
+    },
+    "configurations": {
+      "type": "array",
+      "default": [],
+      "description": "Developer-local Business Central target configuration overrides.",
+      "items": {
+        "$ref": "#/definitions/configuration"
+      }
+    }
+  },
+  "definitions": {
+    "configuration": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Configuration display name."
+        },
+        "serverType": {
+          "type": "string",
+          "enum": [
+            "",
+            "Container",
+            "Cloud",
+            "OnPrem"
+          ],
+          "description": "Business Central server type."
+        },
+        "targetType": {
+          "type": "string",
+          "enum": [
+            "",
+            "Dev",
+            "Test",
+            "Production"
+          ],
+          "description": "Target environment role."
+        },
+        "server": {
+          "type": "string",
+          "description": "Server name for OnPrem targets."
+        },
+        "serverInstance": {
+          "type": "string",
+          "description": "Server instance for OnPrem targets."
+        },
+        "container": {
+          "type": "string",
+          "description": "Docker container name for Container targets."
+        },
+        "port": {
+          "type": "string",
+          "description": "Port for OnPrem targets."
+        },
+        "environmentType": {
+          "type": "string",
+          "enum": [
+            "",
+            "Sandbox",
+            "OnPrem"
+          ],
+          "description": "Business Central environment type."
+        },
+        "environmentName": {
+          "type": "string",
+          "description": "Cloud environment name."
+        },
+        "includeTestToolkit": {
+          "type": [
+            "string",
+            "boolean"
+          ],
+          "description": "Whether container environments should include the test toolkit."
+        },
+        "tenant": {
+          "type": "string",
+          "description": "Tenant identifier for Cloud or OnPrem targets."
+        },
+        "authentication": {
+          "type": "string",
+          "enum": [
+            "",
+            "UserPassword",
+            "Windows",
+            "AAD"
+          ],
+          "description": "Authentication mode."
+        },
+        "admin": {
+          "type": "string",
+          "description": "Administrative user name."
+        },
+        "password": {
+          "type": "string",
+          "description": "Administrative password."
+        },
+        "databaseUser": {
+          "type": "string",
+          "description": "Optional SQL user for database operations."
+        },
+        "databasePassword": {
+          "type": "string",
+          "description": "Optional SQL password for database operations."
+        },
+        "remoteUser": {
+          "type": "string",
+          "description": "Optional PowerShell remoting user."
+        },
+        "remotePassword": {
+          "type": "string",
+          "description": "Optional PowerShell remoting password."
+        },
+        "serverConfiguration": {
+          "type": "array",
+          "description": "Additional server configuration key/value pairs.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "KeyName": {
+                "type": "string",
+                "description": "Server configuration key."
+              },
+              "KeyValue": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean"
+                ],
+                "description": "Server configuration value."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

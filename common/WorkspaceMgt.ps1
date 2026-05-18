@@ -16,6 +16,112 @@ function Get-HostHelperFolder {
     return $defaultPath
 }
 
+function Get-WorkspaceRootPath {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$false)]
+        [string] $WorkspacePath = ''
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($WorkspacePath)) {
+        return Get-Item -LiteralPath $WorkspacePath
+    }
+
+    if ($Script:bcDevToolsetWorkspaceRootPath) {
+        return Get-Item -LiteralPath $Script:bcDevToolsetWorkspaceRootPath
+    }
+
+    return (Get-Item -LiteralPath $scriptPath).Parent
+}
+
+function Get-OperationDefinitions {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $ScriptPath
+    )
+
+    $metadataPath = Join-Path $ScriptPath 'operations' 'operations.json'
+    if (-not (Test-Path -LiteralPath $metadataPath)) {
+        throw "Operation metadata file not found: $metadataPath"
+    }
+
+    $operations = @(Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json)
+    foreach ($operation in $operations) {
+        $operationPath = Join-Path $ScriptPath $operation.script
+        if ($operation.PSObject.Properties['ScriptPath']) {
+            $operation.ScriptPath = $operationPath
+        } else {
+            $operation | Add-Member -MemberType NoteProperty -Name ScriptPath -Value $operationPath
+        }
+
+        if (-not $operation.PSObject.Properties['Text']) {
+            $operation | Add-Member -MemberType NoteProperty -Name Text -Value $operation.title
+        }
+    }
+
+    return $operations
+}
+
+function Resolve-SettingsPath {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $workspaceRootPath,
+        [Parameter(Mandatory=$true)]
+        [AllowEmptyString()]
+        [string] $settingsPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($settingsPath)) {
+        return ''
+    }
+
+    if ([System.IO.Path]::IsPathRooted($settingsPath)) {
+        return $settingsPath
+    }
+
+    return Join-Path $workspaceRootPath $settingsPath
+}
+
+function Merge-Settings {
+    param(
+        [Parameter(Mandatory=$true)]
+        [PSObject] $target,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $source
+    )
+
+    foreach ($property in $source.PSObject.Properties) {
+        if ($property.Name -eq 'configurations') {
+            if ($null -eq $target.configurations) {
+                $target | Add-Member -MemberType NoteProperty -Name configurations -Value @() -Force
+            }
+            foreach ($configuration in $property.Value) {
+                $target.configurations = $target.configurations + $configuration
+            }
+        } else {
+            $target | Add-Member -MemberType NoteProperty -Name $property.Name -Value $property.Value -Force
+        }
+    }
+}
+
+function Merge-SettingsFile {
+    param(
+        [Parameter(Mandatory=$true)]
+        [PSObject] $target,
+        [Parameter(Mandatory=$true)]
+        [AllowEmptyString()]
+        [string] $settingsPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($settingsPath) -or -not (Test-Path -LiteralPath $settingsPath)) {
+        return
+    }
+
+    $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+    Merge-Settings -target $target -source $settings
+}
+
 function Write-LaunchJSON {
     Param (
         [Parameter(Mandatory=$true)]
@@ -41,7 +147,7 @@ function Write-LaunchJSON {
 
     # Read launch.json
     if (-not $appPath.Contains('\')) {
-        $workspaceRootPath = (get-item $scriptPath).Parent
+        $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
         $appPath = "$($workspaceRootPath.Fullname)\$appPath"
     }
 
@@ -387,6 +493,11 @@ function Build-Settings {
         Write-Host ""
         Write-Host "Creating $settingsPath..." -ForegroundColor Gray
 
+        $settingsFolder = Split-Path -Parent $settingsPath
+        if (-not [string]::IsNullOrWhiteSpace($settingsFolder) -and -not (Test-Path -LiteralPath $settingsFolder)) {
+            New-Item -ItemType Directory -Path $settingsFolder -Force | Out-Null
+        }
+
         # File doesn't exist, create with default values
         $defaultSettings = [PSCustomObject]@{}
         $defaultSettings | Add-Member -MemberType NoteProperty -Name licenseFile -Value ""
@@ -486,15 +597,34 @@ function Initialize-Context {
         [Parameter(Mandatory=$true)]
         [ref] $settingsJSON,
         [Parameter(Mandatory=$true)]
-        [ref] $workspaceJSON
+        [ref] $workspaceJSON,
+        [Parameter(Mandatory=$false)]
+        [string] $WorkspacePath = $env:BCDEVTOOLSET_WORKSPACE_PATH,
+        [Parameter(Mandatory=$false)]
+        [string] $WorkspaceFile = $env:BCDEVTOOLSET_WORKSPACE_FILE,
+        [Parameter(Mandatory=$false)]
+        [string] $ProjectSettingsPath = $env:BCDEVTOOLSET_PROJECT_SETTINGS_PATH,
+        [Parameter(Mandatory=$false)]
+        [string] $LocalSettingsPath = $env:BCDEVTOOLSET_LOCAL_SETTINGS_PATH,
+        [Parameter(Mandatory=$false)]
+        [string] $SettingsPath = $env:BCDEVTOOLSET_SETTINGS_PATH
     )
 
     # Workspace
-    $workspaceRootPath = (get-item $scriptPath).parent
+    $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath -WorkspacePath $WorkspacePath
+    $Script:bcDevToolsetWorkspaceRootPath = $workspaceRootPath.FullName
     $filterExtension = ".code-workspace"  # Replace with the file extension you want to filter by
     
     # List all files in the folder and filter by extension
-    $filteredFiles = Get-ChildItem -Path $workspaceRootPath.FullName | Where-Object { $_.Extension -eq $filterExtension }
+    if (-not [string]::IsNullOrWhiteSpace($WorkspaceFile)) {
+        if ([System.IO.Path]::IsPathRooted($WorkspaceFile)) {
+            $filteredFiles = @(Get-Item -LiteralPath $WorkspaceFile)
+        } else {
+            $filteredFiles = @(Get-Item -LiteralPath (Join-Path $workspaceRootPath.FullName $WorkspaceFile))
+        }
+    } else {
+        $filteredFiles = @(Get-ChildItem -Path $workspaceRootPath.FullName | Where-Object { $_.Extension -eq $filterExtension })
+    }
     
     # Check if there are any matching files
     if ($filteredFiles.Count -gt 0) {
@@ -510,16 +640,16 @@ function Initialize-Context {
         }
 
         # Read selected *.code-workspace
-    $workspaceJSON.Value = Get-Content -Path $selectedFile.FullName | ConvertFrom-Json
-    $workspaceName = $selectedFile.Name
-    $workspaceName = $workspaceName -split '\.' | Select-Object -First 1
+        $workspaceJSON.Value = Get-Content -Path $selectedFile.FullName | ConvertFrom-Json
+        $workspaceName = $selectedFile.Name
+        $workspaceName = $workspaceName -split '\.' | Select-Object -First 1
     } else {
         # throw "No $filterExtension files found in the folder."
         # there IS no workspace
-        $workspaceJSON.value = @{
-            folders = @{
-                path = $workspaceRootPath
-            }
+        $workspaceJSON.value = [PSCustomObject]@{
+            folders = @([PSCustomObject]@{
+                path = $workspaceRootPath.FullName
+            })
         }
         $workspaceName = $workspaceRootPath.Name
     }
@@ -529,11 +659,23 @@ function Initialize-Context {
     Write-Host "Workspace Name is: $workspaceName" -ForegroundColor Gray
     
     # Set the path for settings.json
-    $settingsPath = "$scriptPath\settings.json"
+    if ([string]::IsNullOrWhiteSpace($SettingsPath)) {
+        $settingsPath = "$scriptPath\settings.json"
+    } elseif ([System.IO.Path]::IsPathRooted($SettingsPath)) {
+        $settingsPath = $SettingsPath
+    } else {
+        $settingsPath = Join-Path $workspaceRootPath.FullName $SettingsPath
+    }
     Build-Settings $settingsPath $workspaceName
 
     # Read settings.json
     $settingsJSONvalue = Get-Content -Path $settingsPath | ConvertFrom-Json
+
+    $resolvedProjectSettingsPath = Resolve-SettingsPath -workspaceRootPath $workspaceRootPath.FullName -settingsPath $ProjectSettingsPath
+    Merge-SettingsFile -target $settingsJSONvalue -settingsPath $resolvedProjectSettingsPath
+
+    $resolvedLocalSettingsPath = Resolve-SettingsPath -workspaceRootPath $workspaceRootPath.FullName -settingsPath $LocalSettingsPath
+    Merge-SettingsFile -target $settingsJSONvalue -settingsPath $resolvedLocalSettingsPath
 
     # Initialize host helper folder from settings, with default fallback
     Set-Variable -Name hostHelperFolder -Value (Get-HostHelperFolder $settingsJSONvalue) -Scope Script
@@ -547,7 +689,7 @@ function Initialize-Context {
         $country = "w1"
     }
 
-    $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name country -Value $country
+    $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name country -Value $country -Force
 
     # Add missing defaults
     if ($null -eq $settingsJSONvalue.shortcuts) {
@@ -583,7 +725,7 @@ function Get-AppJSON {
     
     # Read app.json
     if (-not $appPath.Contains('\')) {
-        $workspaceRootPath = (get-item $scriptPath).Parent
+        $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
         $appPath = "$($workspaceRootPath.Fullname)\$appPath"
     }
     $appFilename = "$appPath\app.json"
@@ -800,7 +942,7 @@ function Clear-Artifacts {
         [Parameter(Mandatory=$true)]
         [PSObject] $workspaceJSON
     )
-    $workspaceRootPath = (get-item $scriptPath).parent
+    $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
 
     if (Confirm-Option -question "Do you want to clear the translation files?") {
         foreach ($appPath in $workspaceJSON.folders.path) {
@@ -1471,37 +1613,7 @@ function Show-OperationMenu {
         return
     }
     
-    $operations = 'operations'
-    $visualization = 'visualization'
-
-    # Operation list
-    $menuOptions = @(
-        @{ Text = "Run tests in all containers"; ScriptPath = Join-Path $ScriptPath $operations 'Invoke-Tests.ps1' }
-        @{ Text = "Run page script tests"; ScriptPath = Join-Path $ScriptPath $operations 'Invoke-PageScriptTests.ps1' }
-        @{ Text = "Show BcContainerHelper versions (installed and available)"; ScriptPath = Join-Path $ScriptPath $operations 'ShowBcContainerHelperVersions.ps1' }
-        @{ Text = "Update BcContainerHelper module"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateBcContainerHelper.ps1' }
-        @{ Text = "Clear App and translation artifacts"; ScriptPath = Join-Path $ScriptPath $operations 'ClearAppArtifacts.ps1' }
-        @{ Text = "Create/Overwrite Docker container based on the first app.json found in the workspace"; ScriptPath = Join-Path $ScriptPath $operations 'NewDockerContainer.ps1' }
-        @{ Text = "Update launch.json files in all apps in the workspace"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateLaunchJson.ps1' }
-        @{ Text = "Update license files in all containers"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateBcLicenseContainer.ps1' }
-        @{ Text = "Update server configuration in all containers"; ScriptPath = Join-Path $ScriptPath $operations 'UpdateBcContainerServerConfiguration.ps1' }
-        @{ Text = "Create and export SQL backup set from Docker container"; ScriptPath = Join-Path $ScriptPath $operations 'BackupBcContainerDatabases.ps1' }
-        @{ Text = "Create and export SQL backup set from BC service SQL Server"; ScriptPath = Join-Path $ScriptPath $operations 'BackupBcServiceDatabases.ps1' }
-        @{ Text = "Restore SQL backup set to Docker container"; ScriptPath = Join-Path $ScriptPath $operations 'RestoreBcContainerDatabases.ps1' }
-        #@{ Text = "Install fonts from the configuration to the existing container"; ScriptPath = Join-Path $ScriptPath $operations 'InstallFontsToContainer.ps1' }
-        @{ Text = "Publish dependencies from the configuration to the existing container"; ScriptPath = Join-Path $ScriptPath $operations 'PublishDependencies2Docker.ps1' }
-        @{ Text = "Publish dependencies from the configuration to test environments"; ScriptPath = Join-Path $ScriptPath $operations 'PublishDependencies2Test.ps1' }
-        @{ Text = "Publish all apps in the workspace to Docker container"; ScriptPath = Join-Path $ScriptPath $operations 'PublishApps2Docker.ps1' }
-        @{ Text = "Publish all apps in the workspace to production environments"; ScriptPath = Join-Path $ScriptPath $operations 'PublishApps2Production.ps1' }
-        @{ Text = "Publish all apps in the workspace to test environments"; ScriptPath = Join-Path $ScriptPath $operations 'PublishApps2Test.ps1' }
-        @{ Text = "Create runtime packages for all apps in the workspace"; ScriptPath = Join-Path $ScriptPath $operations 'CreateRuntimePackage.ps1' }
-        @{ Text = "Publish runtime packages (stored) to the existing container"; ScriptPath = Join-Path $ScriptPath $operations 'PublishRuntimeApps2Docker.ps1' }
-        @{ Text = "Publish runtime packages (stored) to production environments"; ScriptPath = Join-Path $ScriptPath $operations 'PublishRuntimeApps2Production.ps1' }
-        @{ Text = "Publish runtime packages (stored) to test environments"; ScriptPath = Join-Path $ScriptPath $operations 'PublishRuntimeApps2Test.ps1' }
-        @{ Text = "Unpublish all workspace apps from Docker container"; ScriptPath = Join-Path $ScriptPath $operations 'UnpublishDockerApps.ps1' }
-        @{ Text = "Unpublish all workspace apps from test environments"; ScriptPath = Join-Path $ScriptPath $operations 'UnpublishTestApps.ps1' }
-        @{ Text = "Prepare object id range data for visualization"; ScriptPath = Join-Path $ScriptPath $visualization 'DataUpdate.ps1' }
-    )
+    $menuOptions = Get-OperationDefinitions -ScriptPath $ScriptPath
 
     # Call the function with custom options
     Show-Menu -Title "Select a script to run [press Enter to select, ESC to abort selection]:" -Options $menuOptions

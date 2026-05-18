@@ -1,0 +1,154 @@
+[
+  {
+    "id": "invokeTests",
+    "title": "Run tests in all containers",
+    "script": "operations/Invoke-Tests.ps1",
+    "category": "Tests"
+  },
+  {
+    "id": "invokePageScriptTests",
+    "title": "Run page script tests",
+    "script": "operations/Invoke-PageScriptTests.ps1",
+    "category": "Tests"
+  },
+  {
+    "id": "showBcContainerHelperVersions",
+    "title": "Show BcContainerHelper versions (installed and available)",
+    "script": "operations/ShowBcContainerHelperVersions.ps1",
+    "category": "Prerequisites"
+  },
+  {
+    "id": "updateBcContainerHelper",
+    "title": "Update BcContainerHelper module",
+    "script": "operations/UpdateBcContainerHelper.ps1",
+    "category": "Prerequisites",
+    "requiresConfirmation": true
+  },
+  {
+    "id": "clearAppArtifacts",
+    "title": "Clear App and translation artifacts",
+    "script": "operations/ClearAppArtifacts.ps1",
+    "category": "Workspace",
+    "requiresConfirmation": true
+  },
+  {
+    "id": "newDockerContainer",
+    "title": "Create/Overwrite Docker container based on the first app.json found in the workspace",
+    "script": "operations/NewDockerContainer.ps1",
+    "category": "Container",
+    "requiresConfirmation": true
+  },
+  {
+    "id": "updateLaunchJson",
+    "title": "Update launch.json files in all apps in the workspace",
+    "script": "operations/UpdateLaunchJson.ps1",
+    "category": "Workspace"
+  },
+  {
+    "id": "updateBcLicenseContainer",
+    "title": "Update license files in all containers",
+    "script": "operations/UpdateBcLicenseContainer.ps1",
+    "category": "Container"
+  },
+  {
+    "id": "updateBcContainerServerConfiguration",
+    "title": "Update server configuration in all containers",
+    "script": "operations/UpdateBcContainerServerConfiguration.ps1",
+    "category": "Container"
+  },
+  {
+    "id": "backupBcContainerDatabases",
+    "title": "Create and export SQL backup set from Docker container",
+    "script": "operations/BackupBcContainerDatabases.ps1",
+    "category": "Backup"
+  },
+  {
+    "id": "backupBcServiceDatabases",
+    "title": "Create and export SQL backup set from BC service SQL Server",
+    "script": "operations/BackupBcServiceDatabases.ps1",
+    "category": "Backup"
+  },
+  {
+    "id": "restoreBcContainerDatabases",
+    "title": "Restore SQL backup set to Docker container",
+    "script": "operations/RestoreBcContainerDatabases.ps1",
+    "category": "Backup",
+    "requiresConfirmation": true
+  },
+  {
+    "id": "publishDependencies2Docker",
+    "title": "Publish dependencies from the configuration to the existing container",
+    "script": "operations/PublishDependencies2Docker.ps1",
+    "category": "Publish"
+  },
+  {
+    "id": "publishDependencies2Test",
+    "title": "Publish dependencies from the configuration to test environments",
+    "script": "operations/PublishDependencies2Test.ps1",
+    "category": "Publish"
+  },
+  {
+    "id": "publishApps2Docker",
+    "title": "Publish all apps in the workspace to Docker container",
+    "script": "operations/PublishApps2Docker.ps1",
+    "category": "Publish"
+  },
+  {
+    "id": "publishApps2Production",
+    "title": "Publish all apps in the workspace to production environments",
+    "script": "operations/PublishApps2Production.ps1",
+    "category": "Publish",
+    "requiresConfirmation": true
+  },
+  {
+    "id": "publishApps2Test",
+    "title": "Publish all apps in the workspace to test environments",
+    "script": "operations/PublishApps2Test.ps1",
+    "category": "Publish"
+  },
+  {
+    "id": "createRuntimePackage",
+    "title": "Create runtime packages for all apps in the workspace",
+    "script": "operations/CreateRuntimePackage.ps1",
+    "category": "Runtime"
+  },
+  {
+    "id": "publishRuntimeApps2Docker",
+    "title": "Publish runtime packages (stored) to the existing container",
+    "script": "operations/PublishRuntimeApps2Docker.ps1",
+    "category": "Runtime"
+  },
+  {
+    "id": "publishRuntimeApps2Production",
+    "title": "Publish runtime packages (stored) to production environments",
+    "script": "operations/PublishRuntimeApps2Production.ps1",
+    "category": "Runtime",
+    "requiresConfirmation": true
+  },
+  {
+    "id": "publishRuntimeApps2Test",
+    "title": "Publish runtime packages (stored) to test environments",
+    "script": "operations/PublishRuntimeApps2Test.ps1",
+    "category": "Runtime"
+  },
+  {
+    "id": "unpublishDockerApps",
+    "title": "Unpublish all workspace apps from Docker container",
+    "script": "operations/UnpublishDockerApps.ps1",
+    "category": "Publish",
+    "requiresConfirmation": true
+  },
+  {
+    "id": "unpublishTestApps",
+    "title": "Unpublish all workspace apps from test environments",
+    "script": "operations/UnpublishTestApps.ps1",
+    "category": "Publish",
+    "requiresConfirmation": true
+  },
+  {
+    "id": "prepareObjectIdRangeVisualizationData",
+    "title": "Prepare object id range data for visualization",
+    "script": "visualization/DataUpdate.ps1",
+    "category": "Visualization"
+  }
+]
