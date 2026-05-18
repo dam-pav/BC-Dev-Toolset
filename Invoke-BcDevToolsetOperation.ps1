@@ -64,6 +64,10 @@ if ($matchingOperations.Count -gt 1) {
 }
 
 $selectedOperation = $matchingOperations[0]
+if ([string]::IsNullOrWhiteSpace($selectedOperation.script)) {
+    throw "Operation '$Operation' is handled by the VS Code extension and cannot be run through Invoke-BcDevToolsetOperation.ps1."
+}
+
 if (-not (Test-Path -LiteralPath $selectedOperation.ScriptPath -PathType Leaf)) {
     throw "Operation script not found: $($selectedOperation.ScriptPath)"
 }

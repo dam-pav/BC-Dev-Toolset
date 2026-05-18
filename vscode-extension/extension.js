@@ -6,6 +6,7 @@ function activate(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand('bcDevToolset.installOrUpdateToolset', installOrUpdateToolset),
     vscode.commands.registerCommand('bcDevToolset.configureWorkspace', configureWorkspace),
+    vscode.commands.registerCommand('bcDevToolset.openLocalSettingsJson', openLocalSettingsJson),
     vscode.commands.registerCommand('bcDevToolset.runOperation', runOperation)
   );
 }
@@ -289,6 +290,17 @@ async function configureWorkspace() {
   await vscode.window.showTextDocument(vscode.Uri.file(localPath));
 }
 
+async function openLocalSettingsJson() {
+  const configPath = getConfigPath();
+  const localPath = path.join(configPath, 'settings.json');
+
+  fs.mkdirSync(configPath, { recursive: true });
+  writeJsonIfMissing(localPath, getDefaultLocalSettings());
+  ensureDefaultLocalConfiguration(localPath);
+
+  await vscode.window.showTextDocument(vscode.Uri.file(localPath));
+}
+
 function writeJsonIfMissing(filePath, value) {
   if (fs.existsSync(filePath)) {
     return;
@@ -318,6 +330,11 @@ async function runOperation() {
   );
 
   if (!picked) {
+    return;
+  }
+
+  if (picked.operation.command === 'openLocalSettingsJson') {
+    await openLocalSettingsJson();
     return;
   }
 

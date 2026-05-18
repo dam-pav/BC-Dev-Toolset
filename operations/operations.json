@@ -1,5 +1,11 @@
 [
   {
+    "id": "openLocalSettingsJson",
+    "title": "Open Local Settings (JSON)",
+    "command": "openLocalSettingsJson",
+    "category": "Workspace"
+  },
+  {
     "id": "invokeTests",
     "title": "Run tests in all containers",
     "script": "operations/Invoke-Tests.ps1",

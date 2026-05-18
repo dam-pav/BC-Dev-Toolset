@@ -48,11 +48,13 @@ function Get-OperationDefinitions {
 
     $operations = @(Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json)
     foreach ($operation in $operations) {
-        $operationPath = Join-Path $ScriptPath $operation.script
-        if ($operation.PSObject.Properties['ScriptPath']) {
-            $operation.ScriptPath = $operationPath
-        } else {
-            $operation | Add-Member -MemberType NoteProperty -Name ScriptPath -Value $operationPath
+        if (-not [string]::IsNullOrWhiteSpace($operation.script)) {
+            $operationPath = Join-Path $ScriptPath $operation.script
+            if ($operation.PSObject.Properties['ScriptPath']) {
+                $operation.ScriptPath = $operationPath
+            } else {
+                $operation | Add-Member -MemberType NoteProperty -Name ScriptPath -Value $operationPath
+            }
         }
 
         if (-not $operation.PSObject.Properties['Text']) {
