@@ -194,6 +194,9 @@ function Export-BcContainerSqlBackupSet {
     $configurationFound = $false
     foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "Container")) {
         $configurationFound = $true
+        if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+            continue
+        }
 
         $exportRootPath = Get-SqlBackupRootPath `
             -scriptPath $scriptPath `
@@ -251,6 +254,9 @@ function Restore-BcContainerSqlBackupSet {
     $configurationFound = $false
     foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "Container")) {
         $configurationFound = $true
+        if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+            continue
+        }
 
         $backupRootPath = Get-SqlBackupRootPath `
             -scriptPath $scriptPath `

@@ -122,6 +122,10 @@ function Invoke-PageScriptTests {
 
         switch ($configuration.serverType) {
             'Container' {
+                if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+                    continue
+                }
+
                 if (Get-Command Get-BcContainerUrl -ErrorAction SilentlyContinue) {
                      try {
                         $baseUrl = Get-BcContainerUrl -containerName $configuration.container -ErrorAction Stop

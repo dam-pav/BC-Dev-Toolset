@@ -12,6 +12,10 @@ function Test-BcContainerTenantAccessible {
         return $false
     }
 
+    if (-not (Test-DockerContainerExists -containerName $containerName)) {
+        return $false
+    }
+
     for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
         try {
             Get-BcContainerAppInfo -containerName $containerName -ErrorAction Stop | Out-Null
@@ -131,6 +135,10 @@ function Publish-Dependencies {
                     }
                 }
                 'Container' {
+                    if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+                        continue
+                    }
+
                     $params = @{
                         containerName = $configuration.container
                         appFile = $appList
@@ -278,6 +286,10 @@ function Publish-Apps {
                     }
                 }
                 'Container' {
+                    if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+                        continue
+                    }
+
                     # Verify tenant/environment accessibility before attempting publish
                     Write-Host "Waiting for tenant/environment to become accessible before deploying to '$($configuration.name)'." -ForegroundColor Yellow
                     if (-not (Test-BcContainerTenantAccessible -containerName $configuration.container)) {
@@ -367,6 +379,10 @@ function Unpublish-Apps {
                     Write-Host ""
                 }
                 'Container' {
+                    if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+                        continue
+                    }
+
                     $installedApps = (Get-BcContainerAppInfo -containerName $configuration.container)
                     $removeAppData = (Confirm-Option -question "Do you want to REMOVE ALL EXTENSIONS' DATA AND SCHEMA from '$($configuration.name)'?")
                     ForEach ($App in ($sortedApps|Sort-Object -Property ProcessOrder -Descending)) {

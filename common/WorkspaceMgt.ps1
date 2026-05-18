@@ -789,6 +789,10 @@ function Export-BcContainerRuntimePackage {
         [string] $certificateFile        
     )
 
+    if (-not (Test-DockerContainerExists -containerName $containerName)) {
+        return
+    }
+
     $containerPackageFile = Join-Path $hostHelperFolder "Extensions\$containerName\my\$packageFileName"
     $PackageFile = Join-Path $packageFilePath $packageFileName
     
@@ -1246,6 +1250,9 @@ function Update-ContainerServerConfiguration {
     $configurationFound = $false
     foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "Container")) {
         $configurationFound = $true
+        if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+            continue
+        }
 
         Invoke-ScriptInNavContainer -containername $configuration.container -scriptblock {
             Param($settings)
@@ -1283,6 +1290,9 @@ function Update-BcLicense {
     $configurationFound = $false
     foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "Container")) {
         $configurationFound = $true
+        if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+            continue
+        }
 
         if ($settingsJSON.licenseFile -eq "") {
             throw "A license file is not specified in Settings. Processing aborted."
@@ -1517,6 +1527,10 @@ function Install-FontsToContainer {
         Write-Host "Deploying apps to '$($configuration.name)'." -ForegroundColor Blue
         switch ($configuration.serverType) {
             'Container' {
+                if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+                    continue
+                }
+
                 $params = @{
                     containerName = $configuration.container
                     path = $fontFolder

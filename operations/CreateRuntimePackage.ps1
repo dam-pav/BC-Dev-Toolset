@@ -15,6 +15,10 @@ Initialize-Context `
 
 foreach ($configuration in $($settingsJSON.configurations | Where-Object { $_.targetType -eq "Dev" -and $_.serverType -eq "Container" })) {
     Write-Host "Using '$($configuration.name)' to export runtime packages." -ForegroundColor Blue
+    if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+        continue
+    }
+
     foreach ($appPath in $workspaceJSON.folders.path) {
         $appJSON = @{}
         Get-AppJSON `
