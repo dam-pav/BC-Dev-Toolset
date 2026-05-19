@@ -1,0 +1,388 @@
+{
+  "name": "bc-dev-toolset",
+  "displayName": "BC Dev Toolset",
+  "description": "VS Code command surface for the BC-Dev-Toolset PowerShell toolkit.",
+  "version": "0.0.1",
+  "publisher": "dam-pav",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dam-pav/BC-Dev-Toolset.git",
+    "directory": "vscode-extension"
+  },
+  "scripts": {
+    "validate": "node --check extension.js",
+    "package": "npx @vscode/vsce package --no-dependencies"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:bcDevToolset.installOrUpdateToolset",
+    "onCommand:bcDevToolset.configureWorkspace",
+    "onCommand:bcDevToolset.openLocalSettingsJson",
+    "onCommand:bcDevToolset.showObjectIdRangeVisualizationData",
+    "onCommand:bcDevToolset.runOperation",
+    "onCommand:bcDevToolset.operation.invokeTests",
+    "onCommand:bcDevToolset.operation.invokePageScriptTests",
+    "onCommand:bcDevToolset.operation.showBcContainerHelperVersions",
+    "onCommand:bcDevToolset.operation.updateBcContainerHelper",
+    "onCommand:bcDevToolset.operation.clearAppArtifacts",
+    "onCommand:bcDevToolset.operation.newDockerContainer",
+    "onCommand:bcDevToolset.operation.updateLaunchJson",
+    "onCommand:bcDevToolset.operation.updateBcLicenseContainer",
+    "onCommand:bcDevToolset.operation.updateBcContainerServerConfiguration",
+    "onCommand:bcDevToolset.operation.backupBcContainerDatabases",
+    "onCommand:bcDevToolset.operation.backupBcServiceDatabases",
+    "onCommand:bcDevToolset.operation.restoreBcContainerDatabases",
+    "onCommand:bcDevToolset.operation.publishDependencies2Docker",
+    "onCommand:bcDevToolset.operation.publishDependencies2Test",
+    "onCommand:bcDevToolset.operation.publishApps2Docker",
+    "onCommand:bcDevToolset.operation.publishApps2Production",
+    "onCommand:bcDevToolset.operation.publishApps2Test",
+    "onCommand:bcDevToolset.operation.createRuntimePackage",
+    "onCommand:bcDevToolset.operation.publishRuntimeApps2Docker",
+    "onCommand:bcDevToolset.operation.publishRuntimeApps2Production",
+    "onCommand:bcDevToolset.operation.publishRuntimeApps2Test",
+    "onCommand:bcDevToolset.operation.unpublishDockerApps",
+    "onCommand:bcDevToolset.operation.unpublishTestApps",
+    "onCommand:bcDevToolset.operation.prepareObjectIdRangeVisualizationData"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "BC Dev Toolset",
+      "properties": {
+        "bcDevToolset.toolsetPath": {
+          "type": "string",
+          "default": "",
+          "description": "Central BC-Dev-Toolset installation path. Defaults to %LOCALAPPDATA%\\BC-Dev-Toolset\\toolset on Windows."
+        },
+        "bcDevToolset.repositoryUrl": {
+          "type": "string",
+          "default": "https://github.com/dam-pav/BC-Dev-Toolset.git",
+          "description": "Git repository used by the install/update command."
+        },
+        "bcDevToolset.repositoryRef": {
+          "type": "string",
+          "enum": [
+            "stable",
+            "latest"
+          ],
+          "default": "stable",
+          "description": "Toolset update channel. Stable uses the stable branch; latest uses the main branch."
+        },
+        "bcDevToolset.powershellExecutable": {
+          "type": "string",
+          "default": "pwsh",
+          "description": "PowerShell executable used to run BC-Dev-Toolset operations."
+        },
+        "bcDevToolset.localSettingsPath": {
+          "type": "string",
+          "default": ".bcdevtoolset/settings.json",
+          "description": "Workspace-relative local settings file passed to PowerShell operations when it exists."
+        },
+        "dam-pav.bcdevtoolset": {
+          "type": "object",
+          "scope": "resource",
+          "default": {
+            "country": "w1",
+            "selectArtifact": "Closest",
+            "configurations": []
+          },
+          "description": "Shared BC Dev Toolset settings stored in the .code-workspace file.",
+          "properties": {
+            "country": {
+              "type": "string",
+              "default": "w1",
+              "description": "Business Central artifact country code."
+            },
+            "selectArtifact": {
+              "type": "string",
+              "enum": [
+                "Closest",
+                "Latest"
+              ],
+              "default": "Closest",
+              "description": "Artifact selection strategy."
+            },
+            "configurations": {
+              "type": "array",
+              "default": [],
+              "description": "Shared Business Central target configurations.",
+              "items": {
+                "type": "object",
+                "default": {
+                  "name": "sample",
+                  "serverType": "",
+                  "targetType": "",
+                  "server": "",
+                  "serverInstance": "",
+                  "container": "",
+                  "port": "",
+                  "environmentType": "",
+                  "environmentName": "",
+                  "includeTestToolkit": "",
+                  "tenant": "",
+                  "authentication": "",
+                  "admin": "",
+                  "password": ""
+                },
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Configuration display name."
+                  },
+                  "serverType": {
+                    "type": "string",
+                    "enum": [
+                      "",
+                      "Container",
+                      "Cloud",
+                      "OnPrem"
+                    ],
+                    "description": "Business Central server type."
+                  },
+                  "targetType": {
+                    "type": "string",
+                    "enum": [
+                      "",
+                      "Dev",
+                      "Test",
+                      "Production"
+                    ],
+                    "description": "Target environment role."
+                  },
+                  "server": {
+                    "type": "string",
+                    "description": "Server name for OnPrem targets."
+                  },
+                  "serverInstance": {
+                    "type": "string",
+                    "description": "Server instance for OnPrem targets."
+                  },
+                  "container": {
+                    "type": "string",
+                    "description": "Docker container name for Container targets."
+                  },
+                  "port": {
+                    "type": "string",
+                    "description": "Port for OnPrem targets."
+                  },
+                  "environmentType": {
+                    "type": "string",
+                    "enum": [
+                      "",
+                      "Sandbox",
+                      "OnPrem"
+                    ],
+                    "description": "Business Central environment type."
+                  },
+                  "environmentName": {
+                    "type": "string",
+                    "description": "Cloud environment name."
+                  },
+                  "includeTestToolkit": {
+                    "type": [
+                      "string",
+                      "boolean"
+                    ],
+                    "description": "Whether container environments should include the test toolkit."
+                  },
+                  "tenant": {
+                    "type": "string",
+                    "description": "Tenant identifier for Cloud or OnPrem targets."
+                  },
+                  "authentication": {
+                    "type": "string",
+                    "enum": [
+                      "",
+                      "UserPassword",
+                      "Windows",
+                      "AAD"
+                    ],
+                    "description": "Authentication mode."
+                  },
+                  "admin": {
+                    "type": "string",
+                    "description": "Administrative user name."
+                  },
+                  "password": {
+                    "type": "string",
+                    "description": "Administrative password."
+                  },
+                  "databaseUser": {
+                    "type": "string",
+                    "description": "Optional SQL user for database operations."
+                  },
+                  "databasePassword": {
+                    "type": "string",
+                    "description": "Optional SQL password for database operations."
+                  },
+                  "remoteUser": {
+                    "type": "string",
+                    "description": "Optional PowerShell remoting user."
+                  },
+                  "remotePassword": {
+                    "type": "string",
+                    "description": "Optional PowerShell remoting password."
+                  },
+                  "serverConfiguration": {
+                    "type": "array",
+                    "description": "Additional server configuration key/value pairs.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "KeyName": {
+                          "type": "string",
+                          "description": "Server configuration key."
+                        },
+                        "KeyValue": {
+                          "type": [
+                            "string",
+                            "number",
+                            "boolean"
+                          ],
+                          "description": "Server configuration value."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "jsonValidation": [
+      {
+        "fileMatch": [
+          "**/.bcdevtoolset/settings.json"
+        ],
+        "url": "./schemas/bcdevtoolset-settings.schema.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "bcDevToolset.installOrUpdateToolset",
+        "title": "BC Dev Toolset: Install/Update Toolset"
+      },
+      {
+        "command": "bcDevToolset.configureWorkspace",
+        "title": "BC Dev Toolset: Configure Workspace"
+      },
+      {
+        "command": "bcDevToolset.openLocalSettingsJson",
+        "title": "BC Dev Toolset: Open Local Settings (JSON)"
+      },
+      {
+        "command": "bcDevToolset.showObjectIdRangeVisualizationData",
+        "title": "BC Dev Toolset: Show object id range visualization data"
+      },
+      {
+        "command": "bcDevToolset.runOperation",
+        "title": "BC Dev Toolset: Show Operations List"
+      },
+      {
+        "command": "bcDevToolset.operation.invokeTests",
+        "title": "BC Dev Toolset: Run tests in all containers"
+      },
+      {
+        "command": "bcDevToolset.operation.invokePageScriptTests",
+        "title": "BC Dev Toolset: Run page script tests"
+      },
+      {
+        "command": "bcDevToolset.operation.showBcContainerHelperVersions",
+        "title": "BC Dev Toolset: Show BcContainerHelper versions (installed and available)"
+      },
+      {
+        "command": "bcDevToolset.operation.updateBcContainerHelper",
+        "title": "BC Dev Toolset: Update BcContainerHelper module"
+      },
+      {
+        "command": "bcDevToolset.operation.clearAppArtifacts",
+        "title": "BC Dev Toolset: Clear App and translation artifacts"
+      },
+      {
+        "command": "bcDevToolset.operation.newDockerContainer",
+        "title": "BC Dev Toolset: Create/Overwrite Docker container based on the first app.json found in the workspace"
+      },
+      {
+        "command": "bcDevToolset.operation.updateLaunchJson",
+        "title": "BC Dev Toolset: Update launch.json files in all apps in the workspace"
+      },
+      {
+        "command": "bcDevToolset.operation.updateBcLicenseContainer",
+        "title": "BC Dev Toolset: Update license files in all containers"
+      },
+      {
+        "command": "bcDevToolset.operation.updateBcContainerServerConfiguration",
+        "title": "BC Dev Toolset: Update server configuration in all containers"
+      },
+      {
+        "command": "bcDevToolset.operation.backupBcContainerDatabases",
+        "title": "BC Dev Toolset: Create and export SQL backup set from Docker container"
+      },
+      {
+        "command": "bcDevToolset.operation.backupBcServiceDatabases",
+        "title": "BC Dev Toolset: Create and export SQL backup set from BC service SQL Server"
+      },
+      {
+        "command": "bcDevToolset.operation.restoreBcContainerDatabases",
+        "title": "BC Dev Toolset: Restore SQL backup set to Docker container"
+      },
+      {
+        "command": "bcDevToolset.operation.publishDependencies2Docker",
+        "title": "BC Dev Toolset: Publish dependencies from the configuration to the existing container"
+      },
+      {
+        "command": "bcDevToolset.operation.publishDependencies2Test",
+        "title": "BC Dev Toolset: Publish dependencies from the configuration to test environments"
+      },
+      {
+        "command": "bcDevToolset.operation.publishApps2Docker",
+        "title": "BC Dev Toolset: Publish all apps in the workspace to Docker container"
+      },
+      {
+        "command": "bcDevToolset.operation.publishApps2Production",
+        "title": "BC Dev Toolset: Publish all apps in the workspace to production environments"
+      },
+      {
+        "command": "bcDevToolset.operation.publishApps2Test",
+        "title": "BC Dev Toolset: Publish all apps in the workspace to test environments"
+      },
+      {
+        "command": "bcDevToolset.operation.createRuntimePackage",
+        "title": "BC Dev Toolset: Create runtime packages for all apps in the workspace"
+      },
+      {
+        "command": "bcDevToolset.operation.publishRuntimeApps2Docker",
+        "title": "BC Dev Toolset: Publish runtime packages (stored) to the existing container"
+      },
+      {
+        "command": "bcDevToolset.operation.publishRuntimeApps2Production",
+        "title": "BC Dev Toolset: Publish runtime packages (stored) to production environments"
+      },
+      {
+        "command": "bcDevToolset.operation.publishRuntimeApps2Test",
+        "title": "BC Dev Toolset: Publish runtime packages (stored) to test environments"
+      },
+      {
+        "command": "bcDevToolset.operation.unpublishDockerApps",
+        "title": "BC Dev Toolset: Unpublish all workspace apps from Docker container"
+      },
+      {
+        "command": "bcDevToolset.operation.unpublishTestApps",
+        "title": "BC Dev Toolset: Unpublish all workspace apps from test environments"
+      },
+      {
+        "command": "bcDevToolset.operation.prepareObjectIdRangeVisualizationData",
+        "title": "BC Dev Toolset: Prepare object id range data for visualization"
+      }
+    ]
+  }
+}

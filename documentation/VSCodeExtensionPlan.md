@@ -134,7 +134,7 @@ Do not store secrets in tracked JSON files.
 
 ## Operation Metadata
 
-Extract the operation list from `Show-OperationMenu` into a metadata file.
+Keep the operation list in a metadata file.
 
 Suggested path:
 
@@ -156,10 +156,10 @@ Example:
 ]
 ```
 
-This metadata should power both:
+This metadata should power:
 
-- the existing terminal menu
 - the VS Code command palette
+- direct operation execution through `Invoke-BcDevToolsetOperation.ps1`
 
 ## Phased Implementation
 
@@ -174,7 +174,6 @@ Deliverables:
 
 Acceptance criteria:
 
-- Existing `RunOperation.ps1` still works.
 - A script can run an operation against an arbitrary workspace path.
 - Existing workspace-copied installations are not broken.
 
@@ -183,12 +182,10 @@ Acceptance criteria:
 Deliverables:
 
 - Add `operations/operations.json`.
-- Update `Show-OperationMenu` to read operation metadata.
 - Keep operation titles and order aligned with the current menu.
 
 Acceptance criteria:
 
-- Terminal menu output remains functionally equivalent.
 - Adding a new operation requires updating metadata, not hardcoded menu arrays.
 - Metadata contains stable operation IDs usable by VS Code.
 

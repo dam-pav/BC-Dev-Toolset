@@ -2,6 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const vscode = require('vscode');
 
+let extensionContext;
+
 const directOperationIds = [
   'invokeTests',
   'invokePageScriptTests',
@@ -31,6 +33,8 @@ const directOperationIds = [
 ];
 
 function activate(context) {
+  extensionContext = context;
+
   context.subscriptions.push(
     vscode.commands.registerCommand('bcDevToolset.installOrUpdateToolset', installOrUpdateToolset),
     vscode.commands.registerCommand('bcDevToolset.configureWorkspace', configureWorkspace),
@@ -59,7 +63,30 @@ function getDefaultToolsetPath() {
 
 function getToolsetPath() {
   const configuredPath = getConfiguration().get('toolsetPath');
-  return configuredPath && configuredPath.trim() ? configuredPath : getDefaultToolsetPath();
+  if (configuredPath && configuredPath.trim()) {
+    return configuredPath;
+  }
+
+  return getDevelopmentToolsetPath() || getDefaultToolsetPath();
+}
+
+function getDevelopmentToolsetPath() {
+  if (!extensionContext || extensionContext.extensionMode !== vscode.ExtensionMode.Development) {
+    return '';
+  }
+
+  const candidatePath = path.resolve(extensionContext.extensionPath, '..');
+  return isDevelopmentToolsetPath(candidatePath) ? candidatePath : '';
+}
+
+function isDevelopmentToolsetPath(candidatePath) {
+  return fs.existsSync(getOperationMetadataPath(candidatePath)) &&
+    fs.existsSync(getOperationBridgePath(candidatePath)) &&
+    fs.existsSync(path.join(candidatePath, 'vscode-extension', 'package.json'));
+}
+
+function getRepositoryBranch() {
+  return getConfiguration().get('repositoryRef') === 'latest' ? 'main' : 'stable';
 }
 
 function getOperationMetadataPath(toolsetPath) {
@@ -311,24 +338,33 @@ function getRuntimeSparseCheckoutPatterns() {
 async function installOrUpdateToolset() {
   const toolsetPath = getToolsetPath();
   const repositoryUrl = getConfiguration().get('repositoryUrl');
+  const repositoryBranch = getRepositoryBranch();
   const parentPath = path.dirname(toolsetPath);
-  const terminal = createTerminal();
   const sparseCheckoutPatterns = getRuntimeSparseCheckoutPatterns()
     .map(quotePowerShellArgument)
     .join(' ');
 
+  if (isDevelopmentToolsetPath(toolsetPath)) {
+    await vscode.window.showInformationMessage(`BC Dev Toolset is using the local development clone at ${toolsetPath}. Install/update is managed through that clone.`);
+    return;
+  }
+
+  const terminal = createTerminal();
+
   if (fs.existsSync(path.join(toolsetPath, '.git'))) {
+    terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} fetch origin ${quotePowerShellArgument(repositoryBranch)}`);
+    terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} checkout ${quotePowerShellArgument(repositoryBranch)}`);
     terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} sparse-checkout init --no-cone`);
     terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} sparse-checkout set ${sparseCheckoutPatterns}`);
-    terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} pull --ff-only`);
+    terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} pull --ff-only origin ${quotePowerShellArgument(repositoryBranch)}`);
     return;
   }
 
   terminal.sendText(`New-Item -ItemType Directory -Force -Path ${quotePowerShellArgument(parentPath)} | Out-Null`);
-  terminal.sendText(`git clone --filter=blob:none --no-checkout ${quotePowerShellArgument(repositoryUrl)} ${quotePowerShellArgument(toolsetPath)}`);
+  terminal.sendText(`git clone --filter=blob:none --no-checkout --branch ${quotePowerShellArgument(repositoryBranch)} ${quotePowerShellArgument(repositoryUrl)} ${quotePowerShellArgument(toolsetPath)}`);
   terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} sparse-checkout init --no-cone`);
   terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} sparse-checkout set ${sparseCheckoutPatterns}`);
-  terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} checkout`);
+  terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} checkout ${quotePowerShellArgument(repositoryBranch)}`);
 }
 
 async function configureWorkspace() {

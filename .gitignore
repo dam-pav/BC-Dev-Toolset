@@ -1,8 +1,10 @@
 settings.json
 *.zip
+*.vsix
 visualization/data.json
 package-lock.json
 package.json
+!vscode-extension/package.json
 node_modules/
 test-results/.last-run.json
 .altestrunner
