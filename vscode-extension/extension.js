@@ -26,7 +26,8 @@ const directOperationIds = [
   'publishRuntimeApps2Test',
   'unpublishDockerApps',
   'unpublishTestApps',
-  'prepareObjectIdRangeVisualizationData'
+  'prepareObjectIdRangeVisualizationData',
+  'showObjectIdRangeVisualizationData'
 ];
 
 function activate(context) {
@@ -34,6 +35,7 @@ function activate(context) {
     vscode.commands.registerCommand('bcDevToolset.installOrUpdateToolset', installOrUpdateToolset),
     vscode.commands.registerCommand('bcDevToolset.configureWorkspace', configureWorkspace),
     vscode.commands.registerCommand('bcDevToolset.openLocalSettingsJson', openLocalSettingsJson),
+    vscode.commands.registerCommand('bcDevToolset.showObjectIdRangeVisualizationData', showObjectIdRangeVisualizationData),
     vscode.commands.registerCommand('bcDevToolset.runOperation', runOperation)
   );
 
@@ -154,6 +156,10 @@ function isSameOrParentPath(parentPath, candidatePath) {
 
 function getConfigPath() {
   return path.join(getWorkspaceBasePath(), '.bcdevtoolset');
+}
+
+function getVisualizationDataPath() {
+  return path.join(getConfigPath(), `${getWorkspaceName()}.visualization.json`);
 }
 
 function getWorkspaceName() {
@@ -351,6 +357,46 @@ async function openLocalSettingsJson() {
   await vscode.window.showTextDocument(vscode.Uri.file(localPath));
 }
 
+async function showObjectIdRangeVisualizationData() {
+  const toolsetPath = await resolveToolsetRuntimePath();
+  if (!toolsetPath) {
+    return;
+  }
+
+  const htmlPath = path.join(toolsetPath, 'visualization', 'WorkspaceAnalysis.html');
+  const dataPath = getVisualizationDataPath();
+
+  if (!fs.existsSync(htmlPath)) {
+    await vscode.window.showErrorMessage(`WorkspaceAnalysis.html was not found at ${htmlPath}.`);
+    return;
+  }
+
+  if (!fs.existsSync(dataPath)) {
+    const selection = await vscode.window.showWarningMessage(
+      `Visualization data was not found at ${dataPath}.`,
+      'Prepare Data'
+    );
+    if (selection === 'Prepare Data') {
+      await runOperationById('prepareObjectIdRangeVisualizationData');
+    }
+    return;
+  }
+
+  const panel = vscode.window.createWebviewPanel(
+    'bcDevToolsetWorkspaceAnalysis',
+    'BC Dev Toolset Workspace Analysis',
+    vscode.ViewColumn.One,
+    {
+      enableScripts: true
+    }
+  );
+
+  const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+  const injectedDataScript = `<script>window.bcDevToolsetData = ${JSON.stringify(data).replace(/</g, '\\u003c')};</script>`;
+  const html = fs.readFileSync(htmlPath, 'utf8').replace('</head>', `${injectedDataScript}\n</head>`);
+  panel.webview.html = html;
+}
+
 function writeJsonIfMissing(filePath, value) {
   if (fs.existsSync(filePath)) {
     return;
@@ -405,6 +451,11 @@ function getOperations(toolsetPath) {
 async function executeOperation(operation, toolsetPath) {
   if (operation.command === 'openLocalSettingsJson') {
     await openLocalSettingsJson();
+    return;
+  }
+
+  if (operation.command === 'showObjectIdRangeVisualizationData') {
+    await showObjectIdRangeVisualizationData();
     return;
   }
 

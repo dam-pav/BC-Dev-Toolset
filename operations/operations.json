@@ -156,5 +156,11 @@
     "title": "Prepare object id range data for visualization",
     "script": "visualization/DataUpdate.ps1",
     "category": "Visualization"
+  },
+  {
+    "id": "showObjectIdRangeVisualizationData",
+    "title": "Show object id range visualization data",
+    "command": "showObjectIdRangeVisualizationData",
+    "category": "Visualization"
   }
 ]
