@@ -105,5 +105,5 @@ $existingData | ConvertTo-Json -Depth 10 | Format-Json | Set-Content -Path $data
 
 Write-Done
 
-Write-Host "Attention: To visualise the collected data, open the 'WorkspaceAnalysis.html' with the Live Server VSCode extension and load '$dataFilePath'. Regular HTML preview will not show the data." -ForegroundColor Blue
+Write-Host "To visualise the collected data, run the 'BC Dev Toolset: Show object id range visualization data' command." -ForegroundColor Blue
 Write-Host ""
