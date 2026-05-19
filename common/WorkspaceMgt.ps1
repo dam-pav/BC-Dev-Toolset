@@ -124,6 +124,27 @@ function Merge-SettingsFile {
     Merge-Settings -target $target -source $settings
 }
 
+function Resolve-WorkspaceFolderPath {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [AllowEmptyString()]
+        [string] $folderPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($folderPath)) {
+        return $folderPath
+    }
+
+    if ([System.IO.Path]::IsPathRooted($folderPath)) {
+        return $folderPath
+    }
+
+    $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
+    return Join-Path $workspaceRootPath.FullName $folderPath
+}
+
 function Test-DockerContainerExists {
     param(
         [Parameter(Mandatory=$true)]
@@ -169,10 +190,7 @@ function Write-LaunchJSON {
     }
 
     # Read launch.json
-    if (-not $appPath.Contains('\')) {
-        $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
-        $appPath = "$($workspaceRootPath.Fullname)\$appPath"
-    }
+    $appPath = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $appPath
 
     $appFilename = "$appPath\app.json"
     if (-not (Test-Path $appFilename)) {
@@ -644,6 +662,8 @@ function Initialize-Context {
         $workspaceJSON.Value = Get-Content -Path $selectedFile.FullName | ConvertFrom-Json
         $workspaceName = $selectedFile.Name
         $workspaceName = $workspaceName -split '\.' | Select-Object -First 1
+        $workspaceRootPath = Get-Item -LiteralPath $selectedFile.DirectoryName
+        $Script:bcDevToolsetWorkspaceRootPath = $workspaceRootPath.FullName
     } else {
         # throw "No $filterExtension files found in the folder."
         # there IS no workspace
@@ -727,18 +747,15 @@ function Get-AppJSON {
         [Parameter(Mandatory=$true)]
         [ref] $appJSON
     )
-    $appName = $appPath -split '\.' | Select-Object -First 1
-    if ($appName -eq $toolsetFolderName) {
+    $appPath = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $appPath
+    $appName = Split-Path -Path $appPath -Leaf
+    if ($appName -eq $toolsetFolderName -or $appName -eq '.bcdevtoolset') {
         # this is not an app folder
         $appJSON.Value = [PSCustomObject]@{}
         return
     }
     
     # Read app.json
-    if (-not $appPath.Contains('\')) {
-        $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
-        $appPath = "$($workspaceRootPath.Fullname)\$appPath"
-    }
     $appFilename = "$appPath\app.json"
 
     if (Test-Path $appFilename) {
@@ -746,7 +763,7 @@ function Get-AppJSON {
         Write-Host "'$appFilename' loaded." -ForegroundColor Blue
     } else {
         $appJSON.Value = [PSCustomObject]@{}
-        Write-Host "'$appFilename' cannot be found." -ForegroundColor Red
+        Write-Host "'$appPath' is not an app folder; app.json was not found." -ForegroundColor Gray
     }
 }
 
@@ -962,9 +979,7 @@ function Clear-Artifacts {
     if (Confirm-Option -question "Do you want to clear the translation files?") {
         foreach ($appPath in $workspaceJSON.folders.path) {
             # Read app.json
-            if (-not $appPath.Contains('\')) {
-                $appPath = Join-Path $workspaceRootPath.Fullname $appPath
-            }
+            $appPath = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $appPath
 
             # Confirm it is an app folder
             if (Test-Path $(Join-Path $appPath "app.json")) {
@@ -977,9 +992,7 @@ function Clear-Artifacts {
     if (Confirm-Option -question "Do you want to clear all APP files? You will need to download symbols for all projects.") {
         foreach ($appPath in $workspaceJSON.folders.path) {
             # Read app.json
-            if (-not $appPath.Contains('\')) {
-                $appPath = Join-Path $workspaceRootPath.Fullname $appPath
-            }
+            $appPath = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $appPath
 
             # Confirm it is an app folder
             if (Test-Path $(Join-Path $appPath "app.json")) {

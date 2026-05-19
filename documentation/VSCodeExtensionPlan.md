@@ -231,7 +231,7 @@ Initial command palette surface:
 
 - `BC Dev Toolset: Install/Update Toolset`
 - `BC Dev Toolset: Configure Workspace`
-- `BC Dev Toolset: Run Operation`
+- `BC Dev Toolset: Show Operations List`
 - `BC Dev Toolset: Create/Overwrite Docker Container`
 - `BC Dev Toolset: Update launch.json`
 - `BC Dev Toolset: Backup Container Databases`
@@ -290,7 +290,7 @@ Deprecation should be gradual. The copied-toolset workflow can remain documented
 
 - Should the extension live in this repository or a separate repository?
 - Should the central toolset install be a Git clone, downloaded release archive, or bundled extension asset?
-- Should operation commands be registered individually, or should most operations go through a single `Run Operation` picker?
+- Should operation commands be registered individually, or should most operations go through a single `Show Operations List` picker?
 - Should non-interactive operation mode be introduced immediately, or only after the command palette MVP?
 - How much configuration validation belongs in TypeScript versus PowerShell?
 - Which existing workspace settings should eventually move to local-only configuration or SecretStorage?
@@ -303,7 +303,7 @@ Build the smallest useful hybrid slice:
 2. Add `operations/operations.json`.
 3. Add `Invoke-BcDevToolsetOperation.ps1`.
 4. Scaffold the VS Code extension.
-5. Register `BC Dev Toolset: Run Operation`.
+5. Register `BC Dev Toolset: Show Operations List`.
 6. Execute one existing operation from the command palette against a workspace that does not contain a copied toolset folder.
 
 This milestone proves the architecture without forcing a full configuration migration up front.

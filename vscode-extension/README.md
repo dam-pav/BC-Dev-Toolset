@@ -8,7 +8,7 @@ The extension does not reimplement Business Central logic. It locates a central 
 
 - `BC Dev Toolset: Install/Update Toolset`
 - `BC Dev Toolset: Configure Workspace`
-- `BC Dev Toolset: Run Operation`
+- `BC Dev Toolset: Show Operations List`
 
 ## Settings
 

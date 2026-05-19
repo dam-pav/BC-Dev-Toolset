@@ -2,6 +2,33 @@ const fs = require('fs');
 const path = require('path');
 const vscode = require('vscode');
 
+const directOperationIds = [
+  'invokeTests',
+  'invokePageScriptTests',
+  'showBcContainerHelperVersions',
+  'updateBcContainerHelper',
+  'clearAppArtifacts',
+  'newDockerContainer',
+  'updateLaunchJson',
+  'updateBcLicenseContainer',
+  'updateBcContainerServerConfiguration',
+  'backupBcContainerDatabases',
+  'backupBcServiceDatabases',
+  'restoreBcContainerDatabases',
+  'publishDependencies2Docker',
+  'publishDependencies2Test',
+  'publishApps2Docker',
+  'publishApps2Production',
+  'publishApps2Test',
+  'createRuntimePackage',
+  'publishRuntimeApps2Docker',
+  'publishRuntimeApps2Production',
+  'publishRuntimeApps2Test',
+  'unpublishDockerApps',
+  'unpublishTestApps',
+  'prepareObjectIdRangeVisualizationData'
+];
+
 function activate(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand('bcDevToolset.installOrUpdateToolset', installOrUpdateToolset),
@@ -9,6 +36,12 @@ function activate(context) {
     vscode.commands.registerCommand('bcDevToolset.openLocalSettingsJson', openLocalSettingsJson),
     vscode.commands.registerCommand('bcDevToolset.runOperation', runOperation)
   );
+
+  for (const operationId of directOperationIds) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand(`bcDevToolset.operation.${operationId}`, () => runOperationById(operationId))
+    );
+  }
 }
 
 function deactivate() {}
@@ -310,15 +343,12 @@ function writeJsonIfMissing(filePath, value) {
 }
 
 async function runOperation() {
-  const workspacePath = getWorkspacePath();
   const toolsetPath = await resolveToolsetRuntimePath();
   if (!toolsetPath) {
     return;
   }
 
-  const operationMetadataPath = getOperationMetadataPath(toolsetPath);
-  const bridgePath = getOperationBridgePath(toolsetPath);
-  const operations = JSON.parse(fs.readFileSync(operationMetadataPath, 'utf8'));
+  const operations = getOperations(toolsetPath);
   const picked = await vscode.window.showQuickPick(
     operations.map((operation) => ({
       label: operation.title,
@@ -333,11 +363,41 @@ async function runOperation() {
     return;
   }
 
-  if (picked.operation.command === 'openLocalSettingsJson') {
+  await executeOperation(picked.operation, toolsetPath);
+}
+
+async function runOperationById(operationId) {
+  const toolsetPath = await resolveToolsetRuntimePath();
+  if (!toolsetPath) {
+    return;
+  }
+
+  const operation = getOperations(toolsetPath).find((candidate) => candidate.id === operationId);
+  if (!operation) {
+    await vscode.window.showErrorMessage(`BC Dev Toolset operation '${operationId}' was not found.`);
+    return;
+  }
+
+  await executeOperation(operation, toolsetPath);
+}
+
+function getOperations(toolsetPath) {
+  return JSON.parse(fs.readFileSync(getOperationMetadataPath(toolsetPath), 'utf8'));
+}
+
+async function executeOperation(operation, toolsetPath) {
+  if (operation.command === 'openLocalSettingsJson') {
     await openLocalSettingsJson();
     return;
   }
 
+  if (!operation.script) {
+    await vscode.window.showErrorMessage(`BC Dev Toolset operation '${operation.id}' cannot be run by this extension.`);
+    return;
+  }
+
+  const workspacePath = getWorkspacePath();
+  const bridgePath = getOperationBridgePath(toolsetPath);
   const powershellExecutable = getConfiguration().get('powershellExecutable') || 'pwsh';
   const workspaceFile = getWorkspaceFileName();
   const configPath = getConfigPath();
@@ -349,7 +409,7 @@ async function runOperation() {
 
   const command =
     `${powershellExecutable} -NoLogo -ExecutionPolicy Bypass -File ${quotePowerShellArgument(bridgePath)}` +
-    ` -Operation ${quotePowerShellArgument(picked.operation.id)}` +
+    ` -Operation ${quotePowerShellArgument(operation.id)}` +
     ` -WorkspacePath ${quotePowerShellArgument(workspacePath)}` +
     workspaceFileArguments +
     localSettingsArguments;
