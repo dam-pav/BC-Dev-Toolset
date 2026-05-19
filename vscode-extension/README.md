@@ -17,6 +17,15 @@ The extension does not reimplement Business Central logic. It locates a central 
 - `bcDevToolset.powershellExecutable`
 - `bcDevToolset.localSettingsPath`
 
+## Central Toolset Install
+
+`BC Dev Toolset: Install/Update Toolset` uses a sparse Git checkout. The central runtime install contains only:
+
+- `Invoke-BcDevToolsetOperation.ps1`
+- `common/`
+- `operations/`
+- `visualization/`
+
 ## Development
 
 Open the `vscode-extension` folder in VS Code and run the extension host. The extension is plain JavaScript and does not require a build step.

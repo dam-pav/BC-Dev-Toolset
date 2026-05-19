@@ -14,11 +14,20 @@ Initialize-Context `
 Write-Host ""
 
 # Create the data file path
-$dataFilePath = Join-Path -Path $scriptRoot -ChildPath "visualization/data.json"
+$workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptRoot
+$workspaceName = $workspaceRootPath.Name
+if ($env:BCDEVTOOLSET_WORKSPACE_FILE) {
+    $workspaceName = [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileName($env:BCDEVTOOLSET_WORKSPACE_FILE))
+}
+
+$localConfigPath = Join-Path -Path $workspaceRootPath.FullName -ChildPath ".bcdevtoolset"
+$dataFileName = "$workspaceName.visualization.json"
+$dataFilePath = Join-Path -Path $localConfigPath -ChildPath $dataFileName
+New-Item -ItemType Directory -Path $localConfigPath -Force | Out-Null
 
 # Load existing data if present; otherwise inform user we'll create it
 if (Test-Path -Path $dataFilePath) {
-    Write-Host "Opening the existing data.json..." -ForegroundColor Blue
+    Write-Host "Opening the existing $dataFileName..." -ForegroundColor Blue
     $existingData = Get-Content -Path $dataFilePath | ConvertFrom-Json
     $pool_range = $existingData.pool_range
 } else {
@@ -28,7 +37,7 @@ if (Test-Path -Path $dataFilePath) {
     Write-Host "* asked to input the overall range manually.                             *" -ForegroundColor Green
     Write-Host "**************************************************************************" -ForegroundColor Green
     Write-Host ""
-    Write-Host "data.json not found. It will be created." -ForegroundColor Blue
+    Write-Host "$dataFileName not found. It will be created." -ForegroundColor Blue
     $existingData = $null
     $pool_range = @{ name = "Customization Range"; from = $null; to = $null }
 }
@@ -91,10 +100,10 @@ $existingData = @{
     ranges = $ranges
 }
 
-Write-Host "Writing data.json..." -ForegroundColor Blue
+Write-Host "Writing $dataFileName..." -ForegroundColor Blue
 $existingData | ConvertTo-Json -Depth 10 | Format-Json | Set-Content -Path $dataFilePath -Force
 
 Write-Done
 
-Write-Host "Attention: To visualise the collected data, open the 'WorkspaceAnalysis.html' with the Live Server VSCode extension. Regular HTML preview will not show the data." -ForegroundColor Blue
+Write-Host "Attention: To visualise the collected data, open the 'WorkspaceAnalysis.html' with the Live Server VSCode extension and load '$dataFilePath'. Regular HTML preview will not show the data." -ForegroundColor Blue
 Write-Host ""

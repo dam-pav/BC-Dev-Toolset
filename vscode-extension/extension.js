@@ -293,19 +293,36 @@ function createTerminal() {
   return terminal;
 }
 
+function getRuntimeSparseCheckoutPatterns() {
+  return [
+    '/Invoke-BcDevToolsetOperation.ps1',
+    '/common/',
+    '/operations/',
+    '/visualization/'
+  ];
+}
+
 async function installOrUpdateToolset() {
   const toolsetPath = getToolsetPath();
   const repositoryUrl = getConfiguration().get('repositoryUrl');
   const parentPath = path.dirname(toolsetPath);
   const terminal = createTerminal();
+  const sparseCheckoutPatterns = getRuntimeSparseCheckoutPatterns()
+    .map(quotePowerShellArgument)
+    .join(' ');
 
   if (fs.existsSync(path.join(toolsetPath, '.git'))) {
+    terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} sparse-checkout init --no-cone`);
+    terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} sparse-checkout set ${sparseCheckoutPatterns}`);
     terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} pull --ff-only`);
     return;
   }
 
   terminal.sendText(`New-Item -ItemType Directory -Force -Path ${quotePowerShellArgument(parentPath)} | Out-Null`);
-  terminal.sendText(`git clone ${quotePowerShellArgument(repositoryUrl)} ${quotePowerShellArgument(toolsetPath)}`);
+  terminal.sendText(`git clone --filter=blob:none --no-checkout ${quotePowerShellArgument(repositoryUrl)} ${quotePowerShellArgument(toolsetPath)}`);
+  terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} sparse-checkout init --no-cone`);
+  terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} sparse-checkout set ${sparseCheckoutPatterns}`);
+  terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} checkout`);
 }
 
 async function configureWorkspace() {

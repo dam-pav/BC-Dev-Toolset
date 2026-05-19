@@ -62,8 +62,11 @@
     let globalData;
     let poolRange;
 
+    const dataFileParam = new URLSearchParams(window.location.search).get('data');
+    const dataFile = dataFileParam || './data.json';
+
     // Load JSON data from file using fetch
-fetch('./data.json')
+fetch(dataFile)
     .then(response => response.json())
     .then(data => {
         // Initialize newPoolRange with the full range from data on page load

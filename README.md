@@ -218,7 +218,7 @@ Starting a new workspace and including the toolset should be easy.
       You can prevent updates from the toolset's origin by removing the *BC-Dev-Toolset\\.git* folder. I also do not recommend this.
    4. I do recommend to add **`launch.json`** to *.gitignore*. These files are personalized per developer and managed by the toolset.
 3. If you copied the toolset folder from another project, be sure to review and adjust the preexisting *settings.json*. If you delete it, it will be recreated with default values when you run any script.
-4. Same goes for the preexisting *visualization\data.json*. Until you run *visualization\\DataUpdate.ps1* and recreate the data, it might show wrong information.
+4. Same goes for preexisting visualization data in *.bcdevtoolset\\<workspace name>.visualization.json*. Until you run *visualization\\DataUpdate.ps1* and recreate the data, it might show wrong information.
 5. You can now create your first Docker container.
 
 ## Running the Toolset operations
