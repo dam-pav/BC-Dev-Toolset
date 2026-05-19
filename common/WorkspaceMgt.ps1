@@ -1225,14 +1225,17 @@ function New-DockerContainer {
                 -sqlBackupPath $settingsJSON.sqlBackupPath
 
             if (-not [string]::IsNullOrWhiteSpace($backupRootPath) -and (Test-Path -Path $backupRootPath -PathType Container)) {
-                $backupFiles = @(Get-ChildItem -Path $backupRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue)
-                if ($backupFiles.Count -gt 0) {
+                $backupEntries = @(Get-SqlBackupSetEntries -backupRootPath $backupRootPath)
+                $containerBaseBackupEntries = @($backupEntries | Where-Object { $_.DatabaseRole -in @('app', 'database') })
+                if ($containerBaseBackupEntries.Count -gt 0) {
                     $Parameters.bakFolder = Copy-SqlBackupSetToSharedFolder `
                         -containerName $configuration.container `
                         -backupRootPath $backupRootPath `
                         -sharedFolderName "NewContainer"
 
                     Write-Host "New container will be initialized from SQL backup set '$backupRootPath'." -ForegroundColor Green
+                } elseif ($backupEntries.Count -gt 0) {
+                    Write-Host "SQL backup folder '$backupRootPath' contains tenant backups but no application or full database backup. Container will use a fresh database." -ForegroundColor Yellow
                 } else {
                     Write-Host "No SQL backup set found. Container will use a fresh database." -ForegroundColor Gray
                 }
