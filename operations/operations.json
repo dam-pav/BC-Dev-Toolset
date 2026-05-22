@@ -24,6 +24,21 @@
     "category": "Prerequisites"
   },
   {
+    "id": "initPrerequisites",
+    "title": "Install prerequisites",
+    "script": "operations/initPrerequisites.bat",
+    "category": "Prerequisites",
+    "requiresConfirmation": true
+  },
+  {
+    "id": "updatePowerShell",
+    "title": "Update Microsoft PowerShell",
+    "script": "operations/UpdatePowershell.bat",
+    "category": "Prerequisites",
+    "powerShellExecutable": "powershell.exe",
+    "requiresConfirmation": true
+  },
+  {
     "id": "updateBcContainerHelper",
     "title": "Update BcContainerHelper module",
     "script": "operations/UpdateBcContainerHelper.ps1",

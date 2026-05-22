@@ -26,7 +26,7 @@ param(
 )
 
 $scriptPath = $PSScriptRoot
-. (Join-Path $scriptPath 'common' 'WorkspaceMgt.ps1')
+. (Join-Path (Join-Path $scriptPath 'common') 'WorkspaceMgt.ps1')
 
 $operations = @(Get-OperationDefinitions -ScriptPath $scriptPath)
 
@@ -47,10 +47,11 @@ if (-not (Test-Path -LiteralPath $WorkspacePath -PathType Container)) {
 
 $matchingOperations = @(
     $operations | Where-Object {
+        $script = if ([string]::IsNullOrWhiteSpace($_.script)) { '' } else { $_.script }
         $_.id -eq $Operation -or
         $_.title -eq $Operation -or
-        $_.script -eq $Operation -or
-        (Split-Path $_.script -Leaf) -eq $Operation
+        $script -eq $Operation -or
+        (-not [string]::IsNullOrWhiteSpace($script) -and (Split-Path $script -Leaf) -eq $Operation)
     }
 )
 

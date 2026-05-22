@@ -41,12 +41,12 @@ function Get-OperationDefinitions {
         [string] $ScriptPath
     )
 
-    $metadataPath = Join-Path $ScriptPath 'operations' 'operations.json'
+    $metadataPath = Join-Path (Join-Path $ScriptPath 'operations') 'operations.json'
     if (-not (Test-Path -LiteralPath $metadataPath)) {
         throw "Operation metadata file not found: $metadataPath"
     }
 
-    $operations = @(Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json)
+    $operations = @((Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json) | ForEach-Object { $_ })
     foreach ($operation in $operations) {
         if (-not [string]::IsNullOrWhiteSpace($operation.script)) {
             $operationPath = Join-Path $ScriptPath $operation.script

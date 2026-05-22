@@ -44,9 +44,9 @@ You are also welcome to apply as contributor. As a contributor you will implicit
 
    If you don't have access to any of the above, you won't be able to develop for BC using Docker. You might still find scripts that are not related to Docker useful, for instance, if you only use "regular" environments without containers.
 
-   If your OS is suitable, you can proceed with the rest of the prerequisites. You can do it manually following the steps below or you can download and run ***[initPrerequisites.ps1](initPrerequisites.ps1)*** as administrator.
+   If your OS is suitable, you can proceed with the rest of the prerequisites. You can do it manually following the steps below or you can download and run ***[initPrerequisites.ps1](operations/initPrerequisites.ps1)*** as administrator.
 
-   If execution policy prevents the PowerShell script from starting, use the launcher instead: ***[initPrerequisites.bat](initPrerequisites.bat)***. You will need both the ps1 and the bat script.
+   If execution policy prevents the PowerShell script from starting, use the launcher instead: ***[initPrerequisites.bat](operations/initPrerequisites.bat)***. You will need both the ps1 and the bat script.
 
    The script:
 
@@ -195,7 +195,7 @@ Starting a new workspace and including the toolset should be easy.
       Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
       ```
 
-      For the prerequisites script in this repository, you can also launch ***[initPrerequisites.bat](initPrerequisites.bat)*** to request elevation and execute the PowerShell script with a temporary policy bypass.
+      For the prerequisites script in this repository, you can also launch ***[initPrerequisites.bat](operations/initPrerequisites.bat)*** to request elevation and execute the PowerShell script with a temporary policy bypass.
 
       After this the script will run. Once you close the PS session (process is the scope), the bypass is gone.
       The script will:

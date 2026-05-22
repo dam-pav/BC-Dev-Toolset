@@ -29,6 +29,8 @@
     "onCommand:bcDevToolset.operation.invokeTests",
     "onCommand:bcDevToolset.operation.invokePageScriptTests",
     "onCommand:bcDevToolset.operation.showBcContainerHelperVersions",
+    "onCommand:bcDevToolset.operation.initPrerequisites",
+    "onCommand:bcDevToolset.operation.updatePowerShell",
     "onCommand:bcDevToolset.operation.updateBcContainerHelper",
     "onCommand:bcDevToolset.operation.clearAppArtifacts",
     "onCommand:bcDevToolset.operation.newDockerContainer",
@@ -298,6 +300,14 @@
       {
         "command": "bcDevToolset.operation.showBcContainerHelperVersions",
         "title": "BC Dev Toolset: Show BcContainerHelper versions (installed and available)"
+      },
+      {
+        "command": "bcDevToolset.operation.initPrerequisites",
+        "title": "BC Dev Toolset: Install prerequisites"
+      },
+      {
+        "command": "bcDevToolset.operation.updatePowerShell",
+        "title": "BC Dev Toolset: Update Microsoft PowerShell"
       },
       {
         "command": "bcDevToolset.operation.updateBcContainerHelper",

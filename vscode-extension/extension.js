@@ -8,6 +8,8 @@ const directOperationIds = [
   'invokeTests',
   'invokePageScriptTests',
   'showBcContainerHelperVersions',
+  'initPrerequisites',
+  'updatePowerShell',
   'updateBcContainerHelper',
   'clearAppArtifacts',
   'newDockerContainer',
@@ -502,7 +504,7 @@ async function executeOperation(operation, toolsetPath) {
 
   const workspacePath = getWorkspacePath();
   const bridgePath = getOperationBridgePath(toolsetPath);
-  const powershellExecutable = getConfiguration().get('powershellExecutable') || 'pwsh';
+  const powershellExecutable = operation.powerShellExecutable || getConfiguration().get('powershellExecutable') || 'pwsh';
   const workspaceFile = getWorkspaceFileName();
   const configPath = getConfigPath();
   const localSettingsPath = resolveWorkspaceBasePath(getConfiguration().get('localSettingsPath')) || path.join(configPath, 'settings.json');
