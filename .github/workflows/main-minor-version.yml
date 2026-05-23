@@ -1,0 +1,70 @@
+name: Main minor version
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  bump-minor-version:
+    name: Bump PR minor version
+    runs-on: ubuntu-latest
+    if: >
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute next minor version from main
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch origin main
+
+          MAIN_VERSION="$(git show origin/main:vscode-extension/package.json | node -e "let input=''; process.stdin.on('data', d => input += d); process.stdin.on('end', () => process.stdout.write(JSON.parse(input).version));")"
+          NEXT_VERSION="$(node -e "const [major, minor] = process.argv[1].split('.').map(Number); process.stdout.write([major, minor + 1, 0].join('.'));" "$MAIN_VERSION")"
+
+          node - <<'NODE' "$NEXT_VERSION"
+          const fs = require('fs');
+          const packagePath = 'vscode-extension/package.json';
+          const nextVersion = process.argv[2];
+          const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+          pkg.version = nextVersion;
+          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+          echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Commit version bump
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- vscode-extension/package.json; then
+            echo "Version is already ${{ steps.version.outputs.version }}."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vscode-extension/package.json
+          git commit -m "chore: bump minor version to ${{ steps.version.outputs.version }}"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
