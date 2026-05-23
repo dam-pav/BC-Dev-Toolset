@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: stable-release
@@ -21,7 +21,8 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+          persist-credentials: false
 
       - name: Bump major version
         id: version
@@ -63,4 +64,5 @@ jobs:
           set -euo pipefail
 
           git tag "v${{ steps.version.outputs.version }}"
+          git remote set-url origin "git@github.com:${{ github.repository }}.git"
           git push --atomic origin HEAD:main HEAD:stable "v${{ steps.version.outputs.version }}"
