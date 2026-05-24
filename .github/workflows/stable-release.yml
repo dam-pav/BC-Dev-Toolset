@@ -108,3 +108,14 @@ jobs:
             dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix \
             --title "BC Dev Toolset v${{ steps.version.outputs.version }}" \
             --notes "Stable and latest VSIX packages for BC Dev Toolset v${{ steps.version.outputs.version }}."
+
+      - name: Publish stable VSIX to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npx @vscode/vsce publish \
+            --packagePath "dist/bc-dev-toolset-stable-${{ steps.version.outputs.version }}.vsix" \
+            --pat "$VSCE_PAT"
