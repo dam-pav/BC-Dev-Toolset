@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "BC Dev Toolset",
   "description": "VS Code command surface for the BC-Dev-Toolset PowerShell toolkit.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -13,8 +13,9 @@
   },
   "scripts": {
     "validate": "node --check extension.js",
-    "package": "npx @vscode/vsce package --no-dependencies",
-    "publish:marketplace": "npx @vscode/vsce publish --no-dependencies"
+    "prepare:runtime": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/PrepareRuntimePackage.ps1",
+    "package": "npm run prepare:runtime && npx @vscode/vsce package --no-dependencies",
+    "publish:marketplace": "npm run prepare:runtime && npx @vscode/vsce publish --no-dependencies"
   },
   "engines": {
     "vscode": "^1.90.0"
@@ -23,7 +24,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:bcDevToolset.installOrUpdateToolset",
+    "onStartupFinished",
     "onCommand:bcDevToolset.configureWorkspace",
     "onCommand:bcDevToolset.openLocalSettingsJson",
     "onCommand:bcDevToolset.showObjectIdRangeVisualizationData",
@@ -65,15 +66,6 @@
           "default": "",
           "description": "Central BC-Dev-Toolset installation path. Defaults to %LOCALAPPDATA%\\BC-Dev-Toolset\\toolset on Windows."
         },
-        "bcDevToolset.repositoryRef": {
-          "type": "string",
-          "enum": [
-            "stable",
-            "latest"
-          ],
-          "default": "stable",
-          "description": "Toolset update channel. Stable uses the stable branch; latest uses the main branch."
-        },
         "bcDevToolset.powershellExecutable": {
           "type": "string",
           "default": "pwsh",
@@ -95,10 +87,6 @@
       }
     ],
     "commands": [
-      {
-        "command": "bcDevToolset.installOrUpdateToolset",
-        "title": "BC Dev Toolset: Install/Update Toolset"
-      },
       {
         "command": "bcDevToolset.configureWorkspace",
         "title": "BC Dev Toolset: Configure Workspace"

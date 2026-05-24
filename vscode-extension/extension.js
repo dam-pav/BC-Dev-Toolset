@@ -3,7 +3,8 @@ const path = require('path');
 const vscode = require('vscode');
 
 let extensionContext;
-const repositoryUrl = 'https://github.com/dam-pav/BC-Dev-Toolset.git';
+let runtimeSyncPromise;
+let outputChannel;
 
 const directOperationIds = [
   'invokeTests',
@@ -37,9 +38,10 @@ const directOperationIds = [
 
 function activate(context) {
   extensionContext = context;
+  outputChannel = vscode.window.createOutputChannel('BC Dev Toolset');
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('bcDevToolset.installOrUpdateToolset', installOrUpdateToolset),
+    outputChannel,
     vscode.commands.registerCommand('bcDevToolset.configureWorkspace', configureWorkspace),
     vscode.commands.registerCommand('bcDevToolset.openLocalSettingsJson', openLocalSettingsJson),
     vscode.commands.registerCommand('bcDevToolset.showObjectIdRangeVisualizationData', showObjectIdRangeVisualizationData),
@@ -51,6 +53,8 @@ function activate(context) {
       vscode.commands.registerCommand(`bcDevToolset.operation.${operationId}`, () => runOperationById(operationId))
     );
   }
+
+  runtimeSyncPromise = syncRuntimeToolsetAfterExtensionUpdate(context);
 }
 
 function deactivate() {}
@@ -74,7 +78,7 @@ function getToolsetPath() {
 }
 
 function getDevelopmentToolsetPath() {
-  if (!extensionContext || extensionContext.extensionMode !== vscode.ExtensionMode.Development) {
+  if (!isExtensionDevelopmentMode()) {
     return '';
   }
 
@@ -82,14 +86,14 @@ function getDevelopmentToolsetPath() {
   return isDevelopmentToolsetPath(candidatePath) ? candidatePath : '';
 }
 
+function isExtensionDevelopmentMode() {
+  return extensionContext && extensionContext.extensionMode === vscode.ExtensionMode.Development;
+}
+
 function isDevelopmentToolsetPath(candidatePath) {
   return fs.existsSync(getOperationMetadataPath(candidatePath)) &&
     fs.existsSync(getOperationBridgePath(candidatePath)) &&
     fs.existsSync(path.join(candidatePath, 'vscode-extension', 'package.json'));
-}
-
-function getRepositoryBranch() {
-  return getConfiguration().get('repositoryRef') === 'latest' ? 'main' : 'stable';
 }
 
 function getOperationMetadataPath(toolsetPath) {
@@ -113,21 +117,19 @@ function getMissingRuntimeFiles(toolsetPath) {
 }
 
 async function resolveToolsetRuntimePath() {
+  await waitForRuntimeSync();
+
   const configuredToolsetPath = getToolsetPath();
   const missingFiles = getMissingRuntimeFiles(configuredToolsetPath);
   if (missingFiles.length === 0) {
     return configuredToolsetPath;
   }
 
-  const selection = await vscode.window.showErrorMessage(
+  await vscode.window.showErrorMessage(
     fs.existsSync(configuredToolsetPath)
-      ? `BC Dev Toolset at ${configuredToolsetPath} is missing required VS Code runtime files: ${missingFiles.join(', ')}.`
-      : `BC Dev Toolset is not installed at ${configuredToolsetPath}.`,
-    'Install/Update Toolset'
+      ? `BC Dev Toolset at ${configuredToolsetPath} is missing required runtime files after automatic sync: ${missingFiles.join(', ')}.`
+      : `BC Dev Toolset runtime was not installed at ${configuredToolsetPath} by automatic sync.`
   );
-  if (selection === 'Install/Update Toolset') {
-    await installOrUpdateToolset();
-  }
 
   return '';
 }
@@ -329,44 +331,97 @@ function createTerminal() {
   return terminal;
 }
 
-function getRuntimeSparseCheckoutPatterns() {
-  return [
-    '/Invoke-BcDevToolsetOperation.ps1',
-    '/common/',
-    '/operations/',
-    '/visualization/'
-  ];
+function getRuntimeSyncStateKey(context) {
+  const extensionVersion = context.extension.packageJSON.version || 'unknown';
+  return `${extensionVersion}|${getToolsetPath()}`;
 }
 
-async function installOrUpdateToolset() {
+async function syncRuntimeToolsetAfterExtensionUpdate(context) {
+  if (isExtensionDevelopmentMode()) {
+    return;
+  }
+
+  const syncStateKey = getRuntimeSyncStateKey(context);
+  if (context.globalState.get('runtimeToolsetSyncedForExtension') === syncStateKey && getMissingRuntimeFiles(getToolsetPath()).length === 0) {
+    return;
+  }
+
+  try {
+    await syncRuntimeToolsetQuietly();
+    await context.globalState.update('runtimeToolsetSyncedForExtension', syncStateKey);
+  } catch (error) {
+    writeOutput(`Automatic runtime toolset update failed: ${error.message}`);
+    vscode.window.showWarningMessage('BC Dev Toolset runtime update failed. Operations may be unavailable until automatic sync succeeds.');
+  }
+}
+
+async function waitForRuntimeSync() {
+  if (!runtimeSyncPromise) {
+    return;
+  }
+
+  await runtimeSyncPromise;
+}
+
+async function syncRuntimeToolsetQuietly() {
   const toolsetPath = getToolsetPath();
-  const repositoryBranch = getRepositoryBranch();
-  const parentPath = path.dirname(toolsetPath);
-  const sparseCheckoutPatterns = getRuntimeSparseCheckoutPatterns()
-    .map(quotePowerShellArgument)
-    .join(' ');
+  const bundledRuntimePath = getBundledRuntimePath();
 
-  if (isDevelopmentToolsetPath(toolsetPath)) {
-    await vscode.window.showInformationMessage(`BC Dev Toolset is using the local development clone at ${toolsetPath}. Install/update is managed through that clone.`);
+  if (!fs.existsSync(bundledRuntimePath)) {
+    throw new Error(`Bundled runtime folder was not found: ${bundledRuntimePath}`);
+  }
+
+  writeOutput(`Synchronizing BC Dev Toolset runtime at ${toolsetPath} from bundled extension assets.`);
+
+  fs.mkdirSync(toolsetPath, { recursive: true });
+  copyRuntimeFile(bundledRuntimePath, toolsetPath, 'Invoke-BcDevToolsetOperation.ps1');
+  copyRuntimeDirectory(bundledRuntimePath, toolsetPath, 'common');
+  copyRuntimeDirectory(bundledRuntimePath, toolsetPath, 'operations');
+  copyRuntimeDirectory(bundledRuntimePath, toolsetPath, 'visualization');
+}
+
+function getBundledRuntimePath() {
+  return path.join(extensionContext.extensionPath, 'runtime');
+}
+
+function copyRuntimeFile(sourceRoot, targetRoot, relativePath) {
+  const sourcePath = path.join(sourceRoot, relativePath);
+  const targetPath = path.join(targetRoot, relativePath);
+
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.copyFileSync(sourcePath, targetPath);
+}
+
+function copyRuntimeDirectory(sourceRoot, targetRoot, relativePath) {
+  const sourcePath = path.join(sourceRoot, relativePath);
+  const targetPath = path.join(targetRoot, relativePath);
+
+  fs.rmSync(targetPath, { recursive: true, force: true });
+  copyDirectoryRecursive(sourcePath, targetPath);
+}
+
+function copyDirectoryRecursive(sourcePath, targetPath) {
+  fs.mkdirSync(targetPath, { recursive: true });
+
+  for (const entry of fs.readdirSync(sourcePath, { withFileTypes: true })) {
+    const sourceEntryPath = path.join(sourcePath, entry.name);
+    const targetEntryPath = path.join(targetPath, entry.name);
+
+    if (entry.isDirectory()) {
+      copyDirectoryRecursive(sourceEntryPath, targetEntryPath);
+      continue;
+    }
+
+    fs.copyFileSync(sourceEntryPath, targetEntryPath);
+  }
+}
+
+function writeOutput(message) {
+  if (!outputChannel) {
     return;
   }
 
-  const terminal = createTerminal();
-
-  if (fs.existsSync(path.join(toolsetPath, '.git'))) {
-    terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} fetch origin ${quotePowerShellArgument(repositoryBranch)}`);
-    terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} checkout ${quotePowerShellArgument(repositoryBranch)}`);
-    terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} sparse-checkout init --no-cone`);
-    terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} sparse-checkout set ${sparseCheckoutPatterns}`);
-    terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} pull --ff-only origin ${quotePowerShellArgument(repositoryBranch)}`);
-    return;
-  }
-
-  terminal.sendText(`New-Item -ItemType Directory -Force -Path ${quotePowerShellArgument(parentPath)} | Out-Null`);
-  terminal.sendText(`git clone --filter=blob:none --no-checkout --branch ${quotePowerShellArgument(repositoryBranch)} ${quotePowerShellArgument(repositoryUrl)} ${quotePowerShellArgument(toolsetPath)}`);
-  terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} sparse-checkout init --no-cone`);
-  terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} sparse-checkout set ${sparseCheckoutPatterns}`);
-  terminal.sendText(`git -C ${quotePowerShellArgument(toolsetPath)} checkout ${quotePowerShellArgument(repositoryBranch)}`);
+  outputChannel.appendLine(message);
 }
 
 async function configureWorkspace() {
