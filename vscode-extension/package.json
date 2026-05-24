@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "BC Dev Toolset",
   "description": "VS Code command surface for the BC-Dev-Toolset PowerShell toolkit.",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -13,9 +13,10 @@
   },
   "scripts": {
     "validate": "node --check extension.js",
-    "prepare:runtime": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/PrepareRuntimePackage.ps1",
+    "prepare:runtime": "node ./scripts/prepare-runtime-package.js",
     "package": "npm run prepare:runtime && npx @vscode/vsce package --no-dependencies",
-    "publish:marketplace": "npm run prepare:runtime && npx @vscode/vsce publish --no-dependencies"
+    "publish:marketplace": "npm run prepare:runtime && npx @vscode/vsce publish --no-dependencies",
+    "publish:marketplace:pre": "npm run prepare:runtime && npx @vscode/vsce publish --pre-release --no-dependencies"
   },
   "engines": {
     "vscode": "^1.90.0"
