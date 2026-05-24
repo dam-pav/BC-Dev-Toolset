@@ -1,0 +1,68 @@
+name: Latest extension package
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - vscode-extension/**
+      - .github/workflows/latest-extension.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: latest-extension-package
+  cancel-in-progress: false
+
+jobs:
+  package-latest-vsix:
+    name: Package latest VSIX
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Read extension version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="$(node -e "const pkg = require('./vscode-extension/package.json'); process.stdout.write(pkg.version);")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Package latest VSIX
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const packagePath = 'vscode-extension/package.json';
+          const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+          pkg.contributes.configuration.properties['bcDevToolset.repositoryRef'].default = 'latest';
+          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+          (cd vscode-extension && npm run package -- --out "../dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix")
+
+      - name: Create latest package release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="latest-v${{ steps.version.outputs.version }}"
+
+          gh release create "$TAG" \
+            dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix \
+            --title "BC Dev Toolset latest v${{ steps.version.outputs.version }}" \
+            --notes "Latest-channel VSIX package for BC Dev Toolset v${{ steps.version.outputs.version }}." \
+            --prerelease
