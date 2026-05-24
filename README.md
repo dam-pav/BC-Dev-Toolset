@@ -294,7 +294,7 @@ The most obvious role of a workspace is to define the folders included. The path
 
 In addition to folders containing separate apps we need to make sure one additional folder, containing the toolset, is also included.
 
-We also use it as a vessel to carry configuration relevant to the workspace. The root attribute ***dam-pav.bcdevtoolset*** can specify:
+We also use it as a vessel to carry configuration for this workspace. The root attribute ***dam-pav.bcdevtoolset*** is workspace-specific and can specify:
 
 * ***country***: optional, sets the platform country version. The default is "w1".
 * ***selectArtifact***: "Closest" (default), "Latest"

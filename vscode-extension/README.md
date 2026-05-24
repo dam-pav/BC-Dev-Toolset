@@ -29,7 +29,6 @@ The install/update command creates or updates the central sparse checkout in `%L
 ## Settings
 
 - `bcDevToolset.toolsetPath`
-- `bcDevToolset.repositoryUrl`
 - `bcDevToolset.repositoryRef`
 - `bcDevToolset.powershellExecutable`
 - `bcDevToolset.localSettingsPath`

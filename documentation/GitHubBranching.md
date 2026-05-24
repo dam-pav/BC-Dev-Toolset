@@ -48,3 +48,14 @@ Example: if `main` is `1.4.2`, the major release workflow creates `2.0.0`.
 
 The minor release workflow bumps to the next minor version, resetting build to `0`.
 Example: if `main` is `1.4.2`, the minor release workflow creates `1.5.0`.
+
+## Marketplace Versioning
+
+The Marketplace version is expected to match the committed `vscode-extension/package.json` version.
+
+Use one of these publish paths:
+
+- the stable major/minor release workflows, which bump the repo version and publish the stable VSIX;
+- the `Marketplace publish` workflow, which publishes the current repo version after verifying an explicit `expected_version` input.
+
+Do not use `vsce publish patch`, `vsce publish minor`, or `vsce publish major` for this repository. Those commands can make Marketplace versioning drift away from Git history.

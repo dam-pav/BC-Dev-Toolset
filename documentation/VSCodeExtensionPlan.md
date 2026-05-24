@@ -85,13 +85,13 @@ Suggested path:
 *.code-workspace
 ```
 
-Scope: shared workspace configuration, suitable for source control.
+Scope: workspace-specific configuration, suitable for source control when it contains no secrets.
 
 Examples under `settings.dam-pav.bcdevtoolset`:
 
 - country
 - app folder conventions
-- shared environments without secrets
+- workspace environments without secrets
 - team-agreed defaults
 - artifact selection behavior
 
@@ -193,7 +193,7 @@ Acceptance criteria:
 
 Deliverables:
 
-- Keep shared project/workspace attributes in `.code-workspace` under `settings.dam-pav.bcdevtoolset`.
+- Keep workspace-specific attributes in `.code-workspace` under `settings.dam-pav.bcdevtoolset`.
 - Add support for `.bcdevtoolset/settings.json`.
 - Locate `.bcdevtoolset/settings.json` beside the active `.code-workspace` file and do not require or force it to be a workspace folder.
 - Merge configuration in a predictable order.

@@ -1,6 +1,6 @@
-# Manual VS Code Extension Distribution
+# VS Code Extension Distribution
 
-This is the manual distribution path before publishing the extension through the VS Code Marketplace.
+`vscode-extension/package.json` is the source of truth for the extension version. The VS Code Marketplace should only receive a VSIX built from that committed version.
 
 ## Build The VSIX
 
@@ -19,6 +19,23 @@ vscode-extension/bc-dev-toolset-<version>.vsix
 ```
 
 The generated VSIX is a release artifact. It is intentionally ignored by Git and should be attached to a GitHub release or distributed through another download location.
+
+## Publish To Marketplace
+
+Use the `Marketplace publish` GitHub Actions workflow when publishing the current repository version to the VS Code Marketplace.
+
+1. Confirm `vscode-extension/package.json` contains the version you want to publish.
+2. Run `npm run validate` from `vscode-extension`.
+3. Start the `Marketplace publish` workflow from GitHub Actions.
+4. Enter the same version as `expected_version`.
+
+The workflow packages a VSIX from the committed repository version and publishes that VSIX. It fails if `expected_version` does not match `vscode-extension/package.json`.
+
+Avoid `vsce publish patch`, `vsce publish minor`, and `vsce publish major` for this repository. Those commands can bump the Marketplace/package version outside the committed repo flow. If publishing locally is unavoidable, run this from `vscode-extension` so Marketplace uses the version already committed in `package.json`:
+
+```powershell
+npm run publish:marketplace -- --pat <VSCE_PAT>
+```
 
 ## Install The VSIX
 
@@ -45,7 +62,7 @@ After installing the extension:
 
 The extension installs the runtime toolset into `%LOCALAPPDATA%\BC-Dev-Toolset\toolset` by default. Workspace-local settings are stored in `.bcdevtoolset/settings.json` beside the active `.code-workspace` file.
 
-## Manual Release Checklist
+## Manual VSIX Release Checklist
 
 Before sharing a VSIX:
 
