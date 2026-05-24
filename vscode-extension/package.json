@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "BC Dev Toolset",
   "description": "VS Code command surface for the BC-Dev-Toolset PowerShell toolkit.",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
