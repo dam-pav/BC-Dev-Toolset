@@ -36,6 +36,17 @@ const directOperationIds = [
   'showObjectIdRangeVisualizationData'
 ];
 
+const requiredRuntimeFiles = [
+  'Invoke-BcDevToolsetOperation.ps1',
+  'operations/operations.json'
+];
+
+const runtimeDirectories = [
+  'common',
+  'operations',
+  'visualization'
+];
+
 function activate(context) {
   extensionContext = context;
   outputChannel = vscode.window.createOutputChannel('BC Dev Toolset');
@@ -105,15 +116,14 @@ function getOperationBridgePath(toolsetPath) {
 }
 
 function getMissingRuntimeFiles(toolsetPath) {
-  const missingFiles = [];
-  if (!fs.existsSync(getOperationMetadataPath(toolsetPath))) {
-    missingFiles.push('operations/operations.json');
-  }
-  if (!fs.existsSync(getOperationBridgePath(toolsetPath))) {
-    missingFiles.push('Invoke-BcDevToolsetOperation.ps1');
-  }
+  return requiredRuntimeFiles.filter((relativePath) => !fs.existsSync(path.join(toolsetPath, relativePath)));
+}
 
-  return missingFiles;
+function getMissingBundledRuntimeItems(runtimePath) {
+  return [
+    ...getMissingRuntimeFiles(runtimePath),
+    ...runtimeDirectories.filter((relativePath) => !fs.existsSync(path.join(runtimePath, relativePath)))
+  ];
 }
 
 async function resolveToolsetRuntimePath() {
@@ -367,17 +377,23 @@ async function syncRuntimeToolsetQuietly() {
   const toolsetPath = getToolsetPath();
   const bundledRuntimePath = getBundledRuntimePath();
 
-  if (!fs.existsSync(bundledRuntimePath)) {
-    throw new Error(`Bundled runtime folder was not found: ${bundledRuntimePath}`);
+  const missingBundledRuntimeItems = getMissingBundledRuntimeItems(bundledRuntimePath);
+  if (missingBundledRuntimeItems.length > 0) {
+    throw new Error(`Bundled runtime folder is incomplete: ${missingBundledRuntimeItems.join(', ')}.`);
   }
 
   writeOutput(`Synchronizing BC Dev Toolset runtime at ${toolsetPath} from bundled extension assets.`);
 
   fs.mkdirSync(toolsetPath, { recursive: true });
   copyRuntimeFile(bundledRuntimePath, toolsetPath, 'Invoke-BcDevToolsetOperation.ps1');
-  copyRuntimeDirectory(bundledRuntimePath, toolsetPath, 'common');
-  copyRuntimeDirectory(bundledRuntimePath, toolsetPath, 'operations');
-  copyRuntimeDirectory(bundledRuntimePath, toolsetPath, 'visualization');
+  for (const runtimeDirectory of runtimeDirectories) {
+    copyRuntimeDirectory(bundledRuntimePath, toolsetPath, runtimeDirectory);
+  }
+
+  const missingRuntimeFiles = getMissingRuntimeFiles(toolsetPath);
+  if (missingRuntimeFiles.length > 0) {
+    throw new Error(`Runtime sync did not install required files: ${missingRuntimeFiles.join(', ')}.`);
+  }
 }
 
 function getBundledRuntimePath() {
@@ -395,9 +411,12 @@ function copyRuntimeFile(sourceRoot, targetRoot, relativePath) {
 function copyRuntimeDirectory(sourceRoot, targetRoot, relativePath) {
   const sourcePath = path.join(sourceRoot, relativePath);
   const targetPath = path.join(targetRoot, relativePath);
+  const temporaryTargetPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`;
 
+  fs.rmSync(temporaryTargetPath, { recursive: true, force: true });
+  copyDirectoryRecursive(sourcePath, temporaryTargetPath);
   fs.rmSync(targetPath, { recursive: true, force: true });
-  copyDirectoryRecursive(sourcePath, targetPath);
+  fs.renameSync(temporaryTargetPath, targetPath);
 }
 
 function copyDirectoryRecursive(sourcePath, targetPath) {
