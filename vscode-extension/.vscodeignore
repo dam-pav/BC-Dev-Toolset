@@ -1,7 +1,9 @@
 .vscode/**
+.bcdevtoolset/**
 *.vsix
 *.log
 node_modules/**
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+scripts/**

@@ -226,7 +226,7 @@ Deliverables:
 
 Initial command palette surface:
 
-- `BC Dev Toolset: Install/Update Toolset`
+- Automatic central toolset runtime sync after extension updates
 - `BC Dev Toolset: Configure Workspace`
 - `BC Dev Toolset: Show Operations List`
 - `BC Dev Toolset: Create/Overwrite Docker Container`
@@ -286,7 +286,7 @@ Deprecation should be gradual. The copied-toolset workflow can remain documented
 ## Open Decisions
 
 - Should the extension live in this repository or a separate repository?
-- Should the central toolset install be a Git clone, downloaded release archive, or bundled extension asset?
+- Central runtime deployment uses bundled VSIX assets copied from the installed extension package.
 - Should operation commands be registered individually, or should most operations go through a single `Show Operations List` picker?
 - Should non-interactive operation mode be introduced immediately, or only after the command palette MVP?
 - How much configuration validation belongs in TypeScript versus PowerShell?
