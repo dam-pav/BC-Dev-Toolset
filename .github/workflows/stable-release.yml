@@ -22,7 +22,6 @@ jobs:
           ref: main
           fetch-depth: 0
           ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
-          persist-credentials: false
 
       - name: Bump major version
         id: version
