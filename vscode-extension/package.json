@@ -2,8 +2,9 @@
   "name": "bc-dev-toolset",
   "displayName": "BC Dev Toolset",
   "description": "VS Code command surface for the BC-Dev-Toolset PowerShell toolkit.",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "publisher": "dam-pav",
+  "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -12,7 +13,8 @@
   },
   "scripts": {
     "validate": "node --check extension.js",
-    "package": "npx @vscode/vsce package --no-dependencies"
+    "package": "npx @vscode/vsce package --no-dependencies",
+    "publish:marketplace": "npx @vscode/vsce publish --no-dependencies"
   },
   "engines": {
     "vscode": "^1.90.0"
@@ -63,11 +65,6 @@
           "default": "",
           "description": "Central BC-Dev-Toolset installation path. Defaults to %LOCALAPPDATA%\\BC-Dev-Toolset\\toolset on Windows."
         },
-        "bcDevToolset.repositoryUrl": {
-          "type": "string",
-          "default": "https://github.com/dam-pav/BC-Dev-Toolset.git",
-          "description": "Git repository used by the install/update command."
-        },
         "bcDevToolset.repositoryRef": {
           "type": "string",
           "enum": [
@@ -86,177 +83,6 @@
           "type": "string",
           "default": ".bcdevtoolset/settings.json",
           "description": "Workspace-relative local settings file passed to PowerShell operations when it exists."
-        },
-        "dam-pav.bcdevtoolset": {
-          "type": "object",
-          "scope": "resource",
-          "default": {
-            "country": "w1",
-            "selectArtifact": "Closest",
-            "configurations": []
-          },
-          "description": "Shared BC Dev Toolset settings stored in the .code-workspace file.",
-          "properties": {
-            "country": {
-              "type": "string",
-              "default": "w1",
-              "description": "Business Central artifact country code."
-            },
-            "selectArtifact": {
-              "type": "string",
-              "enum": [
-                "Closest",
-                "Latest"
-              ],
-              "default": "Closest",
-              "description": "Artifact selection strategy."
-            },
-            "configurations": {
-              "type": "array",
-              "default": [],
-              "description": "Shared Business Central target configurations.",
-              "items": {
-                "type": "object",
-                "default": {
-                  "name": "sample",
-                  "serverType": "",
-                  "targetType": "",
-                  "server": "",
-                  "serverInstance": "",
-                  "container": "",
-                  "port": "",
-                  "environmentType": "",
-                  "environmentName": "",
-                  "includeTestToolkit": "",
-                  "tenant": "",
-                  "authentication": "",
-                  "admin": "",
-                  "password": ""
-                },
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "description": "Configuration display name."
-                  },
-                  "serverType": {
-                    "type": "string",
-                    "enum": [
-                      "",
-                      "Container",
-                      "Cloud",
-                      "OnPrem"
-                    ],
-                    "description": "Business Central server type."
-                  },
-                  "targetType": {
-                    "type": "string",
-                    "enum": [
-                      "",
-                      "Dev",
-                      "Test",
-                      "Production"
-                    ],
-                    "description": "Target environment role."
-                  },
-                  "server": {
-                    "type": "string",
-                    "description": "Server name for OnPrem targets."
-                  },
-                  "serverInstance": {
-                    "type": "string",
-                    "description": "Server instance for OnPrem targets."
-                  },
-                  "container": {
-                    "type": "string",
-                    "description": "Docker container name for Container targets."
-                  },
-                  "port": {
-                    "type": "string",
-                    "description": "Port for OnPrem targets."
-                  },
-                  "environmentType": {
-                    "type": "string",
-                    "enum": [
-                      "",
-                      "Sandbox",
-                      "OnPrem"
-                    ],
-                    "description": "Business Central environment type."
-                  },
-                  "environmentName": {
-                    "type": "string",
-                    "description": "Cloud environment name."
-                  },
-                  "includeTestToolkit": {
-                    "type": [
-                      "string",
-                      "boolean"
-                    ],
-                    "description": "Whether container environments should include the test toolkit."
-                  },
-                  "tenant": {
-                    "type": "string",
-                    "description": "Tenant identifier for Cloud or OnPrem targets."
-                  },
-                  "authentication": {
-                    "type": "string",
-                    "enum": [
-                      "",
-                      "UserPassword",
-                      "Windows",
-                      "AAD"
-                    ],
-                    "description": "Authentication mode."
-                  },
-                  "admin": {
-                    "type": "string",
-                    "description": "Administrative user name."
-                  },
-                  "password": {
-                    "type": "string",
-                    "description": "Administrative password."
-                  },
-                  "databaseUser": {
-                    "type": "string",
-                    "description": "Optional SQL user for database operations."
-                  },
-                  "databasePassword": {
-                    "type": "string",
-                    "description": "Optional SQL password for database operations."
-                  },
-                  "remoteUser": {
-                    "type": "string",
-                    "description": "Optional PowerShell remoting user."
-                  },
-                  "remotePassword": {
-                    "type": "string",
-                    "description": "Optional PowerShell remoting password."
-                  },
-                  "serverConfiguration": {
-                    "type": "array",
-                    "description": "Additional server configuration key/value pairs.",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "KeyName": {
-                          "type": "string",
-                          "description": "Server configuration key."
-                        },
-                        "KeyValue": {
-                          "type": [
-                            "string",
-                            "number",
-                            "boolean"
-                          ],
-                          "description": "Server configuration value."
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
         }
       }
     },

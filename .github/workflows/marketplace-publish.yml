@@ -1,0 +1,72 @@
+name: Marketplace publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: Version expected in vscode-extension/package.json
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish repository version to Marketplace
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Read extension version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="$(node -e "const pkg = require('./vscode-extension/package.json'); process.stdout.write(pkg.version);")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify requested version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ inputs.expected_version }}" != "${{ steps.version.outputs.version }}" ]; then
+            echo "Requested Marketplace version ${{ inputs.expected_version }} does not match vscode-extension/package.json version ${{ steps.version.outputs.version }}."
+            exit 1
+          fi
+
+      - name: Validate extension
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd vscode-extension
+          npm run validate
+
+      - name: Package VSIX from repository version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+          cd vscode-extension
+          npm run package -- --out "../dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix"
+
+      - name: Publish VSIX to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npx @vscode/vsce publish \
+            --packagePath "dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix" \
+            --pat "$VSCE_PAT"

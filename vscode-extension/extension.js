@@ -3,6 +3,7 @@ const path = require('path');
 const vscode = require('vscode');
 
 let extensionContext;
+const repositoryUrl = 'https://github.com/dam-pav/BC-Dev-Toolset.git';
 
 const directOperationIds = [
   'invokeTests',
@@ -339,7 +340,6 @@ function getRuntimeSparseCheckoutPatterns() {
 
 async function installOrUpdateToolset() {
   const toolsetPath = getToolsetPath();
-  const repositoryUrl = getConfiguration().get('repositoryUrl');
   const repositoryBranch = getRepositoryBranch();
   const parentPath = path.dirname(toolsetPath);
   const sparseCheckoutPatterns = getRuntimeSparseCheckoutPatterns()
