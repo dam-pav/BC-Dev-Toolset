@@ -1,0 +1,120 @@
+name: Stable minor release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stable-minor-release
+  cancel-in-progress: false
+
+jobs:
+  promote-main-to-stable:
+    name: Promote main to stable with minor release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+
+      - name: Bump minor version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          NEXT_VERSION="$(node -e "const pkg = require('./vscode-extension/package.json'); const [major, minor] = pkg.version.split('.').map(Number); process.stdout.write([major, minor + 1, 0].join('.'));")"
+
+          node - <<'NODE' "$NEXT_VERSION"
+          const fs = require('fs');
+          const packagePath = 'vscode-extension/package.json';
+          const nextVersion = process.argv[2];
+          const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+          pkg.version = nextVersion;
+          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+          echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Commit release version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- vscode-extension/package.json; then
+            echo "No version change to release."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vscode-extension/package.json
+          git commit -m "chore(release): bump minor version to v${{ steps.version.outputs.version }}"
+
+      - name: Package VSIX assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+
+          node - stable <<'NODE'
+          const fs = require('fs');
+          const packagePath = 'vscode-extension/package.json';
+          const channel = process.argv[2];
+          const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+          pkg.contributes.configuration.properties['bcDevToolset.repositoryRef'].default = channel;
+          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+          (cd vscode-extension && npm run package -- --out "../dist/bc-dev-toolset-stable-${{ steps.version.outputs.version }}.vsix")
+
+          node - latest <<'NODE'
+          const fs = require('fs');
+          const packagePath = 'vscode-extension/package.json';
+          const channel = process.argv[2];
+          const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+          pkg.contributes.configuration.properties['bcDevToolset.repositoryRef'].default = channel;
+          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+          (cd vscode-extension && npm run package -- --out "../dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix")
+
+          git checkout -- vscode-extension/package.json
+
+      - name: Promote branches and tag release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git tag "v${{ steps.version.outputs.version }}"
+          git remote set-url origin "git@github.com:${{ github.repository }}.git"
+          git push --atomic origin HEAD:main HEAD:stable "v${{ steps.version.outputs.version }}"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh release create "v${{ steps.version.outputs.version }}" \
+            dist/bc-dev-toolset-stable-${{ steps.version.outputs.version }}.vsix \
+            dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix \
+            --title "BC Dev Toolset v${{ steps.version.outputs.version }}" \
+            --notes "Stable and latest VSIX packages for BC Dev Toolset v${{ steps.version.outputs.version }}."
+
+      - name: Publish stable VSIX to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npx @vscode/vsce publish \
+            --packagePath "dist/bc-dev-toolset-stable-${{ steps.version.outputs.version }}.vsix" \
+            --pat "$VSCE_PAT"
