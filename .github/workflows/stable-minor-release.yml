@@ -63,28 +63,7 @@ jobs:
           set -euo pipefail
 
           mkdir -p dist
-
-          node - stable <<'NODE'
-          const fs = require('fs');
-          const packagePath = 'vscode-extension/package.json';
-          const channel = process.argv[2];
-          const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-          pkg.contributes.configuration.properties['bcDevToolset.repositoryRef'].default = channel;
-          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
-          NODE
-          (cd vscode-extension && npm run package -- --out "../dist/bc-dev-toolset-stable-${{ steps.version.outputs.version }}.vsix")
-
-          node - latest <<'NODE'
-          const fs = require('fs');
-          const packagePath = 'vscode-extension/package.json';
-          const channel = process.argv[2];
-          const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-          pkg.contributes.configuration.properties['bcDevToolset.repositoryRef'].default = channel;
-          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
-          NODE
-          (cd vscode-extension && npm run package -- --out "../dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix")
-
-          git checkout -- vscode-extension/package.json
+          (cd vscode-extension && npm run package -- --out "../dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix")
 
       - name: Promote branches and tag release
         shell: bash
@@ -103,10 +82,9 @@ jobs:
           set -euo pipefail
 
           gh release create "v${{ steps.version.outputs.version }}" \
-            dist/bc-dev-toolset-stable-${{ steps.version.outputs.version }}.vsix \
-            dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix \
+            dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix \
             --title "BC Dev Toolset v${{ steps.version.outputs.version }}" \
-            --notes "Stable and latest VSIX packages for BC Dev Toolset v${{ steps.version.outputs.version }}."
+            --notes "Stable VSIX package for BC Dev Toolset v${{ steps.version.outputs.version }}."
 
       - name: Publish stable VSIX to VS Code Marketplace
         env:
@@ -116,5 +94,5 @@ jobs:
           set -euo pipefail
 
           npx @vscode/vsce publish \
-            --packagePath "dist/bc-dev-toolset-stable-${{ steps.version.outputs.version }}.vsix" \
+            --packagePath "dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix" \
             --pat "$VSCE_PAT"
