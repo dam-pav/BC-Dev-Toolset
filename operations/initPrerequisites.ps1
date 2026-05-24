@@ -1,9 +1,9 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Automates the installation of BC Dev Toolset prerequisites
+    Automates the installation and update of BC Dev Toolset prerequisites
 .DESCRIPTION
-    This script installs and configures:
+    This script installs, updates, and configures:
     - Docker Engine (latest version)
     - Windows Features (Containers, Hyper-V)
     - Git
@@ -51,6 +51,194 @@ function Write-Error {
     Write-Host "✗ $Message" -ForegroundColor $colors.Error
 }
 
+function Confirm-Upgrade {
+    param(
+        [string]$Name,
+        [string]$CurrentVersion,
+        [string]$LatestVersion
+    )
+
+    do {
+        $answer = Read-Host -Prompt "Update $Name from $CurrentVersion to $LatestVersion? [y/N]"
+        if ([string]::IsNullOrWhiteSpace($answer)) {
+            return $false
+        }
+    } while ($answer -notmatch '^(?i:y|yes|n|no)$')
+
+    return $answer -match '^(?i:y|yes)$'
+}
+
+function Get-DockerInstalledVersion {
+    param([string]$DockerPath)
+
+    $dockerExe = Join-Path $DockerPath "docker.exe"
+    if (-not (Test-Path $dockerExe)) {
+        $dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
+        if ($dockerCommand) {
+            $dockerExe = $dockerCommand.Source
+        }
+    }
+
+    if (-not (Test-Path $dockerExe)) {
+        return $null
+    }
+
+    $versionOutput = & $dockerExe --version 2>$null
+    if ($versionOutput -match 'version\s+([0-9]+(?:\.[0-9]+)*)') {
+        return [version]$matches[1]
+    }
+
+    return $null
+}
+
+function Get-LatestDockerRelease {
+    Write-Host "Fetching latest Docker Engine release..."
+    $releasesUrl = "https://download.docker.com/win/static/stable/x86_64/"
+    $response = Invoke-WebRequest -Uri $releasesUrl -UseBasicParsing
+    $links = $response.Links | Where-Object { $_.href -match "\.zip$" }
+
+    if ($links.Count -eq 0) {
+        throw "No Docker Engine releases found"
+    }
+
+    $downloads = $links | ForEach-Object {
+        $href = $_.href
+        if ($href -match 'docker-([0-9]+(?:\.[0-9]+)*)(?:-[^/]+)?\.zip$') {
+            [PSCustomObject]@{
+                Href    = $href
+                Version = [version]$matches[1]
+            }
+        }
+    }
+
+    if (-not $downloads) {
+        throw "No valid Docker Engine release versions found"
+    }
+
+    $latestRelease = $downloads | Sort-Object -Property Version -Descending | Select-Object -First 1
+    $latestRelease | Add-Member -MemberType NoteProperty -Name Url -Value ($releasesUrl + $latestRelease.Href)
+    return $latestRelease
+}
+
+function Install-DockerEngine {
+    param(
+        [string]$DockerPath,
+        [string]$DownloadUrl
+    )
+
+    if (-not (Test-Path $DockerPath)) {
+        Write-Host "Creating directory: $DockerPath"
+        New-Item -ItemType Directory -Path $DockerPath -Force | Out-Null
+        Write-Success "Directory created"
+    }
+
+    $fileName = Split-Path $DownloadUrl -Leaf
+    $downloadPath = Join-Path $DockerPath $fileName
+
+    Write-Host "Latest release: $fileName"
+    Write-Host "Downloading from: $DownloadUrl"
+
+    $oldProgressPreference = $ProgressPreference
+    try {
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $DownloadUrl -OutFile $downloadPath
+    }
+    finally {
+        $ProgressPreference = $oldProgressPreference
+    }
+
+    if (-not (Test-Path $downloadPath)) {
+        throw "Failed to download Docker Engine"
+    }
+
+    Write-Success "Docker Engine downloaded to: $downloadPath"
+    Write-Host "Extracting Docker Engine..."
+    $tempExtractPath = Join-Path $env:TEMP "docker-extract-$([System.IO.Path]::GetRandomFileName())"
+    New-Item -ItemType Directory -Path $tempExtractPath -Force | Out-Null
+
+    try {
+        Expand-Archive -Path $downloadPath -DestinationPath $tempExtractPath -Force
+        $sourcePath = Join-Path $tempExtractPath "docker"
+        if (-not (Test-Path $sourcePath)) {
+            $sourcePath = $tempExtractPath
+        }
+
+        $serviceWasRunning = $false
+        $existingService = Get-Service -Name "Docker" -ErrorAction SilentlyContinue
+        if ($existingService -and $existingService.Status -eq "Running") {
+            $serviceWasRunning = $true
+            Write-Host "Stopping Docker service before replacing binaries..."
+            Stop-Service -Name "Docker" -Force -ErrorAction Stop
+        }
+
+        Copy-Item -Path (Join-Path $sourcePath "*") -Destination $DockerPath -Recurse -Force
+        Write-Success "Docker Engine extracted to: $DockerPath"
+
+        if ($serviceWasRunning) {
+            Write-Host "Restarting Docker service..."
+            Start-Service -Name "Docker"
+            Write-Success "Docker service restarted"
+        }
+    }
+    finally {
+        if (Test-Path $tempExtractPath) {
+            Remove-Item $tempExtractPath -Force -Recurse
+        }
+        if (Test-Path $downloadPath) {
+            Remove-Item $downloadPath -Force
+        }
+    }
+
+    $daemonJsonPath = Join-Path $DockerPath "daemon.json"
+    if (-not (Test-Path $daemonJsonPath)) {
+        $daemonConfig = @{
+            "group" = "Users"
+        } | ConvertTo-Json
+
+        $daemonConfig | Out-File -FilePath $daemonJsonPath -Encoding UTF8
+        Write-Success "Created daemon.json configuration at: $daemonJsonPath"
+    }
+    else {
+        Write-Warning "daemon.json already exists, leaving current configuration unchanged"
+    }
+}
+
+function Get-GitInstalledVersion {
+    $gitPath = Get-Command git -ErrorAction SilentlyContinue
+    if (-not $gitPath) {
+        return $null
+    }
+
+    $gitVersion = git --version
+    if ($gitVersion -match '([0-9]+(?:\.[0-9]+)+)') {
+        return [version]$matches[1]
+    }
+
+    return $null
+}
+
+function Get-WinGetPackageVersion {
+    param([string]$PackageId)
+
+    $wingetPath = Get-Command winget -ErrorAction SilentlyContinue
+    if (-not $wingetPath) {
+        return $null
+    }
+
+    $showOutput = & winget show -e --id $PackageId --disable-interactivity 2>$null
+    $versionLine = $showOutput | Where-Object { $_ -match '^\s*Version:\s*(.+?)\s*$' } | Select-Object -First 1
+    if ($versionLine -and $versionLine -match '^\s*Version:\s*(.+?)\s*$') {
+        return $matches[1].Trim()
+    }
+
+    return $null
+}
+
+function Get-LatestBcContainerHelperVersion {
+    $module = Find-Module -Name BcContainerHelper -ErrorAction Stop
+    return [version]$module.Version
+}
+
 # Verify admin privileges
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Error "This script must be run as Administrator"
@@ -63,107 +251,36 @@ Write-Header "BC Dev Toolset Prerequisites Installation"
 # 1. DOCKER ENGINE INSTALLATION
 # ============================================================================
 if (-not $SkipDockerInstall) {
-    Write-Header "1. Installing Docker Engine"
+    Write-Header "1. Installing or Updating Docker Engine"
     
     try {
-        # Create docker directory if it doesn't exist
-        if (-not (Test-Path $DockerPath)) {
-            Write-Host "Creating directory: $DockerPath"
-            New-Item -ItemType Directory -Path $DockerPath -Force | Out-Null
-            Write-Success "Directory created"
-        }
+        $installedVersion = Get-DockerInstalledVersion -DockerPath $DockerPath
+        $latestRelease = Get-LatestDockerRelease
 
-        # Fetch latest Docker Engine release
-        Write-Host "Fetching latest Docker Engine release..."
-        $releasesUrl = "https://download.docker.com/win/static/stable/x86_64/"
-        
-        # Get list of available releases using curl/Invoke-WebRequest
-        try {
-            $response = Invoke-WebRequest -Uri $releasesUrl -UseBasicParsing
-            $links = $response.Links | Where-Object { $_.href -match "\.zip$" }
-            
-            if ($links.Count -eq 0) {
-                throw "No Docker Engine releases found"
-            }
+        if ($installedVersion) {
+            Write-Warning "Docker Engine already installed: v$installedVersion"
+            Write-Host "Latest available Docker Engine: v$($latestRelease.Version)"
 
-            $downloads = $links | ForEach-Object {
-                $href = $_.href
-                if ($href -match 'docker-([0-9]+(?:\.[0-9]+)*)(?:-[^/]+)?\.zip$') {
-                    [PSCustomObject]@{
-                        Link = $_
-                        Version = [version]$matches[1]
-                    }
-                }
-            }
-
-            if (-not $downloads) {
-                throw "No valid Docker Engine release versions found"
-            }
-
-            $latestRelease = $downloads | Sort-Object -Property Version -Descending | Select-Object -First 1 | Select-Object -ExpandProperty Link
-
-            $downloadUrl = $releasesUrl + $latestRelease.href
-            $fileName = Split-Path $downloadUrl -Leaf
-            $downloadPath = Join-Path $DockerPath $fileName
-
-            Write-Host "Latest release: $fileName"
-            Write-Host "Downloading from: $downloadUrl"
-
-            # Download Docker Engine
-            $ProgressPreference = 'SilentlyContinue'
-            Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadPath
-            $ProgressPreference = 'Continue'
-
-            if (Test-Path $downloadPath) {
-                Write-Success "Docker Engine downloaded to: $downloadPath"
-
-                # Extract the zip file to a temporary location
-                Write-Host "Extracting Docker Engine..."
-                $tempExtractPath = Join-Path $env:TEMP "docker-extract-$([System.IO.Path]::GetRandomFileName())"
-                New-Item -ItemType Directory -Path $tempExtractPath -Force | Out-Null
-                
-                Expand-Archive -Path $downloadPath -DestinationPath $tempExtractPath -Force
-                
-                # Move extracted files to target directory
-                # The zip contains a 'docker' folder, so we move its contents to $DockerPath
-                $extractedDockerPath = Join-Path $tempExtractPath "docker"
-                if (Test-Path $extractedDockerPath) {
-                    Get-ChildItem -Path $extractedDockerPath | ForEach-Object {
-                        Move-Item -Path $_.FullName -Destination $DockerPath -Force
-                    }
+            if ($installedVersion -lt $latestRelease.Version) {
+                if (Confirm-Upgrade -Name "Docker Engine" -CurrentVersion "v$installedVersion" -LatestVersion "v$($latestRelease.Version)") {
+                    Install-DockerEngine -DockerPath $DockerPath -DownloadUrl $latestRelease.Url
                 }
                 else {
-                    # If no 'docker' subfolder, move everything from temp
-                    Get-ChildItem -Path $tempExtractPath | ForEach-Object {
-                        Move-Item -Path $_.FullName -Destination $DockerPath -Force
-                    }
+                    Write-Host "Skipping Docker Engine update"
                 }
-                
-                # Cleanup
-                Remove-Item $tempExtractPath -Force -Recurse
-                Remove-Item $downloadPath -Force
-                Write-Success "Docker Engine extracted to: $DockerPath"
-
-                # Create daemon.json configuration
-                $daemonJsonPath = Join-Path $DockerPath "daemon.json"
-                $daemonConfig = @{
-                    "group" = "Users"
-                } | ConvertTo-Json
-
-                $daemonConfig | Out-File -FilePath $daemonJsonPath -Encoding UTF8
-                Write-Success "Created daemon.json configuration at: $daemonJsonPath"
             }
             else {
-                throw "Failed to download Docker Engine"
+                Write-Success "Docker Engine is up to date"
             }
         }
-        catch {
-            Write-Error "Failed to fetch Docker releases: $_"
-            Write-Host "You can manually download from: https://download.docker.com/win/static/stable/x86_64/"
+        else {
+            Write-Host "Docker Engine is not installed"
+            Install-DockerEngine -DockerPath $DockerPath -DownloadUrl $latestRelease.Url
         }
     }
     catch {
         Write-Error "Docker installation failed: $_"
+        Write-Host "You can manually download from: https://download.docker.com/win/static/stable/x86_64/"
     }
 }
 else {
@@ -212,11 +329,30 @@ if (-not $SkipWindowsFeatures) {
         return $true
     }
 
+    function Test-WindowsFeatureEnabled {
+        param(
+            [string]$FeatureName
+        )
+
+        $dismOutput = & dism.exe /online /get-featureinfo /featurename:$FeatureName /English 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Could not determine current state for feature '$FeatureName' (DISM exit code $LASTEXITCODE)."
+            return $false
+        }
+
+        return ($dismOutput | Where-Object { $_ -match '^\s*State\s*:\s*Enabled\s*$' }).Count -gt 0
+    }
+
     try {
         $features = @("Containers", "Microsoft-Hyper-V-All")
 
         foreach ($feature in $features) {
-            Enable-FeatureNonInteractive -FeatureName $feature | Out-Null
+            if (Test-WindowsFeatureEnabled -FeatureName $feature) {
+                Write-Success "Feature '$feature' is already enabled"
+            }
+            else {
+                Enable-FeatureNonInteractive -FeatureName $feature | Out-Null
+            }
         }
 
         Write-Warning "You may need to restart your computer for changes to take effect"
@@ -305,18 +441,46 @@ if (-not $SkipDockerInstall) {
 # 5. INSTALL GIT
 # ============================================================================
 if (-not $SkipGit) {
-    Write-Header "5. Installing Git"
+    Write-Header "5. Installing or Updating Git"
     
     try {
-        # Check if git is already installed
-        $gitPath = Get-Command git -ErrorAction SilentlyContinue
-        if ($gitPath) {
-            $gitVersion = git --version
-            Write-Warning "Git already installed: $gitVersion"
+        $gitVersion = Get-GitInstalledVersion
+        $latestGitVersion = Get-WinGetPackageVersion -PackageId "Git.Git"
+
+        if ($gitVersion) {
+            Write-Warning "Git already installed: v$gitVersion"
+
+            if ($latestGitVersion) {
+                Write-Host "Latest available Git: v$latestGitVersion"
+                $latestGitSemanticVersion = $null
+                if ($latestGitVersion -match '^([0-9]+(?:\.[0-9]+)+)') {
+                    $latestGitSemanticVersion = [version]$matches[1]
+                }
+
+                if (-not $latestGitSemanticVersion) {
+                    Write-Warning "Could not compare Git versions automatically"
+                }
+                elseif ($gitVersion -lt $latestGitSemanticVersion) {
+                    if (Confirm-Upgrade -Name "Git" -CurrentVersion "v$gitVersion" -LatestVersion "v$latestGitVersion") {
+                        Write-Host "Updating Git via WinGet..."
+                        & winget upgrade -e --id Git.Git --accept-package-agreements --accept-source-agreements
+                        Write-Warning "Please restart your PowerShell session to use the updated git commands"
+                    }
+                    else {
+                        Write-Host "Skipping Git update"
+                    }
+                }
+                else {
+                    Write-Success "Git is up to date"
+                }
+            }
+            else {
+                Write-Warning "Could not determine latest Git version with WinGet"
+            }
         }
         else {
             Write-Host "Installing Git via WinGet..."
-            & winget install -e --id Git.Git
+            & winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements
             
             # Verify installation
             if (Get-Command git -ErrorAction SilentlyContinue) {
@@ -341,14 +505,36 @@ else {
 # 6. INSTALL BCCONTAINERHELPER MODULE
 # ============================================================================
 if (-not $SkipBcContainerHelper) {
-    Write-Header "6. Installing BcContainerHelper PowerShell Module"
+    Write-Header "6. Installing or Updating BcContainerHelper PowerShell Module"
     
     try {
         Write-Host "Checking if BcContainerHelper is already installed..."
-        $module = Get-Module -Name BcContainerHelper -ListAvailable -ErrorAction SilentlyContinue
+        $module = Get-Module -Name BcContainerHelper -ListAvailable -ErrorAction SilentlyContinue | Sort-Object -Property Version -Descending | Select-Object -First 1
         
         if ($module) {
             Write-Warning "BcContainerHelper already installed: v$($module.Version)"
+
+            try {
+                $latestModuleVersion = Get-LatestBcContainerHelperVersion
+                Write-Host "Latest available BcContainerHelper: v$latestModuleVersion"
+
+                if ([version]$module.Version -lt $latestModuleVersion) {
+                    if (Confirm-Upgrade -Name "BcContainerHelper" -CurrentVersion "v$($module.Version)" -LatestVersion "v$latestModuleVersion") {
+                        Write-Host "Updating BcContainerHelper..."
+                        Update-Module -Name BcContainerHelper -Force
+                        Write-Success "BcContainerHelper updated successfully"
+                    }
+                    else {
+                        Write-Host "Skipping BcContainerHelper update"
+                    }
+                }
+                else {
+                    Write-Success "BcContainerHelper is up to date"
+                }
+            }
+            catch {
+                Write-Warning "Could not determine latest BcContainerHelper version: $_"
+            }
         }
         else {
             Write-Host "Installing BcContainerHelper..."
@@ -379,7 +565,7 @@ else {
 Write-Header "Installation Summary"
 
 Write-Host @"
-Prerequisites installation complete!
+Prerequisites installation/update complete!
 
 Next steps:
 1. Review the configuration in: $DockerPath\daemon.json
@@ -393,6 +579,6 @@ For troubleshooting, see:
 - BcContainerHelper: https://github.com/microsoft/navcontainerhelper
 "@
 
-Write-Success "`nPrerequisites installation script completed!"
+Write-Success "`nPrerequisites installation/update script completed!"
 
 Read-Host -Prompt 'Press Enter to close this window and finish the script' | Out-Null
