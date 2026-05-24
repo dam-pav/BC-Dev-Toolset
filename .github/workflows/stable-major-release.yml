@@ -1,4 +1,4 @@
-name: Stable release
+name: Stable major release
 
 on:
   workflow_dispatch:
@@ -7,12 +7,12 @@ permissions:
   contents: write
 
 concurrency:
-  group: stable-release
+  group: stable-major-release
   cancel-in-progress: false
 
 jobs:
   promote-main-to-stable:
-    name: Promote main to stable
+    name: Promote main to stable with major release
     runs-on: ubuntu-latest
 
     steps:

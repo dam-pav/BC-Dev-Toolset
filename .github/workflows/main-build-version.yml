@@ -1,4 +1,4 @@
-name: Main minor version
+name: Main build version
 
 on:
   pull_request:
@@ -15,8 +15,8 @@ permissions:
   pull-requests: read
 
 jobs:
-  bump-minor-version:
-    name: Bump PR minor version
+  bump-build-version:
+    name: Bump PR build version
     runs-on: ubuntu-latest
     if: >
       github.event.pull_request.draft == false &&
@@ -31,7 +31,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute next minor version from main
+      - name: Compute next build version from main
         id: version
         shell: bash
         run: |
@@ -40,7 +40,7 @@ jobs:
           git fetch origin main
 
           MAIN_VERSION="$(git show origin/main:vscode-extension/package.json | node -e "let input=''; process.stdin.on('data', d => input += d); process.stdin.on('end', () => process.stdout.write(JSON.parse(input).version));")"
-          NEXT_VERSION="$(node -e "const [major, minor] = process.argv[1].split('.').map(Number); process.stdout.write([major, minor + 1, 0].join('.'));" "$MAIN_VERSION")"
+          NEXT_VERSION="$(node -e "const [major, minor, patch] = process.argv[1].split('.').map(Number); process.stdout.write([major, minor, patch + 1].join('.'));" "$MAIN_VERSION")"
 
           node - <<'NODE' "$NEXT_VERSION"
           const fs = require('fs');
@@ -66,5 +66,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add vscode-extension/package.json
-          git commit -m "chore: bump minor version to ${{ steps.version.outputs.version }}"
+          git commit -m "chore: bump build version to ${{ steps.version.outputs.version }}"
           git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
