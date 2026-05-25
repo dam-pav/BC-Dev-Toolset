@@ -33,6 +33,16 @@ If you want to reach out to the developer, please open an issue at *[BC-Dev-Tool
 
 You are also welcome to apply as contributor. As a contributor you will implicitly agree to a [Contributor License Agreement](documentation/CLA.md). By accepting the agreement you will declare that you have the right to grant this project the rights to use your contribution and that you in fact do grant this right of use.
 
+## Quick Start
+
+You already have your VS Code running? It's as simple as 1,2,3.
+
+1. Open the Extension Marketplace, search for *BC Dev Toolset* and install.
+2. Open Command Pallete, select *BC Dev Toolset: Install Prerequisites* and run the operation.
+3. Open Command Pallette, select BC Dev Toolset: Configure workspace and run.
+
+Your development environment for your current workspace is ready and you cans start wirh creating your container, managing your workpsace etc.
+
 ## Prerequisites
 
 1. A **Windows Pro** or **Windows Enterprise** edition.
@@ -47,21 +57,22 @@ You are also welcome to apply as contributor. As a contributor you will implicit
    winget install -e --id Microsoft.VisualStudioCode
    ```
 
-   If you are not running Docker Desktop (or even if you are) I advise using the VS Code plugin named 'Container Tools', released by Microsoft.
+   > **At this point you install the BC-Dev-Toolset extension.**
+   >
+   > The extension includes an operation named Install Prerequisites that can take care of the steps below. Simply type into the Command Pallette: ***BC Dev Toolset: Install prerequisites***.
+   >
+   > - installs the latest version of Docker Engine
+   > - configures the required Windows features
+   > - installs git
+   > - installs BcContainerHelper
+   >
+   > The operation will not verify the presence of Docker Desktop.
+   >
+   > If this is a problem or if you simply prefer to do this manually, please continue following the steps.
+   >
+3. Try the container solution that works for you
 
-   **At this point you install the BC-Dev-Toolset extension.**
-
-   The extension includes an operation named Install Prerequisites that can take care of the steps below. Simply type into the Command Pallette: ***BC Dev Toolset: Install prerequisites***.
-
-   - installs the latest version of Docker Engine
-   - configures the required Windows features
-   - installs git
-   - installs BcContainerHelper
-
-   The operation will not verify the presence of Docker Desktop.
-
-   If this is a problem or if you simply prefer to do this manually, please continue following the steps.
-3. Try the option that works for you
+   If you are not running Docker Desktop (or even if you are) I advise using the VS Code plugin named *Container Tools*, released by Microsoft.
 
    1. **Docker Desktop**.
 

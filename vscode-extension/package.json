@@ -1,8 +1,8 @@
 {
   "name": "bc-dev-toolset",
   "displayName": "BC Dev Toolset",
-  "description": "VS Code command surface for the BC-Dev-Toolset PowerShell toolkit.",
-  "version": "0.10.0",
+  "description": "Manage your BC development environment. Containers, backups, workspaces, artifacts, and more.",
+  "version": "0.10.1",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
