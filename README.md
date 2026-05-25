@@ -39,9 +39,9 @@ You already have your VS Code running? It's as simple as 1,2,3.
 
 1. Open the Extension Marketplace, search for *BC Dev Toolset* and install.
 2. Open Command Pallete, select *BC Dev Toolset: Install Prerequisites* and run the operation.
-3. Open Command Pallette, select BC Dev Toolset: Create container and run.
+3. Open Command Pallette, select BC Dev Toolset: Configure workspace and run.
 
-Your development environment is ready.
+Your development environment for your current workspace is ready and you cans start wirh creating your container, managing your workpsace etc.
 
 ## Prerequisites
 
