@@ -12,7 +12,8 @@ It offers operations in functional areas:
   * Prerequisites
   * Containers
 * Backup and Restore BC data from servers and containers, to containers
-* Manage multi-app workspaces
+* Manage local clones for multi-app workspaces
+  * Handle external dependencies, licenses, certificates, server configurations, etc.
   * Create/Update launch.json configurations
   * Analize and visually verify object Id range allocation
 * Manage artifacts (app)
@@ -184,8 +185,8 @@ These are stored in `.bcdevtoolset/settings.json` and are intended for developer
 - `pageScriptTestResultsPath`: Folder where page script test results are written.
 - `pageScriptTestHeaded`: Whether page script tests should run headed.
 - `sqlBackupPath`: Folder used for SQL backup files.
-- `shortcuts`: Shortcut mode for container creation flows. Default: `None`.
-- `hostHelperFolder`: BcContainerHelper host helper folder. Default: `C:\ProgramData\BcContainerHelper`.
+- `shortcuts`: Shortcut mode for container creation flows. Default: `None`.  TODO: move to extension settings
+- `hostHelperFolder`: BcContainerHelper host helper folder. Default: `C:\ProgramData\BcContainerHelper`. TODO: move to extension settings
 - `configurations`: Developer-local target definitions. These use the same structure as workspace `configurations` and are merged with them at runtime.
 
 The extension adds JSON validation for `.bcdevtoolset/settings.json`, so VS Code can help you keep the local settings file in shape while editing it.
