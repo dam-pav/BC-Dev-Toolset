@@ -40,16 +40,6 @@
       "type": "string",
       "description": "Path used for SQL backup files."
     },
-    "shortcuts": {
-      "type": "string",
-      "default": "None",
-      "description": "Shortcut configuration mode."
-    },
-    "hostHelperFolder": {
-      "type": "string",
-      "default": "C:\\ProgramData\\BcContainerHelper",
-      "description": "BcContainerHelper host helper folder."
-    },
     "configurations": {
       "type": "array",
       "default": [
