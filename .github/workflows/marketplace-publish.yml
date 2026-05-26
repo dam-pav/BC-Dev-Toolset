@@ -67,6 +67,5 @@ jobs:
         run: |
           set -euo pipefail
 
-          npx @vscode/vsce publish \
-            --packagePath "dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix" \
-            --pat "$VSCE_PAT"
+          bash ./.github/scripts/publish-vsix-with-retry.sh \
+            "dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix"
