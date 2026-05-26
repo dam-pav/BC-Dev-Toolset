@@ -1,4 +1,4 @@
-# BC Dev Toolset
+# Business Central Development Toolset
 
 The BC Dev Toolset extension gives Business Central developers a single command surface for common setup, container, deployment, runtime packaging, backup, test, and visualization tasks without having to run scripts manually.
 
@@ -6,9 +6,19 @@ For more information please refer to [the GitHub repository](https://github.com/
 
 ## What it does
 
-- Runs operations directly from the VS Code Command Palette.
-- Uses a central runtime copy of the toolset and a workspace-local settings file.
-- Helps standardize repetitive Business Central development workflows across projects.
+It offers operations in functional areas:
+
+* Development environment initialization
+  * Prerequisites
+  * Containers
+* Backup and Restore BC data from servers and containers, to containers
+* Manage multi-app workspaces
+  * Create/Update launch.json configurations
+  * Analize and visually verify object Id range allocation
+* Manage artifacts (app)
+  * publish or un-publish apps
+  * create and deploy runtime packages
+* Run/Verify standard and page scripting tests
 
 ## Getting started
 
@@ -43,11 +53,13 @@ Important local settings to review before running most operations:
 - `recordingsPath`: Folder containing page scripting recordings.
 - `pageScriptTestResultsPath`: Folder where page script test results are stored.
 
-### 4. Show operations list
+This is it, now you can start working on your project. Explore the toolset:
 
 Run `BC Dev Toolset: Show Operations List`.
 
 This opens the full operation picker so you can run the rest of the toolset from one place.
+
+All operations are available directly as well.
 
 ## Prerequisites
 
