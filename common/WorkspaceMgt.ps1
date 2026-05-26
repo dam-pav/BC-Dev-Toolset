@@ -1,5 +1,3 @@
-# default toolset folder name
-$toolsetFolderName = 'BC-Dev-Toolset'
 . (Join-Path $PSScriptRoot 'BackupMgt.ps1')
 
 function Get-HostHelperFolder {
@@ -9,11 +7,33 @@ function Get-HostHelperFolder {
     )
 
     $defaultPath = 'C:\ProgramData\BcContainerHelper'
+    if (-not [string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_HOST_HELPER_FOLDER)) {
+        return $env:BCDEVTOOLSET_HOST_HELPER_FOLDER
+    }
+
     if ($null -ne $settingsJSON.hostHelperFolder -and -not [string]::IsNullOrWhiteSpace($settingsJSON.hostHelperFolder)) {
         return $settingsJSON.hostHelperFolder
     }
 
     return $defaultPath
+}
+
+function Get-ShortcutMode {
+    param(
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON
+    )
+
+    $defaultMode = 'None'
+    if (-not [string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_SHORTCUTS)) {
+        return $env:BCDEVTOOLSET_SHORTCUTS
+    }
+
+    if ($null -ne $settingsJSON.shortcuts -and -not [string]::IsNullOrWhiteSpace($settingsJSON.shortcuts)) {
+        return $settingsJSON.shortcuts
+    }
+
+    return $defaultMode
 }
 
 function Get-WorkspaceRootPath {
@@ -177,11 +197,6 @@ function Write-LaunchJSON {
         [Parameter(Mandatory=$false)]
         [bool] $replaceJSON = $false
     )
-    $appName = $appPath -split '\.' | Select-Object -First 1
-    if ($appName -eq $toolsetFolderName) {
-        return
-    }
-
     Write-Host ""    
     if ($replaceJSON -eq $true) {
         Write-Host "Replacing launch.json for '$appPath'." -ForegroundColor Green
@@ -443,8 +458,6 @@ function Build-Settings {
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestResultsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestHeaded -Value "false"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name shortcuts -Value "None"
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name hostHelperFolder -Value "C:\ProgramData\BcContainerHelper"
         $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
 
         # add container configuration
@@ -618,7 +631,9 @@ function Initialize-Context {
 
     # Add missing defaults
     if ($null -eq $settingsJSONvalue.shortcuts) {
-        $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name shortcuts -Value "None"
+        $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name shortcuts -Value (Get-ShortcutMode $settingsJSONvalue)
+    } else {
+        $settingsJSONvalue.shortcuts = Get-ShortcutMode $settingsJSONvalue
     }
     if ($null -eq $settingsJSONvalue.sqlBackupPath) {
         $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
@@ -643,7 +658,7 @@ function Get-AppJSON {
     )
     $appPath = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $appPath
     $appName = Split-Path -Path $appPath -Leaf
-    if ($appName -eq $toolsetFolderName -or $appName -eq '.bcdevtoolset') {
+    if ($appName -eq '.bcdevtoolset') {
         # this is not an app folder
         $appJSON.Value = [PSCustomObject]@{}
         return

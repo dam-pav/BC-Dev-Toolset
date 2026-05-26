@@ -74,6 +74,14 @@ function getConfiguration() {
   return vscode.workspace.getConfiguration('bcDevToolset');
 }
 
+function getShortcutMode() {
+  return getConfiguration().get('shortcuts') || 'None';
+}
+
+function getHostHelperFolder() {
+  return getConfiguration().get('hostHelperFolder') || 'C:\\ProgramData\\BcContainerHelper';
+}
+
 function getDefaultToolsetPath() {
   const localAppData = process.env.LOCALAPPDATA || process.env.HOME || process.env.USERPROFILE;
   return path.join(localAppData, 'BC-Dev-Toolset', 'toolset');
@@ -270,8 +278,6 @@ function getDefaultLocalSettings() {
     pageScriptTestResultsPath: '',
     pageScriptTestHeaded: 'false',
     sqlBackupPath: '',
-    shortcuts: 'None',
-    hostHelperFolder: 'C:\\ProgramData\\BcContainerHelper',
     configurations: [
       getDefaultLocalConfiguration()
     ]
@@ -335,8 +341,11 @@ function quotePowerShellArgument(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-function createTerminal() {
-  const terminal = vscode.window.createTerminal('BC Dev Toolset');
+function createTerminal(env = undefined) {
+  const terminal = vscode.window.createTerminal({
+    name: 'BC Dev Toolset',
+    env
+  });
   terminal.show();
   return terminal;
 }
@@ -524,21 +533,34 @@ async function runOperation() {
   }
 
   const operations = getOperations(toolsetPath);
-  const picked = await vscode.window.showQuickPick(
-    operations.map((operation) => ({
-      label: operation.title,
-      description: operation.category,
-      detail: operation.id,
-      operation
+  const categories = Array.from(new Set(operations.map((operation) => operation.category)));
+  const pickedCategory = await vscode.window.showQuickPick(
+    categories.map((category) => ({
+      label: category,
+      description: `${operations.filter((operation) => operation.category === category).length} operations`
     })),
-    { placeHolder: 'Select a BC Dev Toolset operation' }
+    { placeHolder: 'Select a BC Dev Toolset operation category' }
   );
 
-  if (!picked) {
+  if (!pickedCategory) {
     return;
   }
 
-  await executeOperation(picked.operation, toolsetPath);
+  const filteredOperations = operations.filter((operation) => operation.category === pickedCategory.label);
+  const pickedOperation = await vscode.window.showQuickPick(
+    filteredOperations.map((operation) => ({
+      label: operation.title,
+      detail: operation.id,
+      operation
+    })),
+    { placeHolder: `Select a ${pickedCategory.label} operation` }
+  );
+
+  if (!pickedOperation) {
+    return;
+  }
+
+  await executeOperation(pickedOperation.operation, toolsetPath);
 }
 
 async function runOperationById(operationId) {
@@ -594,7 +616,10 @@ async function executeOperation(operation, toolsetPath) {
     workspaceFileArguments +
     localSettingsArguments;
 
-  const terminal = createTerminal();
+  const terminal = createTerminal({
+    BCDEVTOOLSET_SHORTCUTS: String(getShortcutMode()),
+    BCDEVTOOLSET_HOST_HELPER_FOLDER: String(getHostHelperFolder())
+  });
   terminal.sendText(command);
 }
 

@@ -219,22 +219,13 @@ You can follow the naming convention manually and prepare a bak set manually, if
 
 ### *.gitignore*
 
-Add these two lines to the .gitignore file in the root of your repository:
+Add this line to the `.gitignore` file in the root of your repository:
 
 ```
-BC-Dev-Toolset/
 launch.json
 ```
 
-Ignoring a BC-Dev-Toolset folder is only necessary if you are placing the folder within the project repository. You can avoid this by using relative paths.
-
-You might have already initialized git with these folders and files. In that case mere modification of *.gitignore* will not suffice. You will need to run
-
-```
-git rm BC-Dev-Toolset -r -f --cached
-```
-
-in order to remove the folder and the containing files from git. Also, you might also need to run
+You might have already initialized git with these files. In that case mere modification of `.gitignore` will not suffice. You might also need to run
 
 ```
 git rm */launch.json --cached
@@ -299,54 +290,72 @@ to remove the files from git. You will need to commit these changes. Beware, thi
 
 #### Folders
 
-The most obvious role of a workspace is to define the folders included. The path element can specify both absolute and relative paths. It makes sense to use relative paths, of course. A relative path is relative to the location of the .code-workspace file. You can set a structure of folders underneath so that paths such as "Project/App" is perfectly valid. This way you can exclude the BC-Dev-Toolset folder and the workspace definition itself from the file structure of the project without changes in gitignore.
+The most obvious role of a workspace is to define the folders included. The path element can specify both absolute and relative paths. It makes sense to use relative paths, of course. A relative path is relative to the location of the .code-workspace file. You can set a structure of folders underneath so that paths such as "Project/App" is perfectly valid.
 
 #### Settings
 
-In addition to folders containing separate apps we need to make sure one additional folder, containing the toolset, is also included.
+BC Dev Toolset uses three settings layers:
 
-We also use it as a vessel to carry configuration for this workspace. The root attribute ***dam-pav.bcdevtoolset*** is workspace-specific and can specify:
+- Extension settings in VS Code under `bcDevToolset.*`
+- Workspace settings in the `.code-workspace` file under `dam-pav.bcdevtoolset`
+- Local settings in `.bcdevtoolset/settings.json`
 
-* ***country***: optional, sets the platform country version. The default is "w1".
-* ***selectArtifact***: "Closest" (default), "Latest"
-* ***configurations***: Specify a list of remote deployments. Valid attributes (an approximate match of attributes for ***configurations*** in *launch.json*):
+### Extension settings
 
-  * ***name***: a distinctive name for the configuration. This value is mandatory; the list entry will be ignored if ***name*** has an empty value or if the value is "sample".
-  * ***serverType***: Accepted values are *Container*, *Cloud* or *OnPrem*. Mandatory.
-  * ***targetType***: Accepted values are *Dev*, *Test*, *Production*.
-  * ***server***: Valid for server type *OnPrem*.
-  * ***serverInstance***: Valid for server type *OnPrem*.
-  * ***container***: The name for the Docker container. The default value is the name of the workspace. Valid for server type *Container*.
-  * ***port***: Valid for *OnPrem*.
-  * ***environmentType***: Type of BC instance to create. Valid values are *Sandbox* or *OnPrem*. Default value is *Sandbox*. Valid for server type *Container* and *Cloud*.
-  * ***environmentName***: Valid for Cloud.
-  * ***includeTestToolkit***: Valid for server type Container.
-  * ***tenant***: Valid for Cloud or OnPrem.
-  * ***authentication***: Valid for Container or OnPrem. Default value is *UserPassword*.
-  * ***admin*** and ***password***: The default user for the Docker BC instance.
-  * ***databaseUser*** and ***databasePassword***: Optional SQL authentication for backing up databases from a regular SQL Server. If empty, Windows authentication is used.
-  * ***remoteUser*** and ***remotePassword***: Optional PowerShell remoting credentials for backing up databases from a remote SQL Server host. If empty, the current Windows identity is used.
-  * ***serverConfiguration***: a list of pairs of ***KeyName* **and ***KeyValue* **values.
+These are VS Code extension settings. They belong to the developer's VS Code setup rather than to the repository.
 
-### *settings.json*
+- `bcDevToolset.toolsetPath`: Overrides the central BC-Dev-Toolset runtime location.
+- `bcDevToolset.powershellExecutable`: PowerShell executable used to run operations.
+- `bcDevToolset.localSettingsPath`: Workspace-relative path to the local settings file.
+- `bcDevToolset.shortcuts`: Decide where you want Docker to place shortcuts for the new containers it creates. Can be *None*, *Desktop* or *StartMenu*. While Docker's default is *Desktop*, the toolsets's default is *None*.
+- `bcDevToolset.hostHelperFolder`: Overrides default BcContainerHelper host helper folder used by runtime operations.
 
-VS Code usually provides three levels of scope:
+### Workspace settings
 
-- User: any settings are stored in the PC user profile. This is broader than any single project the user is working on.
-- Workspace: the settings are stored in the .code-workspace json file. This is closer to the project scope, but migth not be local if the workspace is made part of the project repository. In a different sense, but this is still broader than a single project.
-- Folder: a single folder specified in the workspace. So, much narrower than a single project, by definition.
+These are stored in the `.code-workspace` file under the root attribute `dam-pav.bcdevtoolset`. Use them for shared project settings that should travel with the workspace.
 
-> The idea behind BC-Dev-Tools is that a developer needs to manage app development within a workspace, but the resources required are mostly local to their particular workstation. Some of the setting must be customizable per both Project and the User. VS Code does not provide such a scope. That is why we keep a separate BC-Dev-Tools per each project and use *settings.json* to customize your scripts behaviour.
+- `country`: Optional platform country version. The default is `w1`.
+- `selectArtifact`: Artifact selection strategy. Common values are `Closest` and `Latest`.
+- `configurations`: Shared list of deployment targets for the workspace.
 
-If not found, a *settings.json* file will be created for you when any of the scripts is first run, with default values.
+Each `configurations` entry can contain:
 
-* ***licenseFile***: Specify if you have one. Mandatory for Runtime packages.
-* ***certificateFile***: Specify if you have one. Mandatory for Runtime packages.
-* ***packageOutputPath***: Specify a specific folder path to group the Runtime packages. If empty, a runtime subfolder will automatically be created and used in the project. Remember to use double backslashes for full paths. For instance, for an actual path of "c:\\project\\packages" you will need to use "c:\\\\project\\\packages\".
-* ***dependenciesPath***: Specify a specific folder path to where the required app packages are stored. Again, remember to use double backslashes for full paths.
-* ***sqlBackupPath***: Specify the local folder used by SQL backup operations. Container backup, BC service SQL Server backup, restore, and new-container initialization all use this folder as the common backup-set location.
-* ***shortcuts***: Decide where you want Docker to place shortcuts for the new containers it creates. Can be *None*, *Desktop* or *StartMenu*. While the Docker's default is Desktop, the toolsets's default is *None*.
-* ***loadOnPremMgtModule***: Handling OnPrem deployments might require loading of the management module. This is where you specify its location in your specific context. Essentially, the path to NavAdminTool.ps1. This only works if you are running the scripts at the server host.
-* ***configurations***: Locally personalized additional list of remote deployments. Valid attributes (a subset of attributes for ***configurations*** in *launch.json*). Same structure as defined for *.code-workspace*. Both lists are used.
+- `name`: Distinctive name of the configuration. Mandatory. Entries with an empty name or the name `sample` are ignored.
+- `serverType`: Accepted values are `Container`, `Cloud`, or `OnPrem`. Mandatory.
+- `targetType`: Accepted values are `Dev`, `Test`, `Production`.
+- `server`: Valid for `OnPrem`.
+- `serverInstance`: Valid for `OnPrem`.
+- `container`: Docker container name. The default value is the name of the workspace. Valid for `Container`.
+- `port`: Valid for `OnPrem`.
+- `environmentType`: Type of BC instance to create. Valid values are `Sandbox` or `OnPrem`. The default is `Sandbox`. Valid for `Container` and `Cloud`.
+- `environmentName`: Valid for `Cloud`.
+- `includeTestToolkit`: Valid for `Container`.
+- `tenant`: Valid for `Cloud` or `OnPrem`.
+- `authentication`: Valid for `Container` or `OnPrem`. The default value is `UserPassword`.
+- `admin`: Default user for the Docker BC instance.
+- `password`: Default password for the Docker BC instance.
+- `databaseUser`: Optional SQL authentication user for regular SQL Server backup operations. If empty, Windows authentication is used.
+- `databasePassword`: Optional SQL authentication password for regular SQL Server backup operations.
+- `remoteUser`: Optional PowerShell remoting user for remote SQL Server backup operations. If empty, the current Windows identity is used.
+- `remotePassword`: Optional PowerShell remoting password for remote SQL Server backup operations.
+- `serverConfiguration`: List of `KeyName` and `KeyValue` pairs.
 
-> **Note:** BC 21.1 (BC 2022 release wave 2) introduced global and workspace launch configuration. This is interesting but not in the same scope and purpose as the ***configurations*** in BC Dev Tools which can also be set in the workspace. Launch setup is used directly by VS Code to deploy and start apps. Configurations is used by BC Dev Tools to initialize launch setup at app level, where a workspace can contain tens of apps. After that, you are free to use and modify the initialized setup. Sure, instead of using launch setup at app level you can use a single setup at the workspace and if that fits your requirements, by all means do that. However, if you need any kind of granularity, for instance, having different pages loading when running diferent apps, you may want to stick with app level setup. BC Dev Tools doesn't initialize launch setup at workspace level at this time.
+### Local settings
+
+VS Code settings have user, workspace, and folder scopes, but BC Dev Toolset operates at a project-local developer-specific scope. That is why the toolset keeps a separate `.bcdevtoolset/settings.json` file for values that should stay local to the workstation.
+
+> **Note:** If you place more than one `.code-workspace` file in the same folder, these workspaces will all share the same `.bcdevtoolset/settings.json` setup.
+
+If not found, a `settings.json` file will be created for you when any of the scripts is first run, with default values.
+
+These settings are stored in `.bcdevtoolset/settings.json`:
+
+- `licenseFile`: Specify if you have one. Mandatory for runtime packages.
+- `certificateFile`: Specify if you have one. Mandatory for runtime packages.
+- `packageOutputPath`: Folder path for runtime packages. If empty, a `runtime` subfolder is created and used in the project.
+- `dependenciesPath`: Folder path containing the required app packages.
+- `sqlBackupPath`: Local folder used by SQL backup operations. Container backup, BC service SQL Server backup, restore, and new-container initialization all use this folder as the common backup-set location.
+- `loadOnPremMgtModule`: Path to `NavAdminTool.ps1` when OnPrem deployments need the management module on the server host.
+- `configurations`: Developer-local additional list of deployment targets. It uses the same structure as workspace `configurations`, and both lists are used together.
+
+> **Note:** BC 21.1 (BC 2022 release wave 2) introduced global and workspace launch configuration. This is interesting but not in the same scope and purpose as the ***configurations*** in BC Dev Tools which can also be set in the workspace. Launch setup is used directly by VS Code to deploy and start apps. Configurations is used by BC Dev Tools to initialize launch setup at app level, where a workspace can contain tens of apps. After that, you are free to use and modify the initialized setup. Sure, instead of using launch setup at app level you can use a single setup at the workspace level and if that fits your requirements, by all means do that. However, if you need any kind of granularity, for instance, having different pages loading when running different apps, you may want to stick with app level setup. BC Dev Tools doesn't initialize launch setup at workspace level at this time.

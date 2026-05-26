@@ -1,4 +1,4 @@
-# BC Dev Toolset
+# Business Central Developer's Toolset
 
 The BC Dev Toolset extension gives Business Central developers a single command surface for common setup, container, deployment, runtime packaging, backup, test, and visualization tasks without having to run scripts manually.
 
@@ -6,9 +6,20 @@ For more information please refer to [the GitHub repository](https://github.com/
 
 ## What it does
 
-- Runs operations directly from the VS Code Command Palette.
-- Uses a central runtime copy of the toolset and a workspace-local settings file.
-- Helps standardize repetitive Business Central development workflows across projects.
+It offers operations in functional areas:
+
+* Development environment initialization
+  * Prerequisites
+  * Containers
+* Backup and Restore BC data from servers and containers, to containers
+* Manage local clones for multi-app workspaces
+  * Handle external dependencies, licenses, certificates, server configurations, etc.
+  * Create/Update launch.json configurations
+  * Analize and visually verify object Id range allocation
+* Manage artifacts (app)
+  * publish or un-publish apps
+  * create and deploy runtime packages
+* Run/Verify standard and page scripting tests
 
 ## Getting started
 
@@ -43,11 +54,13 @@ Important local settings to review before running most operations:
 - `recordingsPath`: Folder containing page scripting recordings.
 - `pageScriptTestResultsPath`: Folder where page script test results are stored.
 
-### 4. Show operations list
+This is it, now you can start working on your project. Explore the toolset:
 
 Run `BC Dev Toolset: Show Operations List`.
 
-This opens the full operation picker so you can run the rest of the toolset from one place.
+This opens a two-step picker: choose a category first, then pick an operation from that category.
+
+All operations are available directly as well.
 
 ## Prerequisites
 
@@ -129,6 +142,8 @@ The extension uses three settings layers:
 - `bcDevToolset.toolsetPath`: Overrides the central BC-Dev-Toolset runtime location. Default: `%LOCALAPPDATA%\BC-Dev-Toolset\toolset` on Windows.
 - `bcDevToolset.powershellExecutable`: PowerShell executable used to run operations. Default: `pwsh`.
 - `bcDevToolset.localSettingsPath`: Workspace-relative path to the local settings file passed to operations. Default: `.bcdevtoolset/settings.json`.
+- `bcDevToolset.shortcuts`: Shortcut mode used for container creation flows. Default: `None`.
+- `bcDevToolset.hostHelperFolder`: BcContainerHelper host helper folder used by runtime operations. Default: `C:\ProgramData\BcContainerHelper`.
 
 ### Workspace settings
 
@@ -172,8 +187,6 @@ These are stored in `.bcdevtoolset/settings.json` and are intended for developer
 - `pageScriptTestResultsPath`: Folder where page script test results are written.
 - `pageScriptTestHeaded`: Whether page script tests should run headed.
 - `sqlBackupPath`: Folder used for SQL backup files.
-- `shortcuts`: Shortcut mode for container creation flows. Default: `None`.
-- `hostHelperFolder`: BcContainerHelper host helper folder. Default: `C:\ProgramData\BcContainerHelper`.
 - `configurations`: Developer-local target definitions. These use the same structure as workspace `configurations` and are merged with them at runtime.
 
 The extension adds JSON validation for `.bcdevtoolset/settings.json`, so VS Code can help you keep the local settings file in shape while editing it.

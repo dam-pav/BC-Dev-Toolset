@@ -58,6 +58,7 @@ After installing the extension:
 1. Open a Business Central `.code-workspace`.
 2. Run `BC Dev Toolset: Configure Workspace`.
 3. Review `.bcdevtoolset/settings.json`.
+4. Review the `bcDevToolset.*` extension settings if you need to override `shortcuts` or `hostHelperFolder`.
 
 The extension installs the bundled runtime toolset into `%LOCALAPPDATA%\BC-Dev-Toolset\toolset` by default. Workspace-local settings are stored in `.bcdevtoolset/settings.json` beside the active `.code-workspace` file.
 
