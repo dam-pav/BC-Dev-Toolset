@@ -128,7 +128,7 @@ jobs:
           fi
 
       - name: Publish pre-release VSIX to VS Code Marketplace
-        if: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message || '', 'chore(release): bump ') }}
+        if: "${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message || '', 'chore(release): bump ') }}"
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         shell: bash
