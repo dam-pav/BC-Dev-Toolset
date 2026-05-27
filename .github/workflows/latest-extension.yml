@@ -10,6 +10,7 @@ on:
       - operations/**
       - visualization/**
       - vscode-extension/**
+      - .github/scripts/publish-vsix-with-retry.sh
       - .github/workflows/latest-extension.yml
 
 permissions:
@@ -61,3 +62,15 @@ jobs:
             --title "BC Dev Toolset latest v${{ steps.version.outputs.version }}" \
             --notes "Latest-channel VSIX package for BC Dev Toolset v${{ steps.version.outputs.version }}." \
             --prerelease
+
+      - name: Publish pre-release VSIX to VS Code Marketplace
+        if: ${{ !startsWith(github.event.head_commit.message, 'chore(release): bump ') }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bash ./.github/scripts/publish-vsix-with-retry.sh \
+            "dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix" \
+            --pre-release

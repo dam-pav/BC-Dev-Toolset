@@ -131,6 +131,8 @@ The extension automatically syncs its runtime copy to `%LOCALAPPDATA%\BC-Dev-Too
 
 ## Settings
 
+The Marketplace supports a pre-release channel for this extension. If you opt in to the pre-release version in VS Code, you can receive main-branch extension updates before the next stable release.
+
 The extension uses three settings layers:
 
 - VS Code extension settings under `bcDevToolset.*`
