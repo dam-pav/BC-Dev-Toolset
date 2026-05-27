@@ -2,7 +2,7 @@
 
 ## Why?
 
-If you are a BC developer, you might have to spend an inordinate amount of time manually executing operations such as preparing your development tools and set up, preparing and deploying packages and so on. I'm sure you'd rather spend that time doing something less dull and repetitive.
+If you are a BC developer, you might have to spend an inordinate amount of time manually executing operations such as preparing your development tools and setup, preparing and deploying packages and so on. I'm sure you'd rather spend that time doing something less dull and repetitive.
 
 Also, many developers still find using local containers cumbersome and find all kinds of excuses to avoid this. However, using isolated development environments is essential. It almost feels redundant having to stress this fact but here I am, saying this.
 
@@ -21,9 +21,9 @@ The things that the toolset will enable you to do once it is set up:
 
 ## Introduction
 
-The purpose of this toolset is the management of local Windows or Windows Server development environments for Business Central projects. The goal is to make quick work of preparation of local Docker environments, as well as other routinely executed management procedures, such as editing of *launch.json*. It's a simple, no brainer approach that might get more sophisticated in the future, but will always focus on simplicity.
+The purpose of this toolset is the management of local Windows or Windows Server development environments for Business Central projects. The goal is to make quick work of preparation of local Docker environments, as well as other routinely executed management procedures, such as editing of *launch.json*. It's a simple, no-brainer approach that might get more sophisticated in the future, but will always focus on simplicity.
 
-It relies on information about your project/app that is already available from *app.json* or *repo.code-workspace*. Only the information that is not already there needs to be added to toolset's own settings. Part of the toolset's setting are developer's own preferences, while other, such as the locations of test environments, can be made available from within the repository, so that developers don't have to manage those manually.
+It relies on information about your project/app that is already available from *app.json* or *repo.code-workspace*. Only the information that is not already there needs to be added to the toolset's own settings. Part of the toolset's settings are developers' own preferences, while others, such as the locations of test environments, can be made available from within the repository, so that developers don't have to manage those manually.
 
 > The information about the required container artifact version is retrieved from the first app and its app.json. The relevant element is "application". If you manage this value manually, make sure you don't fiddle with the "platform" element as well. The "platform" element informs your environment about which symbols to download and the app versions are not always aligned with the container (platform) version. In fact, more usually than not they contain older versions that had no reason to be updated. The chief example is the System app which is not released as often as other apps.
 
@@ -31,22 +31,28 @@ This toolset is a work in continuous progress. Any usage is subject to a MIT lic
 
 If you want to reach out to the developer, please open an issue at *[BC-Dev-Toolset](https://github.com/dam-pav/BC-Dev-Toolset/issues)*.
 
-You are also welcome to apply as contributor. As a contributor you will implicitly agree to a [Contributor License Agreement](documentation/CLA.md). By accepting the agreement you will declare that you have the right to grant this project the rights to use your contribution and that you in fact do grant this right of use.
+You are also welcome to apply as a contributor. As a contributor you will implicitly agree to a [Contributor License Agreement](documentation/CLA.md). By accepting the agreement you will declare that you have the right to grant this project the rights to use your contribution and that you in fact do grant this right of use.
 
 ## Quick Start
 
 You already have your VS Code running? It's as simple as 1,2,3.
 
 1. Open the Extension Marketplace, search for *BC Dev Toolset* and install.
-2. Open Command Pallete, select *BC Dev Toolset: Install Prerequisites* and run the operation.
-3. Open Command Pallette, select BC Dev Toolset: Configure workspace and run.
+2. Open Command Palette, select *BC Dev Toolset: Install Prerequisites* and run the operation.
+3. Open Command Palette, select BC Dev Toolset: Configure workspace and run.
 
-Your development environment for your current workspace is ready and you cans start wirh creating your container, managing your workpsace etc.
+Your development environment for your current workspace is ready and you can start with creating your container, managing your workspace etc.
 
-## Prerequisites
+## Running the Toolset operations
+
+### Command Palette
+
+All the operations are available through the VS Code Command Palette. You can type them out directly or you can use the ***BC Dev Toolset: Show Operations List*** that will let you select any of the operations from a drop-down menu.
+
+### Prerequisites
 
 1. A **Windows Pro** or **Windows Enterprise** edition.
-   Docker requires requires Hyper-V and a feature named Containers to work on Windows. Windows Home does not provide these features. Make sure your BIOS has virtualization enabled. Hyper-V feature might appear to be enabled, but won't work without proper HW support.
+   Docker requires Hyper-V and a feature named Containers to work on Windows. Windows Home does not provide these features. Make sure your BIOS has virtualization enabled. The Hyper-V feature might appear to be enabled, but won't work without proper HW support.
 
    If you don't have access to any of the above, you won't be able to develop for BC using Docker. You might still find scripts that are not related to Docker useful, for instance, if you only use "regular" environments without containers.
 
@@ -59,7 +65,7 @@ Your development environment for your current workspace is ready and you cans st
 
    > **At this point you install the BC-Dev-Toolset extension.**
    >
-   > The extension includes an operation named Install Prerequisites that can take care of the steps below. Simply type into the Command Pallette: ***BC Dev Toolset: Install prerequisites***.
+   > The extension includes an operation named Install Prerequisites that can take care of the steps below. Simply type into the Command Palette: ***BC Dev Toolset: Install prerequisites***.
    >
    > - installs the latest version of Docker Engine
    > - configures the required Windows features
@@ -93,7 +99,7 @@ Your development environment for your current workspace is ready and you cans st
 
       Now, to set up permissions. Check user groups under "Edit local users and group". The usual group name would be  docker-users and if it was created by some installation such as Docker Desktop it will contain the admin user.  Add anyone who needs to run docker to this group.
 
-      The alternative is to use a group that already contains your user account, such as Users. Update the Json file below accordingly.
+      The alternative is to use a group that already contains your user account, such as Users. Update the JSON file below accordingly.
 
       Create a new config file daemon.json, containing this:
 
@@ -113,7 +119,7 @@ Your development environment for your current workspace is ready and you cans st
       }
       ```
 
-      Open Powershell as administrator. Run:
+      Open PowerShell as administrator. Run:
 
       ```
         Enable-WindowsOptionalFeature -Online -FeatureName Containers -All
@@ -124,7 +130,7 @@ Your development environment for your current workspace is ready and you cans st
         New-Service -Name Docker -BinaryPathName "C:\docker\dockerd.exe  --run-service --config-file C:\docker\daemon.json" -DisplayName "Docker Engine" -StartupType "Automatic"
       ```
 
-      Make sure your installation folder was added to the PATH environment variable successfully. If the variable is longer then than 1024 characters it might misbehave despite the official limit of 32,767 characters, depending how it is used. SET and SETX truncate the var to 1024 characters, I do not recommend this method. Other methods might allow up to 2048 characters. If you can open your terminal and run 'docker' from any path other that from where you installed it, the you are good to go. Restart your PC.
+      Make sure your installation folder was added to the PATH environment variable successfully. If the variable is longer than 1024 characters it might misbehave despite the official limit of 32,767 characters, depending how it is used. SET and SETX truncate the var to 1024 characters, I do not recommend this method. Other methods might allow up to 2048 characters. If you can open your terminal and run 'docker' from any path other than where you installed it, then you are good to go. Restart your PC.
 4. **GIT**.
    You will need CLI for git. A good way to install it on a Windows PC is using WinGet. If you don't have WinGet yet, check [these GitHub repository releases](https://github.com/microsoft/winget-cli/releases/). Install using msixbundle.
 
@@ -132,24 +138,24 @@ Your development environment for your current workspace is ready and you cans st
    winget install -e --id Git.Git
    ```
 
-   After the installation is done, close your PS terminal sessions and start a new to get access to git.
+   After the installation is done, close your PS terminal sessions and start a new one to get access to git.
 5. **BcContainerHelper**.
 
    None of this would be possible without the BcContainerHelper. Hats off to Freddy.
 
-   Run Powershell as admin, then:
+   Run PowerShell as admin, then:
 
    ```
    Install-Module BcContainerHelper -force
    ```
 
-   This might not always work, reporting that module 'BcContainerHelper' cannot be found. Could be because powershellgallery.com is down, apparently this happens. In this case there is alternative: FreddyDK provided this script: [Install-BcContainerHelper.ps1]([https://github.com/BusinessCentralApps/HelloWorld/blob/master/scripts/Install-BcContainerHelper.ps1]()). Download and run.
+   This might not always work, reporting that module 'BcContainerHelper' cannot be found. Could be because powershellgallery.com is down, apparently this happens. In this case there is an alternative: FreddyDK provided this script: [Install-BcContainerHelper.ps1]([https://github.com/BusinessCentralApps/HelloWorld/blob/master/scripts/Install-BcContainerHelper.ps1]()). Download and run.
 
    You can learn more at the [GitHub BcContainerHelper repository](https://github.com/microsoft/navcontainerhelper).
 
    *Note: the module is being updated from time to time. For your convenience, an update option is available in the list of Operations.*
 
-## **Starting a new workspace**
+### Workspaces
 
 There are two scenarios for workspaces, in relation to repositories they handle.
 
@@ -192,18 +198,12 @@ It is best that the paths are relative to the workspace root, the location of th
 >
 > Don't mix the two kinds of slashes.
 
-Starting a new workspace and including the toolset should be easy.
+Starting a new workspace should be easy.
 
-1. Define a *project.code-workspace* file (replace *project* with a proper name). The name of the project will become the default name for your Docker container. Your repository might already include such a file.
-   You can create the workspace from VS Code, but creating it manually works just as well. You can also skip this step in which case the file will be create automatically by the toolset initialization.
+1. Define a *project.code-workspace* file and replace *project* with a proper name. **Choose the name carefully. If you work on multiple workspaces it can save you a lot of guesswork** The name of the project will become the default name for your Docker container. Your repository might already include such a file.
+   You can create the workspace from VS Code, but creating it manually works just as well. You can also skip this step in which case the file will be created automatically by the toolset initialization.
 2. I do recommend to add **`launch.json`** to *.gitignore*. These files are personalized per developer and managed by the toolset.
 3. You can now create your first Docker container.
-
-## Running the Toolset operations
-
-### Command Pallette
-
-All the operations are available through the VS Code Command Pallette. You can type them out directly or you can use the ***BC Dev Toolset: Show Operations List*** that will let you select any of the operations from a drop-down menu.
 
 ### Backup & Restore
 

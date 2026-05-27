@@ -15,9 +15,9 @@ It offers operations in functional areas:
 * Manage local clones for multi-app workspaces
   * Handle external dependencies, licenses, certificates, server configurations, etc.
   * Create/Update launch.json configurations
-  * Analize and visually verify object Id range allocation
+  * Analyze and visually verify object ID range allocation
 * Manage artifacts (app)
-  * publish or un-publish apps
+  * publish or unpublish apps
   * create and deploy runtime packages
 * Run/Verify standard and page scripting tests
 
