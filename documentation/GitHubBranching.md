@@ -41,7 +41,8 @@ Both workflows:
 - pushes the same commit to `main` and `stable`;
 - creates a `vX.Y.Z` tag;
 - attaches the stable VSIX asset to the GitHub Release;
-- publishes the stable VSIX to the VS Code Marketplace.
+- publishes the stable VSIX to the VS Code Marketplace;
+- dispatches the `latest-extension.yml` workflow so that workflow can bump `main` to the next pre-release version.
 
 The major release workflow bumps to the next major version, resetting minor and build to `0`.
 Example: if `main` is `1.4.2`, the major release workflow creates `2.0.0`.
@@ -55,7 +56,8 @@ The Marketplace version is expected to match the committed `vscode-extension/pac
 
 Use one of these publish paths:
 
-- the stable major/minor release workflows, which bump the repo version and publish the stable VSIX with bundled runtime assets;
+- the stable major/minor release workflows, which bump the repo version, publish the stable VSIX with bundled runtime assets, and then trigger the latest workflow to prepare the next pre-release version on `main`;
+- the `Latest extension package` workflow, which bumps `main` to the next pre-release version when dispatched from a stable release workflow and publishes the latest pre-release VSIX whenever that bump lands on `main`;
 - the `Marketplace publish` workflow, which publishes the current repo version after verifying an explicit `expected_version` input.
 
 Do not use `vsce publish patch`, `vsce publish minor`, or `vsce publish major` for this repository. Those commands can make Marketplace versioning drift away from Git history.

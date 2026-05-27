@@ -12,6 +12,12 @@ on:
       - vscode-extension/**
       - .github/scripts/publish-vsix-with-retry.sh
       - .github/workflows/latest-extension.yml
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Stable version currently on main before bumping to the next pre-release version.
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -26,12 +32,57 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out main
+      - name: Check out main for push packaging
+        if: ${{ github.event_name == 'push' }}
         uses: actions/checkout@v5
         with:
           ref: main
 
+      - name: Check out main for dispatch version bump
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+
+      - name: Bump main to next pre-release version
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CURRENT_VERSION="$(node -e "const pkg = require('./vscode-extension/package.json'); process.stdout.write(pkg.version);")"
+          if [ "$CURRENT_VERSION" != "${{ inputs.release_version }}" ]; then
+            echo "Expected main version ${{ inputs.release_version }} but found $CURRENT_VERSION."
+            exit 1
+          fi
+
+          NEXT_PRE_RELEASE_VERSION="$(node -e "const [major, minor, patch] = process.argv[1].split('.').map(Number); process.stdout.write([major, minor, patch + 1].join('.'));" "$CURRENT_VERSION")"
+
+          node - <<'NODE' "$NEXT_PRE_RELEASE_VERSION"
+          const fs = require('fs');
+          const packagePath = 'vscode-extension/package.json';
+          const nextVersion = process.argv[2];
+          const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+          pkg.version = nextVersion;
+          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+          if git diff --quiet -- vscode-extension/package.json; then
+            echo "Version is already $NEXT_PRE_RELEASE_VERSION."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vscode-extension/package.json
+          git commit -m "chore: bump pre-release version to $NEXT_PRE_RELEASE_VERSION"
+          git remote set-url origin "git@github.com:${{ github.repository }}.git"
+          git push origin HEAD:main
+
       - name: Read extension version
+        if: ${{ github.event_name == 'push' }}
         id: version
         shell: bash
         run: |
@@ -41,6 +92,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Package latest VSIX
+        if: ${{ github.event_name == 'push' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -48,7 +100,8 @@ jobs:
           mkdir -p dist
           (cd vscode-extension && npm run package -- --pre-release --out "../dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix")
 
-      - name: Create latest package release
+      - name: Create or update latest package release
+        if: ${{ github.event_name == 'push' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -56,15 +109,26 @@ jobs:
           set -euo pipefail
 
           TAG="latest-v${{ steps.version.outputs.version }}"
+          VSIX_PATH="dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix"
+          RELEASE_TITLE="BC Dev Toolset latest v${{ steps.version.outputs.version }}"
+          RELEASE_NOTES="Latest-channel VSIX package for BC Dev Toolset v${{ steps.version.outputs.version }}."
 
-          gh release create "$TAG" \
-            dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix \
-            --title "BC Dev Toolset latest v${{ steps.version.outputs.version }}" \
-            --notes "Latest-channel VSIX package for BC Dev Toolset v${{ steps.version.outputs.version }}." \
-            --prerelease
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$VSIX_PATH" --clobber
+            gh release edit "$TAG" \
+              --title "$RELEASE_TITLE" \
+              --notes "$RELEASE_NOTES" \
+              --prerelease
+          else
+            gh release create "$TAG" \
+              "$VSIX_PATH" \
+              --title "$RELEASE_TITLE" \
+              --notes "$RELEASE_NOTES" \
+              --prerelease
+          fi
 
       - name: Publish pre-release VSIX to VS Code Marketplace
-        if: "${{ !startsWith(github.event.head_commit.message || '', 'chore(release): bump ') }}"
+        if: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message || '', 'chore(release): bump ') }}
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         shell: bash
