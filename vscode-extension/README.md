@@ -15,9 +15,9 @@ It offers operations in functional areas:
 * Manage local clones for multi-app workspaces
   * Handle external dependencies, licenses, certificates, server configurations, etc.
   * Create/Update launch.json configurations
-  * Analize and visually verify object Id range allocation
+  * Analyze and visually verify object ID range allocation
 * Manage artifacts (app)
-  * publish or un-publish apps
+  * publish or unpublish apps
   * create and deploy runtime packages
 * Run/Verify standard and page scripting tests
 
@@ -130,6 +130,8 @@ The extension automatically syncs its runtime copy to `%LOCALAPPDATA%\BC-Dev-Too
 - `Show object id range visualization data`: Opens the generated object ID range visualization output.
 
 ## Settings
+
+The Marketplace supports a pre-release channel for this extension. If you opt in to the pre-release version in VS Code, you can receive main-branch extension updates before the next stable release.
 
 The extension uses three settings layers:
 

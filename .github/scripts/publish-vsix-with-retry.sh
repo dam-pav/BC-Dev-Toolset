@@ -2,6 +2,7 @@
 set -euo pipefail
 
 PACKAGE_PATH="${1:?Package path is required}"
+PRE_RELEASE_FLAG="${2:-}"
 VSCE_PAT="${VSCE_PAT:?VSCE_PAT must be set}"
 
 max_attempts="${VSCE_MAX_ATTEMPTS:-4}"
@@ -13,7 +14,12 @@ delay_seconds="$initial_delay_seconds"
 while true; do
   echo "Publishing VSIX to Marketplace (attempt ${attempt}/${max_attempts})..."
 
-  if npx @vscode/vsce publish --packagePath "$PACKAGE_PATH" --pat "$VSCE_PAT"; then
+  publish_args=(--packagePath "$PACKAGE_PATH" --pat "$VSCE_PAT")
+  if [ "$PRE_RELEASE_FLAG" = "--pre-release" ]; then
+    publish_args=(--pre-release "${publish_args[@]}")
+  fi
+
+  if npx @vscode/vsce publish "${publish_args[@]}"; then
     echo "Marketplace publish completed."
     exit 0
   fi

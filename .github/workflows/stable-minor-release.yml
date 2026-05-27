@@ -95,3 +95,30 @@ jobs:
 
           bash ./.github/scripts/publish-vsix-with-retry.sh \
             "dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix"
+
+      - name: Bump main to next pre-release version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          NEXT_PRE_RELEASE_VERSION="$(node -e "const [major, minor, patch] = process.argv[1].split('.').map(Number); process.stdout.write([major, minor, patch + 1].join('.'));" "${{ steps.version.outputs.version }}")"
+
+          node - <<'NODE' "$NEXT_PRE_RELEASE_VERSION"
+          const fs = require('fs');
+          const packagePath = 'vscode-extension/package.json';
+          const nextVersion = process.argv[2];
+          const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+          pkg.version = nextVersion;
+          fs.writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+
+          if git diff --quiet -- vscode-extension/package.json; then
+            echo "Version is already $NEXT_PRE_RELEASE_VERSION."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vscode-extension/package.json
+          git commit -m "chore: bump pre-release version to $NEXT_PRE_RELEASE_VERSION"
+          git push origin HEAD:main
