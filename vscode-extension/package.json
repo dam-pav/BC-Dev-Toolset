@@ -35,7 +35,6 @@
     "onCommand:bcDevToolset.operation.showBcContainerHelperVersions",
     "onCommand:bcDevToolset.operation.initPrerequisites",
     "onCommand:bcDevToolset.operation.updatePowerShell",
-    "onCommand:bcDevToolset.operation.updateBcContainerHelper",
     "onCommand:bcDevToolset.operation.clearAppArtifacts",
     "onCommand:bcDevToolset.operation.newDockerContainer",
     "onCommand:bcDevToolset.operation.updateLaunchJson",
@@ -355,10 +354,6 @@
       {
         "command": "bcDevToolset.operation.updatePowerShell",
         "title": "BC Dev Toolset: Update Microsoft PowerShell"
-      },
-      {
-        "command": "bcDevToolset.operation.updateBcContainerHelper",
-        "title": "BC Dev Toolset: Update BcContainerHelper module"
       },
       {
         "command": "bcDevToolset.operation.clearAppArtifacts",

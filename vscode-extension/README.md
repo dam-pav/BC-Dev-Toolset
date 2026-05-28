@@ -86,9 +86,8 @@ The extension automatically syncs its runtime copy to `%LOCALAPPDATA%\BC-Dev-Too
 ### Prerequisites
 
 - `Show BcContainerHelper versions (installed and available)`: Shows the installed and available BcContainerHelper versions.
-- `Install prerequisites`: Installs the main prerequisites used by the toolset.
-- `Update Microsoft PowerShell`: Updates the Windows PowerShell installation used for the toolkit setup flow.
-- `Update BcContainerHelper module`: Updates the BcContainerHelper module.
+- `Install/Update Prerequisites`: Installs and updates the main prerequisites used by the toolset, including BcContainerHelper.
+- `Install/Update Microsoft PowerShell`: Updates the Windows PowerShell installation used for the toolkit setup flow.
 
 ### Tests
 

@@ -12,7 +12,6 @@ const directOperationIds = [
   'showBcContainerHelperVersions',
   'initPrerequisites',
   'updatePowerShell',
-  'updateBcContainerHelper',
   'clearAppArtifacts',
   'newDockerContainer',
   'updateLaunchJson',
