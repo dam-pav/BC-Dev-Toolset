@@ -6,46 +6,6 @@
     "category": "Workspace"
   },
   {
-    "id": "invokeTests",
-    "title": "Run tests in all containers",
-    "script": "operations/Invoke-Tests.ps1",
-    "category": "Tests"
-  },
-  {
-    "id": "invokePageScriptTests",
-    "title": "Run page script tests",
-    "script": "operations/Invoke-PageScriptTests.ps1",
-    "category": "Tests"
-  },
-  {
-    "id": "showBcContainerHelperVersions",
-    "title": "Show BcContainerHelper versions (installed and available)",
-    "script": "operations/ShowBcContainerHelperVersions.ps1",
-    "category": "Prerequisites"
-  },
-  {
-    "id": "initPrerequisites",
-    "title": "Install prerequisites",
-    "script": "operations/initPrerequisites.bat",
-    "category": "Prerequisites",
-    "requiresConfirmation": true
-  },
-  {
-    "id": "updatePowerShell",
-    "title": "Update Microsoft PowerShell",
-    "script": "operations/UpdatePowershell.bat",
-    "category": "Prerequisites",
-    "powerShellExecutable": "powershell.exe",
-    "requiresConfirmation": true
-  },
-  {
-    "id": "updateBcContainerHelper",
-    "title": "Update BcContainerHelper module",
-    "script": "operations/UpdateBcContainerHelper.ps1",
-    "category": "Prerequisites",
-    "requiresConfirmation": true
-  },
-  {
     "id": "clearAppArtifacts",
     "title": "Clear App and translation artifacts",
     "script": "operations/ClearAppArtifacts.ps1",
@@ -95,6 +55,18 @@
     "script": "operations/RestoreBcContainerDatabases.ps1",
     "category": "Backup",
     "requiresConfirmation": true
+  },
+  {
+    "id": "invokeTests",
+    "title": "Run tests in all containers",
+    "script": "operations/Invoke-Tests.ps1",
+    "category": "Tests"
+  },
+  {
+    "id": "invokePageScriptTests",
+    "title": "Run page script tests",
+    "script": "operations/Invoke-PageScriptTests.ps1",
+    "category": "Tests"
   },
   {
     "id": "publishDependencies2Docker",
@@ -177,5 +149,26 @@
     "title": "Show object id range visualization data",
     "command": "showObjectIdRangeVisualizationData",
     "category": "Visualization"
+  },
+  {
+    "id": "initPrerequisites",
+    "title": "Install/Update Prerequisites",
+    "script": "operations/initPrerequisites.bat",
+    "category": "Prerequisites",
+    "requiresConfirmation": true
+  },
+  {
+    "id": "showBcContainerHelperVersions",
+    "title": "Show BcContainerHelper versions (installed and available)",
+    "script": "operations/ShowBcContainerHelperVersions.ps1",
+    "category": "Prerequisites"
+  },
+  {
+    "id": "updatePowerShell",
+    "title": "Install/Update Microsoft PowerShell",
+    "script": "operations/UpdatePowershell.bat",
+    "category": "Prerequisites",
+    "powerShellExecutable": "powershell.exe",
+    "requiresConfirmation": true
   }
 ]
