@@ -113,6 +113,11 @@
                 "authentication": "",
                 "admin": "",
                 "password": "",
+                "network": "",
+                "hostIP": "",
+                "macAddress": "",
+                "IP": "",
+                "dns": "",
                 "databaseUser": "",
                 "databasePassword": "",
                 "remoteUser": "",
@@ -286,6 +291,54 @@
                   "password": {
                     "type": "string",
                     "description": "Administrative password."
+                  },
+                  "network": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "",
+                          "NAT",
+                          "nat",
+                          "transparent",
+                          "l2bridge",
+                          "l2tunnel",
+                          "overlay",
+                          "none"
+                        ]
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ],
+                    "description": "Optional Docker network passed to New-BcContainer for Container targets. Known network names are verified and missing creatable networks are created with the matching Docker driver; custom network names are allowed and are not managed by the toolset."
+                  },
+                  "hostIP": {
+                    "type": "string",
+                    "description": "Optional host.containerhelper.internal IP address passed to New-BcContainer."
+                  },
+                  "macAddress": {
+                    "type": "string",
+                    "description": "Optional container MAC address passed to New-BcContainer."
+                  },
+                  "IP": {
+                    "type": "string",
+                    "description": "Optional static container IP address passed to New-BcContainer. Leave empty when the selected network should assign an address, for example through DHCP."
+                  },
+                  "dns": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "",
+                          "HostDNS"
+                        ]
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ],
+                    "description": "Optional DNS value passed to New-BcContainer. BcContainerHelper recognizes HostDNS; explicit DNS server values are also allowed."
                   },
                   "databaseUser": {
                     "type": "string",

@@ -294,7 +294,12 @@ function getDefaultLocalConfiguration() {
     includeTestToolkit: 'false',
     authentication: 'UserPassword',
     admin: 'admin',
-    password: 'P@ssw0rd'
+    password: 'P@ssw0rd',
+    network: '',
+    hostIP: '',
+    macAddress: '',
+    IP: '',
+    dns: ''
   };
 }
 
