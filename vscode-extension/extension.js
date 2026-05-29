@@ -1,10 +1,13 @@
 const fs = require('fs');
 const path = require('path');
+const childProcess = require('child_process');
 const vscode = require('vscode');
 
 let extensionContext;
 let runtimeSyncPromise;
 let outputChannel;
+let operationTerminal;
+let operationTerminalName;
 
 const directOperationIds = [
   'invokeTests',
@@ -52,6 +55,12 @@ function activate(context) {
 
   context.subscriptions.push(
     outputChannel,
+    vscode.window.onDidCloseTerminal((terminal) => {
+      if (terminal === operationTerminal) {
+        operationTerminal = undefined;
+        operationTerminalName = undefined;
+      }
+    }),
     vscode.commands.registerCommand('bcDevToolset.configureWorkspace', configureWorkspace),
     vscode.commands.registerCommand('bcDevToolset.openLocalSettingsJson', openLocalSettingsJson),
     vscode.commands.registerCommand('bcDevToolset.showObjectIdRangeVisualizationData', showObjectIdRangeVisualizationData),
@@ -345,13 +354,52 @@ function quotePowerShellArgument(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-function createTerminal(env = undefined) {
-  const terminal = vscode.window.createTerminal({
-    name: 'BC Dev Toolset',
-    env
-  });
-  terminal.show();
-  return terminal;
+function getPowerShellTerminalName(powershellExecutable) {
+  return `BC Dev Toolset: ${path.basename(powershellExecutable)}`;
+}
+
+function isPathLike(value) {
+  return path.isAbsolute(value) || value.includes('/') || value.includes('\\');
+}
+
+function resolveExecutablePath(executable) {
+  if (!executable || !executable.trim()) {
+    return executable;
+  }
+
+  if (isPathLike(executable)) {
+    return executable;
+  }
+
+  try {
+    const command = process.platform === 'win32' ? 'where.exe' : 'which';
+    const args = [executable];
+    const result = childProcess.execFileSync(command, args, { encoding: 'utf8' });
+    return result.split(/\r?\n/).find((line) => line.trim()) || executable;
+  } catch (error) {
+    return executable;
+  }
+}
+
+function getOperationTerminal(powershellExecutable) {
+  const terminalName = getPowerShellTerminalName(powershellExecutable);
+  if (!operationTerminal || operationTerminalName !== terminalName) {
+    operationTerminal = vscode.window.terminals.find((terminal) => terminal.name === terminalName);
+    operationTerminalName = operationTerminal ? terminalName : undefined;
+  }
+
+  if (!operationTerminal) {
+    const shellPath = resolveExecutablePath(powershellExecutable);
+    operationTerminal = vscode.window.createTerminal({
+      name: terminalName,
+      shellPath,
+      shellArgs: ['-NoLogo', '-NoExit', '-ExecutionPolicy', 'Bypass']
+    });
+    operationTerminalName = terminalName;
+  }
+
+  operationTerminal.show();
+  return operationTerminal;
 }
 
 function getRuntimeSyncStateKey(context) {
@@ -614,16 +662,15 @@ async function executeOperation(operation, toolsetPath) {
     : '';
 
   const command =
-    `${powershellExecutable} -NoLogo -ExecutionPolicy Bypass -File ${quotePowerShellArgument(bridgePath)}` +
+    `$env:BCDEVTOOLSET_SHORTCUTS = ${quotePowerShellArgument(getShortcutMode())}; ` +
+    `$env:BCDEVTOOLSET_HOST_HELPER_FOLDER = ${quotePowerShellArgument(getHostHelperFolder())}; ` +
+    `& ${quotePowerShellArgument(bridgePath)}` +
     ` -Operation ${quotePowerShellArgument(operation.id)}` +
     ` -WorkspacePath ${quotePowerShellArgument(workspacePath)}` +
     workspaceFileArguments +
     localSettingsArguments;
 
-  const terminal = createTerminal({
-    BCDEVTOOLSET_SHORTCUTS: String(getShortcutMode()),
-    BCDEVTOOLSET_HOST_HELPER_FOLDER: String(getHostHelperFolder())
-  });
+  const terminal = getOperationTerminal(powershellExecutable);
   terminal.sendText(command);
 }
 

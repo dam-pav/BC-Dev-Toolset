@@ -141,7 +141,7 @@ The extension uses three settings layers:
 ### VS Code extension settings
 
 - `bcDevToolset.toolsetPath`: Overrides the central BC-Dev-Toolset runtime location. Default: `%LOCALAPPDATA%\BC-Dev-Toolset\toolset` on Windows.
-- `bcDevToolset.powershellExecutable`: PowerShell executable used to run operations. Default: `pwsh`.
+- `bcDevToolset.powershellExecutable`: PowerShell executable used to run operations. Default: `pwsh`. Operations reuse a dedicated `BC Dev Toolset: <executable>` terminal when it is already open.
 - `bcDevToolset.localSettingsPath`: Workspace-relative path to the local settings file passed to operations. Default: `.bcdevtoolset/settings.json`.
 - `bcDevToolset.shortcuts`: Shortcut mode used for container creation flows. Default: `None`.
 - `bcDevToolset.hostHelperFolder`: BcContainerHelper host helper folder used by runtime operations. Default: `C:\ProgramData\BcContainerHelper`.
