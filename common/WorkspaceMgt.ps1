@@ -186,6 +186,112 @@ function Test-DockerContainerExists {
     return $true
 }
 
+function Get-DockerNetworkPresetDriver {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $network
+    )
+
+    $driversByPreset = @{
+        nat = 'nat'
+        transparent = 'transparent'
+        l2bridge = 'l2bridge'
+        l2tunnel = 'l2tunnel'
+        overlay = 'overlay'
+        none = 'null'
+    }
+
+    $networkKey = $network.ToLowerInvariant()
+    if ($driversByPreset.ContainsKey($networkKey)) {
+        return $driversByPreset[$networkKey]
+    }
+
+    return $null
+}
+
+function Get-DockerNetworkInfo {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $network
+    )
+
+    $networkJson = docker network inspect $network 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($networkJson)) {
+        return $null
+    }
+
+    return ($networkJson | ConvertFrom-Json | Select-Object -First 1)
+}
+
+function Get-DockerNetworkInfoByPreset {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $network
+    )
+
+    $networkInfo = Get-DockerNetworkInfo -network $network
+    if ($null -ne $networkInfo) {
+        return $networkInfo
+    }
+
+    $networkKey = $network.ToLowerInvariant()
+    $networkList = docker network ls --format '{{.Name}}' 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to list Docker networks. Verify that Docker is running and accessible."
+    }
+
+    $matchingNetworkName = @($networkList | Where-Object { $_.ToLowerInvariant() -eq $networkKey } | Select-Object -First 1)
+    if ($matchingNetworkName.Count -eq 0) {
+        return $null
+    }
+
+    return Get-DockerNetworkInfo -network $matchingNetworkName[0]
+}
+
+function Ensure-DockerNetwork {
+    param(
+        [Parameter(Mandatory=$true)]
+        [AllowEmptyString()]
+        [string] $network
+    )
+
+    if ([string]::IsNullOrWhiteSpace($network)) {
+        return ''
+    }
+
+    $expectedDriver = Get-DockerNetworkPresetDriver -network $network
+    if ($null -eq $expectedDriver) {
+        Write-Host "Docker network '$network' is a custom network. Skipping automatic network verification." -ForegroundColor Gray
+        return $network
+    }
+
+    $networkInfo = Get-DockerNetworkInfoByPreset -network $network
+    if ($null -eq $networkInfo) {
+        if ($expectedDriver -eq 'null') {
+            throw "Docker network '$network' was requested, but no built-in '$network' network exists on this Docker host."
+        }
+
+        Write-Host "Docker network '$network' was not found. Creating it with driver '$expectedDriver'." -ForegroundColor Yellow
+        docker network create -d $expectedDriver $network | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create Docker network '$network' with driver '$expectedDriver'. Create or repair the network manually and retry."
+        }
+
+        $networkInfo = Get-DockerNetworkInfo -network $network
+    }
+
+    if ($null -eq $networkInfo) {
+        throw "Docker network '$network' could not be inspected after verification."
+    }
+
+    if ($networkInfo.Driver -ne $expectedDriver) {
+        throw "Docker network '$($networkInfo.Name)' uses driver '$($networkInfo.Driver)', but preset '$network' requires driver '$expectedDriver'. Remove or recreate the network before creating the container."
+    }
+
+    Write-Host "Docker network '$($networkInfo.Name)' verified with driver '$($networkInfo.Driver)'." -ForegroundColor Gray
+    return $networkInfo.Name
+}
+
 function Write-LaunchJSON {
     Param (
         [Parameter(Mandatory=$true)]
@@ -472,6 +578,11 @@ function Build-Settings {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value "UserPassword"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value "admin"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value "P@ssw0rd"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name network -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name hostIP -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name macAddress -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name IP -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name dns -Value ""
         $defaultSettings.configurations += $remoteConfiguration
 
         $defaultSettings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
@@ -1126,6 +1237,16 @@ function New-DockerContainer {
 
         if ($configuration.includeTestToolkit -eq 'true') {
             $Parameters.includeTestToolkit = $true
+        }
+
+        foreach ($parameterName in @('network', 'hostIP', 'macAddress', 'IP', 'dns')) {
+            if ($configuration.PSObject.Properties[$parameterName] -and -not [string]::IsNullOrWhiteSpace($configuration.$parameterName)) {
+                if ($parameterName -eq 'network' -and -not $testmode) {
+                    $Parameters[$parameterName] = Ensure-DockerNetwork -network ([string]$configuration.$parameterName)
+                } else {
+                    $Parameters[$parameterName] = [string]$configuration.$parameterName
+                }
+            }
         }
             
         if (-not $testmode) {
