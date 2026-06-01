@@ -1,2 +1,5 @@
 # Default owner for all repository changes.
 * @dam-pav
+
+# Release notes must be approved before stable publication.
+/documentation/releases/** @dam-pav
