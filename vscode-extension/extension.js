@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const childProcess = require('child_process');
 const vscode = require('vscode');
 
@@ -49,6 +50,33 @@ const runtimeDirectories = [
   'visualization'
 ];
 
+const configurationFields = [
+  { name: 'name', validServerTypes: [] },
+  { name: 'serverType', validServerTypes: [] },
+  { name: 'targetType', validServerTypes: [] },
+  { name: 'server', validServerTypes: ['OnPrem'] },
+  { name: 'serverInstance', validServerTypes: ['OnPrem'] },
+  { name: 'container', validServerTypes: ['Container'] },
+  { name: 'port', validServerTypes: ['OnPrem'] },
+  { name: 'environmentType', validServerTypes: ['Container', 'Cloud'] },
+  { name: 'environmentName', validServerTypes: ['Cloud'] },
+  { name: 'includeTestToolkit', validServerTypes: ['Container'] },
+  { name: 'tenant', validServerTypes: ['Cloud', 'OnPrem'] },
+  { name: 'authentication', validServerTypes: ['Container', 'OnPrem'] },
+  { name: 'admin', validServerTypes: ['Container'] },
+  { name: 'password', validServerTypes: ['Container'] },
+  { name: 'network', validServerTypes: ['Container'] },
+  { name: 'hostIP', validServerTypes: ['Container'] },
+  { name: 'macAddress', validServerTypes: ['Container'], requiredNetwork: 'transparent' },
+  { name: 'IP', validServerTypes: ['Container'], requiredNetwork: 'transparent' },
+  { name: 'dns', validServerTypes: ['Container'], requiredNetwork: 'transparent' },
+  { name: 'databaseUser', validServerTypes: [] },
+  { name: 'databasePassword', validServerTypes: [] },
+  { name: 'remoteUser', validServerTypes: [] },
+  { name: 'remotePassword', validServerTypes: [] },
+  { name: 'serverConfiguration', validServerTypes: [] }
+];
+
 function activate(context) {
   extensionContext = context;
   outputChannel = vscode.window.createOutputChannel('BC Dev Toolset');
@@ -64,7 +92,19 @@ function activate(context) {
     vscode.commands.registerCommand('bcDevToolset.configureWorkspace', configureWorkspace),
     vscode.commands.registerCommand('bcDevToolset.openLocalSettingsJson', openLocalSettingsJson),
     vscode.commands.registerCommand('bcDevToolset.showObjectIdRangeVisualizationData', showObjectIdRangeVisualizationData),
-    vscode.commands.registerCommand('bcDevToolset.runOperation', runOperation)
+    vscode.commands.registerCommand('bcDevToolset.runOperation', runOperation),
+    vscode.languages.registerCompletionItemProvider(
+      [
+        { language: 'json', scheme: 'file' },
+        { language: 'jsonc', scheme: 'file' }
+      ],
+      {
+        provideCompletionItems: provideSettingsCompletionItems
+      },
+      '"',
+      ':',
+      ' '
+    )
   );
 
   for (const operationId of directOperationIds) {
@@ -305,11 +345,287 @@ function getDefaultLocalConfiguration() {
     admin: 'admin',
     password: 'P@ssw0rd',
     network: '',
-    hostIP: '',
-    macAddress: '',
-    IP: '',
-    dns: ''
+    hostIP: ''
   };
+}
+
+function provideSettingsCompletionItems(document, position) {
+  if (!isBcDevToolsetSettingsDocument(document)) {
+    return undefined;
+  }
+
+  const completionContext = getMacAddressCompletionContext(document, position);
+  if (completionContext) {
+    if (!isMacAddressAllowedForCurrentConfiguration(document, position)) {
+      return undefined;
+    }
+
+    const macAddress = generateLocalMacAddress();
+    const item = new vscode.CompletionItem(macAddress, vscode.CompletionItemKind.Value);
+    item.detail = 'Random locally administered MAC address';
+    item.insertText = completionContext.insertQuotes ? `"${macAddress}"` : macAddress;
+    item.range = completionContext.range;
+    item.sortText = '0000';
+    return [item];
+  }
+
+  const propertyCompletionContext = getConfigurationPropertyCompletionContext(document, position);
+  if (!propertyCompletionContext) {
+    return undefined;
+  }
+
+  const existingProperties = getExistingJsonObjectProperties(propertyCompletionContext.objectText);
+  return configurationFields
+    .filter((field) => isConfigurationFieldAllowed(field, propertyCompletionContext.serverType, propertyCompletionContext.network))
+    .filter((field) => !existingProperties.has(field.name))
+    .map((field, index) => createConfigurationPropertyCompletionItem(field.name, propertyCompletionContext.range, index));
+}
+
+function isBcDevToolsetSettingsDocument(document) {
+  const normalizedPath = document.uri.fsPath.replace(/\\/g, '/');
+  return normalizedPath.endsWith('/.bcdevtoolset/settings.json') || normalizedPath.endsWith('.code-workspace');
+}
+
+function getMacAddressCompletionContext(document, position) {
+  const linePrefix = document.lineAt(position.line).text.slice(0, position.character);
+  const quotedValueMatch = linePrefix.match(/"macAddress"\s*:\s*"[^"]*$/);
+  if (quotedValueMatch) {
+    const valueStart = linePrefix.lastIndexOf('"') + 1;
+    return {
+      insertQuotes: false,
+      range: new vscode.Range(position.line, valueStart, position.line, position.character)
+    };
+  }
+
+  const emptyValueMatch = linePrefix.match(/"macAddress"\s*:\s*$/);
+  if (emptyValueMatch) {
+    return {
+      insertQuotes: true,
+      range: new vscode.Range(position, position)
+    };
+  }
+
+  return undefined;
+}
+
+function getConfigurationPropertyCompletionContext(document, position) {
+  const linePrefix = document.lineAt(position.line).text.slice(0, position.character);
+  const propertyMatch = linePrefix.match(/^(\s*)"?[A-Za-z]*$/);
+  const propertyStart = new vscode.Position(position.line, propertyMatch ? propertyMatch[1].length : position.character);
+  if (!propertyMatch || !isJsonPropertyPosition(document, propertyStart)) {
+    return undefined;
+  }
+
+  const objectContext = getEnclosingJsonObjectContext(document, position);
+  if (!objectContext || !isInsideConfigurationsArray(document.getText(), objectContext.start)) {
+    return undefined;
+  }
+
+  return {
+    objectText: objectContext.text,
+    range: new vscode.Range(propertyStart, position),
+    serverType: getJsonStringPropertyValue(objectContext.text, 'serverType'),
+    network: getJsonStringPropertyValue(objectContext.text, 'network')
+  };
+}
+
+function isMacAddressAllowedForCurrentConfiguration(document, position) {
+  const objectContext = getEnclosingJsonObjectContext(document, position);
+  if (!objectContext || !isInsideConfigurationsArray(document.getText(), objectContext.start)) {
+    return false;
+  }
+
+  const serverType = getJsonStringPropertyValue(objectContext.text, 'serverType');
+  const network = getJsonStringPropertyValue(objectContext.text, 'network');
+  return serverType === 'Container' && network === 'transparent';
+}
+
+function getJsonStringPropertyValue(objectText, propertyName) {
+  const escapedPropertyName = propertyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const propertyMatch = objectText.match(new RegExp(`"${escapedPropertyName}"\\s*:\\s*"([^"]*)"`));
+  return propertyMatch ? propertyMatch[1] : undefined;
+}
+
+function isConfigurationFieldAllowed(field, serverType, network) {
+  if (serverType !== undefined && field.validServerTypes.length > 0 && !field.validServerTypes.includes(serverType)) {
+    return false;
+  }
+
+  return !field.requiredNetwork || network === field.requiredNetwork;
+}
+
+function getExistingJsonObjectProperties(objectText) {
+  return new Set(Array.from(objectText.matchAll(/"([^"]+)"\s*:/g), (match) => match[1]));
+}
+
+function createConfigurationPropertyCompletionItem(fieldName, range, index) {
+  const item = new vscode.CompletionItem(fieldName, vscode.CompletionItemKind.Property);
+  item.range = range;
+  item.sortText = String(index).padStart(4, '0');
+
+  if (fieldName === 'macAddress') {
+    item.detail = 'Insert macAddress with a random locally administered MAC address';
+    item.insertText = `"macAddress": "${generateLocalMacAddress()}"`;
+  } else {
+    item.insertText = `"${fieldName}": `;
+  }
+
+  return item;
+}
+
+function getEnclosingJsonObjectContext(document, position) {
+  const text = document.getText();
+  const offset = document.offsetAt(position);
+  const objectStart = findEnclosingObjectStart(text, offset);
+  if (objectStart < 0) {
+    return undefined;
+  }
+
+  const objectEnd = findMatchingObjectEnd(text, objectStart);
+  if (objectEnd < 0) {
+    return {
+      start: objectStart,
+      text: text.slice(objectStart, offset)
+    };
+  }
+
+  return {
+    start: objectStart,
+    text: text.slice(objectStart, objectEnd + 1)
+  };
+}
+
+function findEnclosingObjectStart(text, offset) {
+  const stack = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < offset; index++) {
+    const character = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (character === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+
+    if (character === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      continue;
+    }
+
+    if (character === '{') {
+      stack.push(index);
+    } else if (character === '}') {
+      stack.pop();
+    }
+  }
+
+  return stack.length > 0 ? stack[stack.length - 1] : -1;
+}
+
+function isInsideConfigurationsArray(text, offset) {
+  const prefix = text.slice(0, offset);
+  const configurationsArrayMatches = Array.from(prefix.matchAll(/"configurations"\s*:\s*\[/g));
+  const configurationsArrayMatch = configurationsArrayMatches[configurationsArrayMatches.length - 1];
+  if (!configurationsArrayMatch) {
+    return false;
+  }
+
+  const arrayStart = configurationsArrayMatch.index + configurationsArrayMatch[0].lastIndexOf('[');
+  return isArrayOpenAtOffset(text, arrayStart, offset);
+}
+
+function isArrayOpenAtOffset(text, arrayStart, offset) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = arrayStart; index < offset; index++) {
+    const character = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (character === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+
+    if (character === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      continue;
+    }
+
+    if (character === '[') {
+      depth++;
+    } else if (character === ']') {
+      depth--;
+    }
+  }
+
+  return depth > 0;
+}
+
+function findMatchingObjectEnd(text, objectStart) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = objectStart; index < text.length; index++) {
+    const character = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (character === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+
+    if (character === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      continue;
+    }
+
+    if (character === '{') {
+      depth++;
+    } else if (character === '}') {
+      depth--;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+
+  return -1;
+}
+
+function isJsonPropertyPosition(document, propertyStart) {
+  const prefix = document.getText(new vscode.Range(new vscode.Position(0, 0), propertyStart));
+  const previousSignificantCharacter = prefix.trimEnd().slice(-1);
+  return previousSignificantCharacter === '{' || previousSignificantCharacter === ',';
+}
+
+function generateLocalMacAddress() {
+  return ['02', ...Array.from(crypto.randomBytes(5), (byte) => byte.toString(16).padStart(2, '0').toUpperCase())].join(':');
 }
 
 function ensureBcDevToolsetWorkspaceSettings(workspaceFile) {

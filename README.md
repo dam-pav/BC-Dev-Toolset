@@ -322,6 +322,10 @@ These are stored in the `.code-workspace` file under the root attribute `dam-pav
 - `selectArtifact`: Artifact selection strategy. Common values are `Closest` and `Latest`.
 - `configurations`: Shared list of deployment targets for the workspace.
 
+#### Configurations
+
+> Note: The same configuration schema applies to both workspaces and local settings.
+
 Each `configurations` entry can contain:
 
 - `name`: Distinctive name of the configuration. Mandatory. Entries with an empty name or the name `sample` are ignored.
@@ -340,9 +344,9 @@ Each `configurations` entry can contain:
 - `password`: Default password for the Docker BC instance.
 - `network`: Optional Docker network passed to `New-BcContainer`. Valid for `Container`. Suggested Windows container network values include `NAT`, `transparent`, `l2bridge`, `l2tunnel`, `overlay`, and `none`; custom Docker network names are also allowed. For suggested network names, the toolset verifies that the Docker network exists with the expected driver and creates missing creatable networks, for example `docker network create -d transparent transparent`. Custom network setup is left to the user. Use a transparent network when the container should appear on the LAN with a real address.
 - `hostIP`: Optional `host.containerhelper.internal` IP address passed to `New-BcContainer`. Valid for `Container`.
-- `macAddress`: Optional container MAC address passed to `New-BcContainer`. Valid for `Container`. Use Docker's colon-delimited MAC address format, for example `02:42:ac:11:00:02`.
-- `IP`: Optional static container IP address passed to `New-BcContainer`. Valid for `Container`. Leave empty to let the selected network assign the address, for example through DHCP.
-- `dns`: Optional DNS value passed to `New-BcContainer`. Valid for `Container`. `HostDNS` adds the host DNS servers; explicit DNS server values are also allowed. Use a comma-delimited string for multiple DNS servers, for example `8.8.8.8,1.1.1.1`.
+- `macAddress`: Optional container MAC address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Use Docker's colon-delimited MAC address format, for example `02:42:ac:11:00:02`.
+- `IP`: Optional static container IP address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Leave empty to let the selected network assign the address, for example through DHCP.
+- `dns`: Optional DNS value passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. `HostDNS` adds the host DNS servers; explicit DNS server values are also allowed. Use a comma-delimited string for multiple DNS servers, for example `8.8.8.8,1.1.1.1`.
 - `databaseUser`: Optional SQL authentication user for regular SQL Server backup operations. If empty, Windows authentication is used.
 - `databasePassword`: Optional SQL authentication password for regular SQL Server backup operations.
 - `remoteUser`: Optional PowerShell remoting user for remote SQL Server backup operations. If empty, the current Windows identity is used.

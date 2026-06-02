@@ -580,9 +580,6 @@ function Build-Settings {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value "P@ssw0rd"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name network -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name hostIP -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name macAddress -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name IP -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name dns -Value ""
         $defaultSettings.configurations += $remoteConfiguration
 
         $defaultSettings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
