@@ -54,10 +54,7 @@
           "admin": "admin",
           "password": "P@ssw0rd",
           "network": "",
-          "hostIP": "",
-          "macAddress": "",
-          "IP": "",
-          "dns": ""
+          "hostIP": ""
         }
       ],
       "description": "Developer-local Business Central target configuration overrides.",
@@ -94,112 +91,6 @@
             "Production"
           ],
           "description": "Target environment role."
-        },
-        "server": {
-          "type": "string",
-          "description": "Server name for OnPrem targets."
-        },
-        "serverInstance": {
-          "type": "string",
-          "description": "Server instance for OnPrem targets."
-        },
-        "container": {
-          "type": "string",
-          "description": "Docker container name for Container targets."
-        },
-        "port": {
-          "type": "string",
-          "description": "Port for OnPrem targets."
-        },
-        "environmentType": {
-          "type": "string",
-          "enum": [
-            "",
-            "Sandbox",
-            "OnPrem"
-          ],
-          "description": "Business Central environment type."
-        },
-        "environmentName": {
-          "type": "string",
-          "description": "Cloud environment name."
-        },
-        "includeTestToolkit": {
-          "type": [
-            "string",
-            "boolean"
-          ],
-          "description": "Whether container environments should include the test toolkit."
-        },
-        "tenant": {
-          "type": "string",
-          "description": "Tenant identifier for Cloud or OnPrem targets."
-        },
-        "authentication": {
-          "type": "string",
-          "enum": [
-            "",
-            "UserPassword",
-            "Windows",
-            "AAD"
-          ],
-          "description": "Authentication mode."
-        },
-        "admin": {
-          "type": "string",
-          "description": "Administrative user name."
-        },
-        "password": {
-          "type": "string",
-          "description": "Administrative password."
-        },
-        "network": {
-          "anyOf": [
-            {
-              "type": "string",
-              "enum": [
-                "",
-                "NAT",
-                "nat",
-                "transparent",
-                "l2bridge",
-                "l2tunnel",
-                "overlay",
-                "none"
-              ]
-            },
-            {
-              "type": "string"
-            }
-          ],
-          "description": "Optional Docker network passed to New-BcContainer for Container targets. Known network names are verified and missing creatable networks are created with the matching Docker driver; custom network names are allowed and are not managed by the toolset."
-        },
-        "hostIP": {
-          "type": "string",
-          "description": "Optional host.containerhelper.internal IP address passed to New-BcContainer."
-        },
-        "macAddress": {
-          "type": "string",
-          "description": "Optional container MAC address passed to New-BcContainer."
-        },
-        "IP": {
-          "type": "string",
-          "description": "Optional static container IP address passed to New-BcContainer. Leave empty when the selected network should assign an address, for example through DHCP."
-        },
-        "dns": {
-          "anyOf": [
-            {
-              "type": "string",
-              "enum": [
-                "",
-                "HostDNS"
-              ]
-            },
-            {
-              "type": "string"
-            }
-          ],
-          "description": "Optional DNS value passed to New-BcContainer. BcContainerHelper recognizes HostDNS; explicit DNS server values are also allowed."
         },
         "databaseUser": {
           "type": "string",
@@ -238,7 +129,425 @@
             }
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "serverType": {
+                "const": "Container"
+              }
+            },
+            "required": [
+              "serverType"
+            ]
+          },
+          "then": {
+            "properties": {
+              "container": {
+                "type": "string",
+                "description": "Docker container name for Container targets."
+              },
+              "environmentType": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "Sandbox",
+                  "OnPrem"
+                ],
+                "description": "Business Central environment type."
+              },
+              "includeTestToolkit": {
+                "type": [
+                  "string",
+                  "boolean"
+                ],
+                "description": "Whether container environments should include the test toolkit."
+              },
+              "authentication": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "UserPassword",
+                  "Windows",
+                  "AAD"
+                ],
+                "description": "Authentication mode."
+              },
+              "admin": {
+                "type": "string",
+                "description": "Administrative user name."
+              },
+              "password": {
+                "type": "string",
+                "description": "Administrative password."
+              },
+              "network": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "",
+                      "NAT",
+                      "nat",
+                      "transparent",
+                      "l2bridge",
+                      "l2tunnel",
+                      "overlay",
+                      "none"
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "description": "Optional Docker network passed to New-BcContainer for Container targets. Known network names are verified and missing creatable networks are created with the matching Docker driver; custom network names are allowed and are not managed by the toolset."
+              },
+              "hostIP": {
+                "type": "string",
+                "description": "Optional host.containerhelper.internal IP address passed to New-BcContainer."
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "serverType": {
+                "const": "Cloud"
+              }
+            },
+            "required": [
+              "serverType"
+            ]
+          },
+          "then": {
+            "properties": {
+              "environmentType": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "Sandbox",
+                  "OnPrem"
+                ],
+                "description": "Business Central environment type."
+              },
+              "environmentName": {
+                "type": "string",
+                "description": "Cloud environment name."
+              },
+              "tenant": {
+                "type": "string",
+                "description": "Tenant identifier for Cloud or OnPrem targets."
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "serverType": {
+                "const": "OnPrem"
+              }
+            },
+            "required": [
+              "serverType"
+            ]
+          },
+          "then": {
+            "properties": {
+              "server": {
+                "type": "string",
+                "description": "Server name for OnPrem targets."
+              },
+              "serverInstance": {
+                "type": "string",
+                "description": "Server instance for OnPrem targets."
+              },
+              "port": {
+                "type": "string",
+                "description": "Port for OnPrem targets."
+              },
+              "tenant": {
+                "type": "string",
+                "description": "Tenant identifier for Cloud or OnPrem targets."
+              },
+              "authentication": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "UserPassword",
+                  "Windows",
+                  "AAD"
+                ],
+                "description": "Authentication mode."
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "serverType": {
+                "const": "Container"
+              },
+              "network": {
+                "const": "transparent"
+              }
+            },
+            "required": [
+              "serverType",
+              "network"
+            ]
+          },
+          "then": {
+            "properties": {
+              "macAddress": {
+                "type": "string",
+                "description": "Optional container MAC address passed to New-BcContainer."
+              },
+              "IP": {
+                "type": "string",
+                "description": "Optional static container IP address passed to New-BcContainer. Leave empty when the selected network should assign an address, for example through DHCP."
+              },
+              "dns": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "",
+                      "HostDNS"
+                    ]
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "description": "Optional DNS value passed to New-BcContainer. BcContainerHelper recognizes HostDNS; explicit DNS server values are also allowed."
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "serverType": {
+                  "const": "Container"
+                },
+                "network": {
+                  "const": "transparent"
+                }
+              },
+              "required": [
+                "serverType",
+                "network"
+              ]
+            }
+          },
+          "then": {
+            "properties": {
+              "macAddress": {
+                "not": {},
+                "errorMessage": "Field \"macAddress\" is not valid unless \"serverType\" is \"Container\" and \"network\" is \"transparent\".",
+                "doNotSuggest": true
+              },
+              "IP": {
+                "not": {},
+                "errorMessage": "Field \"IP\" is not valid unless \"serverType\" is \"Container\" and \"network\" is \"transparent\".",
+                "doNotSuggest": true
+              },
+              "dns": {
+                "not": {},
+                "errorMessage": "Field \"dns\" is not valid unless \"serverType\" is \"Container\" and \"network\" is \"transparent\".",
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "serverType"
+            ],
+            "not": {
+              "properties": {
+                "serverType": {
+                  "const": "OnPrem"
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "server": {
+                "not": {},
+                "errorMessage": "Field \"server\" is not valid when \"serverType\" is not \"OnPrem\".",
+                "doNotSuggest": true
+              },
+              "serverInstance": {
+                "not": {},
+                "errorMessage": "Field \"serverInstance\" is not valid when \"serverType\" is not \"OnPrem\".",
+                "doNotSuggest": true
+              },
+              "port": {
+                "not": {},
+                "errorMessage": "Field \"port\" is not valid when \"serverType\" is not \"OnPrem\".",
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "serverType"
+            ],
+            "not": {
+              "properties": {
+                "serverType": {
+                  "const": "Container"
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "container": {
+                "not": {},
+                "errorMessage": "Field \"container\" is not valid when \"serverType\" is not \"Container\".",
+                "doNotSuggest": true
+              },
+              "includeTestToolkit": {
+                "not": {},
+                "errorMessage": "Field \"includeTestToolkit\" is not valid when \"serverType\" is not \"Container\".",
+                "doNotSuggest": true
+              },
+              "admin": {
+                "not": {},
+                "errorMessage": "Field \"admin\" is not valid when \"serverType\" is not \"Container\".",
+                "doNotSuggest": true
+              },
+              "password": {
+                "not": {},
+                "errorMessage": "Field \"password\" is not valid when \"serverType\" is not \"Container\".",
+                "doNotSuggest": true
+              },
+              "network": {
+                "not": {},
+                "errorMessage": "Field \"network\" is not valid when \"serverType\" is not \"Container\".",
+                "doNotSuggest": true
+              },
+              "hostIP": {
+                "not": {},
+                "errorMessage": "Field \"hostIP\" is not valid when \"serverType\" is not \"Container\".",
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "serverType"
+            ],
+            "not": {
+              "properties": {
+                "serverType": {
+                  "enum": [
+                    "Container",
+                    "Cloud"
+                  ]
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "environmentType": {
+                "not": {},
+                "errorMessage": "Field \"environmentType\" is not valid when \"serverType\" is not \"Container\" or \"Cloud\".",
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "serverType"
+            ],
+            "not": {
+              "properties": {
+                "serverType": {
+                  "const": "Cloud"
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "environmentName": {
+                "not": {},
+                "errorMessage": "Field \"environmentName\" is not valid when \"serverType\" is not \"Cloud\".",
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "serverType"
+            ],
+            "not": {
+              "properties": {
+                "serverType": {
+                  "enum": [
+                    "Cloud",
+                    "OnPrem"
+                  ]
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "tenant": {
+                "not": {},
+                "errorMessage": "Field \"tenant\" is not valid when \"serverType\" is not \"Cloud\" or \"OnPrem\".",
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "serverType"
+            ],
+            "not": {
+              "properties": {
+                "serverType": {
+                  "enum": [
+                    "Container",
+                    "OnPrem"
+                  ]
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "authentication": {
+                "not": {},
+                "errorMessage": "Field \"authentication\" is not valid when \"serverType\" is not \"Container\" or \"OnPrem\".",
+                "doNotSuggest": true
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }
