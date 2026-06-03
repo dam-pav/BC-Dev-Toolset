@@ -39,6 +39,8 @@ This initializes your current project. You will actually do this for every proje
 
 ### 3. Open local settings
 
+The defaults might work for you out-of-the-box in which case you don't need to change or add any settings. This is all optional but, if you need any of the below specifics:
+
 Run `BC Dev Toolset: Open Local Settings (JSON)`.
 
 This opens the developer-local settings file at `.bcdevtoolset/settings.json`. Use it to define machine-specific paths, credentials, output folders, and local environment targets.
@@ -62,17 +64,13 @@ This opens a two-step picker: choose a category first, then pick an operation fr
 
 All operations are available directly as well.
 
-## Prerequisites
+## Other prerequisites
 
-The extension is a VS Code host for the BC-Dev-Toolset runtime. For practical use, you should expect to need:
+The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all the required components with a single operation. For practical use, you should expect to need:
 
 - Windows with PowerShell available. The extension uses `pwsh` by default.
-- A Business Central workspace or folder open in VS Code.
-- Docker Desktop for container-based workflows.
-- BcContainerHelper for container operations.
+- Have access to or be an administrator on your workstation. The "Prerequisites" category operations require elevated access.
 - Access to any required Business Central environments, credentials, licenses, certificates, or dependency packages used by your team.
-
-The extension automatically syncs its runtime copy to `%LOCALAPPDATA%\BC-Dev-Toolset\toolset` unless you override the toolset path.
 
 ## Operations
 
@@ -103,7 +101,7 @@ The extension automatically syncs its runtime copy to `%LOCALAPPDATA%\BC-Dev-Too
 ### Backup
 
 - `Create and export SQL backup set from Docker container`: Creates SQL backup files from a Docker container environment.
-- `Create and export SQL backup set from BC service SQL Server`: Creates SQL backup files from a Business Central service SQL Server environment.
+- `Create and export SQL backup set from BC service SQL Server`: Creates SQL backup files from a Business Central service SQL Server environment. You will require credentials with the ability to create remote Powershell sessions to the SQL Server host.
 - `Restore SQL backup set to Docker container`: Restores a saved SQL backup set into a Docker container.
 
 ### Publish

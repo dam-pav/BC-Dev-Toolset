@@ -213,7 +213,9 @@ That said; you can maintain data persistence in a couple of ways. One is to use 
 
 SQL backup operations create and consume a compatible backup set in *sqlBackupPath*. Container backups and regular BC service SQL Server backups use the same file naming convention: *\<database\>.app.bak* for the application database, *\<database\>.tenant.bak* for multitenant tenant databases, or *\<database\>.database.bak* for a single-tenant database.
 
-You can follow the naming convention manually and prepare a bak set manually, if you find yourself unable to use the toolset backup scripts. A regular MS artifact based container is multi-tenant and contains three databases. *CRONUS* is the app database while the other two, *default* and *tenant*, are tenant databases.
+To retrieve bak files from a SQL Server host you will require credentials with the ability to create remote Powershell sessions to the SQL Server host.
+
+You can follow the naming convention manually and prepare a bak file set manually, if you find yourself unable to use the toolset backup scripts. A regular MS artifact based container is multi-tenant and contains three databases. *CRONUS* is the app database while the other two, *default* and *tenant*, are tenant databases.
 
 ## Setup
 
