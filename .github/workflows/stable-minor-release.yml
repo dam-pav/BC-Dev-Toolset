@@ -84,21 +84,40 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           BRANCH="release/v${VERSION}"
 
-          git switch -c "$BRANCH"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add vscode-extension/package.json "documentation/releases/v${VERSION}.md"
-          git commit -m "chore(release): prepare v${VERSION}"
-          git push origin "$BRANCH"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            echo "Release branch $BRANCH already exists; reusing it."
+            git reset --hard HEAD
+            git clean -f "documentation/releases/v${VERSION}.md"
+            git fetch origin "$BRANCH"
+            git switch -C "$BRANCH" "origin/$BRANCH"
+          else
+            git switch -c "$BRANCH"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add vscode-extension/package.json "documentation/releases/v${VERSION}.md"
+            git commit -m "chore(release): prepare v${VERSION}"
+            git push origin "$BRANCH"
+          fi
 
       - name: Open draft release PR
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
 
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "RELEASE_PR_TOKEN is required because GitHub Actions GITHUB_TOKEN cannot create release pull requests in this repository."
+            exit 1
+          fi
+
           VERSION="${{ steps.version.outputs.version }}"
+          EXISTING_PR="$(gh pr list --base main --head "release/v${VERSION}" --state open --json url --jq '.[0].url // ""')"
+          if [ -n "$EXISTING_PR" ]; then
+            echo "Release PR already exists: $EXISTING_PR"
+            exit 0
+          fi
+
           BODY_FILE="$(mktemp)"
           cat > "$BODY_FILE" <<EOF
           This draft PR prepares the stable minor release v${VERSION}.
