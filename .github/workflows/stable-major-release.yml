@@ -54,26 +54,12 @@ jobs:
           mkdir -p documentation/releases
 
           {
-            echo "# BC Dev Toolset v${VERSION}"
-            echo
-            echo "## Highlights"
-            echo
-            echo "- TODO: Summarize the most important user-facing changes."
-            echo
-            echo "## Changes"
-            echo
             if [ -n "$PREVIOUS_TAG" ]; then
               git log --first-parent --reverse --pretty=format:'- %s (%h)' "${PREVIOUS_TAG}..HEAD" || true
             else
               git log --first-parent --reverse --pretty=format:'- %s (%h)' || true
             fi
             echo
-            echo
-            echo "## Verification"
-            echo
-            echo "- [ ] Release notes reviewed and edited as needed."
-            echo "- [ ] Version bump reviewed."
-            echo "- [ ] Stable VSIX packaging will be verified by the publish workflow."
           } > "$NOTE_PATH"
 
       - name: Commit release proposal
