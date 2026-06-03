@@ -220,6 +220,11 @@ function getWorkspaceBasePath() {
   }
 
   const workspacePath = getWorkspacePath();
+  const workspaceFiles = getWorkspaceFilesInDirectory(workspacePath);
+  if (workspaceFiles.length === 1) {
+    return workspacePath;
+  }
+
   if (fs.existsSync(path.join(workspacePath, 'app.json'))) {
     return path.dirname(workspacePath);
   }
@@ -282,9 +287,85 @@ function getWorkspaceFileName() {
     return vscode.workspace.workspaceFile.fsPath;
   }
 
+  const workspaceFolders = vscode.workspace.workspaceFolders || [];
+  if (workspaceFolders.length === 1) {
+    const openedFolderWorkspaceFiles = getWorkspaceFilesInDirectory(workspaceFolders[0].uri.fsPath);
+    if (openedFolderWorkspaceFiles.length === 1) {
+      return openedFolderWorkspaceFiles[0];
+    }
+  }
+
   const workspaceBasePath = getWorkspaceBasePath();
-  const workspaceFiles = fs.readdirSync(workspaceBasePath).filter((fileName) => fileName.endsWith('.code-workspace'));
-  return workspaceFiles.length === 1 ? path.join(workspaceBasePath, workspaceFiles[0]) : '';
+  const workspaceFiles = getWorkspaceFilesInDirectory(workspaceBasePath);
+  return workspaceFiles.length === 1 ? workspaceFiles[0] : '';
+}
+
+function getWorkspaceFilesInDirectory(directoryPath) {
+  if (!directoryPath || !fs.existsSync(directoryPath)) {
+    return [];
+  }
+
+  return fs.readdirSync(directoryPath)
+    .filter((fileName) => fileName.endsWith('.code-workspace'))
+    .map((fileName) => path.join(directoryPath, fileName));
+}
+
+function getWorkspaceFileNameForConfigureWorkspace() {
+  if (vscode.workspace.workspaceFile) {
+    return vscode.workspace.workspaceFile.fsPath;
+  }
+
+  const workspaceFolders = vscode.workspace.workspaceFolders || [];
+  if (workspaceFolders.length !== 1) {
+    return getWorkspaceFileName();
+  }
+
+  const openedFolderPath = workspaceFolders[0].uri.fsPath;
+  const existingWorkspaceFiles = getWorkspaceFilesInDirectory(openedFolderPath);
+  if (existingWorkspaceFiles.length === 1) {
+    return existingWorkspaceFiles[0];
+  }
+
+  if (existingWorkspaceFiles.length > 1) {
+    return '';
+  }
+
+  const workspaceFile = path.join(openedFolderPath, `${path.basename(openedFolderPath)}.code-workspace`);
+  const workspace = {
+    folders: getAppFolderWorkspacePaths(openedFolderPath).map((folderPath) => ({ path: folderPath }))
+  };
+
+  fs.writeFileSync(workspaceFile, `${JSON.stringify(workspace, null, 2)}\n`, 'utf8');
+  return workspaceFile;
+}
+
+function getAppFolderWorkspacePaths(rootPath) {
+  if (fs.existsSync(path.join(rootPath, 'app.json'))) {
+    return ['.'];
+  }
+
+  const appFolderPaths = [];
+  collectAppFolderWorkspacePaths(rootPath, rootPath, appFolderPaths);
+  return appFolderPaths.sort((left, right) => left.localeCompare(right));
+}
+
+function collectAppFolderWorkspacePaths(rootPath, currentPath, appFolderPaths) {
+  for (const entry of fs.readdirSync(currentPath, { withFileTypes: true })) {
+    if (!entry.isDirectory() || shouldSkipWorkspaceFolderDiscovery(entry.name)) {
+      continue;
+    }
+
+    const entryPath = path.join(currentPath, entry.name);
+    if (fs.existsSync(path.join(entryPath, 'app.json'))) {
+      appFolderPaths.push(path.relative(rootPath, entryPath).replace(/\\/g, '/'));
+    }
+
+    collectAppFolderWorkspacePaths(rootPath, entryPath, appFolderPaths);
+  }
+}
+
+function shouldSkipWorkspaceFolderDiscovery(folderName) {
+  return folderName === 'node_modules' || folderName === '.git';
 }
 
 function getDefaultWorkspaceSettings() {
@@ -821,11 +902,12 @@ function writeOutput(message) {
 }
 
 async function configureWorkspace() {
-  const configPath = getConfigPath();
+  const workspaceFile = getWorkspaceFileNameForConfigureWorkspace();
+  const configPath = workspaceFile ? path.join(path.dirname(workspaceFile), '.bcdevtoolset') : getConfigPath();
   const localPath = path.join(configPath, 'settings.json');
-  const workspaceFile = getWorkspaceFileName();
 
   fs.mkdirSync(configPath, { recursive: true });
+  ensureBcDevToolsetGitIgnore(path.dirname(configPath));
 
   writeJsonIfMissing(localPath, getDefaultLocalSettings());
   ensureDefaultLocalConfiguration(localPath);
@@ -884,6 +966,23 @@ async function showObjectIdRangeVisualizationData() {
   const injectedDataScript = `<script>window.bcDevToolsetData = ${JSON.stringify(data).replace(/</g, '\\u003c')};</script>`;
   const html = fs.readFileSync(htmlPath, 'utf8').replace('</head>', `${injectedDataScript}\n</head>`);
   panel.webview.html = html;
+}
+
+function ensureBcDevToolsetGitIgnore(basePath) {
+  const gitIgnorePath = path.join(basePath, '.gitignore');
+  const ignoredFolder = '.bcdevtoolset/';
+  const currentContent = fs.existsSync(gitIgnorePath) ? fs.readFileSync(gitIgnorePath, 'utf8') : '';
+  const ignoredEntries = currentContent
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'));
+
+  if (ignoredEntries.includes(ignoredFolder) || ignoredEntries.includes('.bcdevtoolset')) {
+    return;
+  }
+
+  const separator = currentContent && !currentContent.endsWith('\n') ? '\n' : '';
+  fs.writeFileSync(gitIgnorePath, `${currentContent}${separator}${ignoredFolder}\n`, 'utf8');
 }
 
 function writeJsonIfMissing(filePath, value) {
@@ -951,6 +1050,11 @@ function getOperations(toolsetPath) {
 }
 
 async function executeOperation(operation, toolsetPath) {
+  if (operation.command === 'configureWorkspace') {
+    await configureWorkspace();
+    return;
+  }
+
   if (operation.command === 'openLocalSettingsJson') {
     await openLocalSettingsJson();
     return;

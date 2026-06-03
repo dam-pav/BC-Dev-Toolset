@@ -1,5 +1,11 @@
 [
   {
+    "id": "configureWorkspace",
+    "title": "Configure Workspace",
+    "command": "configureWorkspace",
+    "category": "Workspace"
+  },
+  {
     "id": "openLocalSettingsJson",
     "title": "Open Local Settings (JSON)",
     "command": "openLocalSettingsJson",
