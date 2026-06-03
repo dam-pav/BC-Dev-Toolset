@@ -264,8 +264,8 @@ to remove the files from git. You will need to commit these changes. Beware, thi
           "environmentType": "Sandbox",
           "includeTestToolkit": "true",
           "authentication": "UserPassword",
-          "admin": "admin",
-          "password": "P@ssw0rd",
+          "bcUser": "admin",
+          "bcPassword": "P@ssw0rd",
           "network": "transparent",
           "macAddress": "02:42:ac:11:00:02",
           "IP": "",
@@ -342,8 +342,10 @@ Each `configurations` entry can contain:
 - `includeTestToolkit`: Valid for `Container`.
 - `tenant`: Valid for `Cloud` or `OnPrem`.
 - `authentication`: Valid for `Container` or `OnPrem`. The default value is `UserPassword`.
-- `admin`: Default user for the Docker BC instance.
-- `password`: Default password for the Docker BC instance.
+- `bcUser`: Default user for the BC instance.
+- `bcPassword`: Default password for the BC instance.
+- `admin`: Obsolete fallback for `bcUser`. Use `bcUser` instead; this field will be removed in the next major release.
+- `password`: Obsolete fallback for `bcPassword`. Use `bcPassword` instead; this field will be removed in the next major release.
 - `network`: Optional Docker network passed to `New-BcContainer`. Valid for `Container`. Suggested Windows container network values include `NAT`, `transparent`, `l2bridge`, `l2tunnel`, `overlay`, and `none`; custom Docker network names are also allowed. For suggested network names, the toolset verifies that the Docker network exists with the expected driver and creates missing creatable networks, for example `docker network create -d transparent transparent`. Custom network setup is left to the user. Use a transparent network when the container should appear on the LAN with a real address.
 - `hostIP`: Optional `host.containerhelper.internal` IP address passed to `New-BcContainer`. Valid for `Container`.
 - `macAddress`: Optional container MAC address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Use Docker's colon-delimited MAC address format, for example `02:42:ac:11:00:02`.

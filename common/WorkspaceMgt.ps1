@@ -36,6 +36,21 @@ function Get-ShortcutMode {
     return $defaultMode
 }
 
+function Get-BcConfigurationCredential {
+    param(
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration
+    )
+
+    if ($configuration.PSObject.Properties['bcUser'] -and $configuration.PSObject.Properties['bcPassword']) {
+        $securePassword = ConvertTo-SecureString -String $configuration.bcPassword -AsPlainText -Force
+        return New-Object pscredential $configuration.bcUser, $securePassword
+    }
+
+    $securePassword = ConvertTo-SecureString -String $configuration.password -AsPlainText -Force
+    return New-Object pscredential $configuration.admin, $securePassword
+}
+
 function Get-WorkspaceRootPath {
     param(
         [Parameter(Mandatory=$true)]
@@ -464,9 +479,14 @@ function Write-LaunchJSON {
                 }
             }
 			if ($setupFound -eq $false) {
+                [Version] $appRuntime = $null
+                $breakOnError = "All"
+                if ($appJSON.PSObject.Properties['runtime'] -and [Version]::TryParse([string]$appJSON.runtime, [ref]$appRuntime) -and $appRuntime -ge [Version]"10.0") {
+                    $breakOnError = "ExcludeTry"
+                }
 				$configuration | Add-Member -MemberType NoteProperty -Name startupObjectId -Value 22
 				$configuration | Add-Member -MemberType NoteProperty -Name startupObjectType -Value "Page"
-				$configuration | Add-Member -MemberType NoteProperty -Name breakOnError -Value "All"
+				$configuration | Add-Member -MemberType NoteProperty -Name breakOnError -Value $breakOnError
 				$configuration | Add-Member -MemberType NoteProperty -Name launchBrowser -Value $true
 				$configuration | Add-Member -MemberType NoteProperty -Name enableLongRunningSqlStatements -Value $true
 				$configuration | Add-Member -MemberType NoteProperty -Name enableSqlInformationDebugger -Value $true
@@ -482,6 +502,10 @@ function Write-LaunchJSON {
     
     # Write launch.json
     Write-Host "Writing $launchFilename..." -ForegroundColor Blue
+    $launchFolder = Split-Path -Path $launchFilename -Parent
+    if (-not (Test-Path -Path $launchFolder)) {
+        New-Item -Path $launchFolder -ItemType Directory -Force | Out-Null
+    }
     $launchJSON | ConvertTo-Json -Depth 10 | Format-Json | Set-Content -Path $launchFilename -Force
 }
 
@@ -576,8 +600,8 @@ function Build-Settings {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name includeTestToolkit -Value "false"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value "UserPassword"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value "admin"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value "P@ssw0rd"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name bcUser -Value "admin"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name bcPassword -Value "P@ssw0rd"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name network -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name hostIP -Value ""
         $defaultSettings.configurations += $remoteConfiguration
@@ -1063,8 +1087,7 @@ function New-DockerContainer {
         $configurationFound = $true
 
         # No mutex for the time being, we do it manually
-        $securePassword = ConvertTo-SecureString -String $configuration.password -AsPlainText -Force
-        $credential = New-Object pscredential $configuration.admin, $securePassword
+        $credential = Get-BcConfigurationCredential -configuration $configuration
         $auth = $configuration.authentication
 
         if ($appJSON.application -eq "") {

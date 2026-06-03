@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -111,8 +111,8 @@
                 "includeTestToolkit": "",
                 "tenant": "",
                 "authentication": "",
-                "admin": "",
-                "password": "",
+                "bcUser": "",
+                "bcPassword": "",
                 "network": "",
                 "hostIP": "",
                 "databaseUser": "",
@@ -313,13 +313,27 @@
                           ],
                           "description": "Authentication mode."
                         },
+                        "bcUser": {
+                          "type": "string",
+                          "description": "Business Central service user name."
+                        },
+                        "bcPassword": {
+                          "type": "string",
+                          "description": "Business Central service password."
+                        },
                         "admin": {
                           "type": "string",
-                          "description": "Administrative user name."
+                          "description": "Obsolete. Use \"bcUser\" instead.",
+                          "deprecated": true,
+                          "deprecationMessage": "Field \"admin\" is obsolete and will be removed in the next major release. Use \"bcUser\" instead.",
+                          "markdownDeprecationMessage": "Field `admin` is obsolete and will be removed in the next major release. Use `bcUser` instead."
                         },
                         "password": {
                           "type": "string",
-                          "description": "Administrative password."
+                          "description": "Obsolete. Use \"bcPassword\" instead.",
+                          "deprecated": true,
+                          "deprecationMessage": "Field \"password\" is obsolete and will be removed in the next major release. Use \"bcPassword\" instead.",
+                          "markdownDeprecationMessage": "Field `password` is obsolete and will be removed in the next major release. Use `bcPassword` instead."
                         },
                         "network": {
                           "anyOf": [
@@ -560,6 +574,16 @@
                         "includeTestToolkit": {
                           "not": {},
                           "errorMessage": "Field \"includeTestToolkit\" is not valid when \"serverType\" is not \"Container\".",
+                          "doNotSuggest": true
+                        },
+                        "bcUser": {
+                          "not": {},
+                          "errorMessage": "Field \"bcUser\" is not valid when \"serverType\" is not \"Container\".",
+                          "doNotSuggest": true
+                        },
+                        "bcPassword": {
+                          "not": {},
+                          "errorMessage": "Field \"bcPassword\" is not valid when \"serverType\" is not \"Container\".",
                           "doNotSuggest": true
                         },
                         "admin": {
