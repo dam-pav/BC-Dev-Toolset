@@ -24,6 +24,14 @@
   "categories": [
     "Other"
   ],
+  "keywords": [
+    "business central",
+    "dynamics 365 business central",
+    "al",
+    "al language",
+    "bc",
+    "productivity"
+  ],
   "activationEvents": [
     "onStartupFinished",
     "onCommand:bcDevToolset.configureWorkspace",
