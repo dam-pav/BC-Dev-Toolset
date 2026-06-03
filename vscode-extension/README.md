@@ -166,8 +166,10 @@ Each workspace `configuration` entry can contain:
 - `includeTestToolkit`: Whether a container target includes the test toolkit.
 - `tenant`: Tenant identifier for `Cloud` or `OnPrem`.
 - `authentication`: Authentication mode. Valid values: `UserPassword`, `Windows`, `AAD`.
-- `admin`: Administrative user name.
-- `password`: Administrative password.
+- `bcUser`: Business Central service user name.
+- `bcPassword`: Business Central service password.
+- `admin`: Obsolete fallback for `bcUser`. Use `bcUser` instead; this field will be removed in the next major release.
+- `password`: Obsolete fallback for `bcPassword`. Use `bcPassword` instead; this field will be removed in the next major release.
 - `network`: Optional Docker network passed to `New-BcContainer` for `Container` targets. Suggested Windows container network values include `NAT`, `transparent`, `l2bridge`, `l2tunnel`, `overlay`, and `none`; custom Docker network names are also allowed. For suggested network names, the toolset verifies that the Docker network exists with the expected driver and creates missing creatable networks, for example `docker network create -d transparent transparent`. Custom network setup is left to the user. Use a transparent network when the container should appear on the LAN with a real address.
 - `hostIP`: Optional `host.containerhelper.internal` IP address passed to `New-BcContainer`.
 - `macAddress`: Optional container MAC address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Use Docker's colon-delimited MAC address format, for example `02:42:ac:11:00:02`.

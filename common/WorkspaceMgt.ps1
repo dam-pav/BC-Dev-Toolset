@@ -36,6 +36,21 @@ function Get-ShortcutMode {
     return $defaultMode
 }
 
+function Get-BcConfigurationCredential {
+    param(
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration
+    )
+
+    if ($configuration.PSObject.Properties['bcUser'] -and $configuration.PSObject.Properties['bcPassword']) {
+        $securePassword = ConvertTo-SecureString -String $configuration.bcPassword -AsPlainText -Force
+        return New-Object pscredential $configuration.bcUser, $securePassword
+    }
+
+    $securePassword = ConvertTo-SecureString -String $configuration.password -AsPlainText -Force
+    return New-Object pscredential $configuration.admin, $securePassword
+}
+
 function Get-WorkspaceRootPath {
     param(
         [Parameter(Mandatory=$true)]
@@ -581,8 +596,8 @@ function Build-Settings {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name includeTestToolkit -Value "false"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value "UserPassword"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value "admin"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value "P@ssw0rd"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name bcUser -Value "admin"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name bcPassword -Value "P@ssw0rd"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name network -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name hostIP -Value ""
         $defaultSettings.configurations += $remoteConfiguration
@@ -1068,8 +1083,7 @@ function New-DockerContainer {
         $configurationFound = $true
 
         # No mutex for the time being, we do it manually
-        $securePassword = ConvertTo-SecureString -String $configuration.password -AsPlainText -Force
-        $credential = New-Object pscredential $configuration.admin, $securePassword
+        $credential = Get-BcConfigurationCredential -configuration $configuration
         $auth = $configuration.authentication
 
         if ($appJSON.application -eq "") {

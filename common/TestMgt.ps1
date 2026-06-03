@@ -1,3 +1,22 @@
+function Get-BcConfigurationCredentialValues {
+    param(
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration
+    )
+
+    if ($configuration.PSObject.Properties['bcUser'] -and $configuration.PSObject.Properties['bcPassword']) {
+        return [PSCustomObject]@{
+            User = $configuration.bcUser
+            Password = $configuration.bcPassword
+        }
+    }
+
+    return [PSCustomObject]@{
+        User = $configuration.admin
+        Password = $configuration.password
+    }
+}
+
 function Invoke-Tests {
     Param (
         [Parameter(Mandatory=$true)]
@@ -15,9 +34,10 @@ function Invoke-Tests {
                     continue
                 }
 
+                $bcCredentials = Get-BcConfigurationCredentialValues -configuration $configuration
                 $params = @{
                     containerName = $configuration.container
-                    credential = (New-Object System.Management.Automation.PSCredential ($configuration.admin, (ConvertTo-SecureString -String $configuration.password -AsPlainText -Force)))
+                    credential = (New-Object System.Management.Automation.PSCredential ($bcCredentials.User, (ConvertTo-SecureString -String $bcCredentials.Password -AsPlainText -Force)))
                     detailed = $true
                 }
                 # if $configuration.testSuite has a value, add it to the parameters
@@ -138,8 +158,6 @@ function Invoke-PageScriptTests {
                      # Fallback logic
                      $baseUrl = "http://$($configuration.container)/BC/" 
                 }
-                $user = $configuration.admin
-                $password = $configuration.password
             }
             Default {
                 # Try to construct from config if fields exist
@@ -170,8 +188,9 @@ function Invoke-PageScriptTests {
              $baseUrl = $baseUrl + "?tenant=default"
         }
 
-        $user = $configuration.admin
-        $password = $configuration.password
+        $bcCredentials = Get-BcConfigurationCredentialValues -configuration $configuration
+        $user = $bcCredentials.User
+        $password = $bcCredentials.Password
 
         # Env vars for credentials
         $env:BC_USER = $user
