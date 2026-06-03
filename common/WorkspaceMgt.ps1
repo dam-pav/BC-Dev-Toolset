@@ -502,6 +502,10 @@ function Write-LaunchJSON {
     
     # Write launch.json
     Write-Host "Writing $launchFilename..." -ForegroundColor Blue
+    $launchFolder = Split-Path -Path $launchFilename -Parent
+    if (-not (Test-Path -Path $launchFolder)) {
+        New-Item -Path $launchFolder -ItemType Directory -Force | Out-Null
+    }
     $launchJSON | ConvertTo-Json -Depth 10 | Format-Json | Set-Content -Path $launchFilename -Force
 }
 
