@@ -19,6 +19,8 @@ Configure branch rulesets or branch protection in GitHub:
 - Block direct pushes to `stable`.
 - Allow the release deploy key to bypass push restrictions for the stable release workflows.
 
+Configure a repository secret named `RELEASE_PR_TOKEN` for the stable major/minor release workflows. The secret must contain a fine-grained personal access token or GitHub App token that can create pull requests and read/write repository contents. The default `GITHUB_TOKEN` is not sufficient for opening these release pull requests when repository or organization policy blocks GitHub Actions from creating pull requests.
+
 ## Workflow Naming
 
 Workflows prefixed with `Auto -` are automatic or internal continuation workflows and should not be started manually. Workflows without that prefix are intended for manual use when they expose `workflow_dispatch`.
