@@ -464,9 +464,14 @@ function Write-LaunchJSON {
                 }
             }
 			if ($setupFound -eq $false) {
+                [Version] $appRuntime = $null
+                $breakOnError = "All"
+                if ($appJSON.PSObject.Properties['runtime'] -and [Version]::TryParse([string]$appJSON.runtime, [ref]$appRuntime) -and $appRuntime -ge [Version]"10.0") {
+                    $breakOnError = "ExcludeTry"
+                }
 				$configuration | Add-Member -MemberType NoteProperty -Name startupObjectId -Value 22
 				$configuration | Add-Member -MemberType NoteProperty -Name startupObjectType -Value "Page"
-				$configuration | Add-Member -MemberType NoteProperty -Name breakOnError -Value "All"
+				$configuration | Add-Member -MemberType NoteProperty -Name breakOnError -Value $breakOnError
 				$configuration | Add-Member -MemberType NoteProperty -Name launchBrowser -Value $true
 				$configuration | Add-Member -MemberType NoteProperty -Name enableLongRunningSqlStatements -Value $true
 				$configuration | Add-Member -MemberType NoteProperty -Name enableSqlInformationDebugger -Value $true
