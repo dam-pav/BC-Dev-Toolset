@@ -1246,12 +1246,14 @@ function New-DockerContainer {
             $Parameters.alwaysPull = $true
         }
 
+        $licenseFile = ""
         if ($settingsJSON.licenseFile -ne "") {
             if (-not (Test-Path -Path $settingsJSON.licenseFile)) {
                 Write-Host "WARNING: The license file '$($settingsJSON.licenseFile)' could not be found. Verify and install the license as a separate step." -ForegroundColor Red
             }
             else {
-                $Parameters.licenseFile = $settingsJSON.licenseFile
+                $licenseFile = (Resolve-Path -Path $settingsJSON.licenseFile).Path
+                $Parameters.licenseFile = $licenseFile
             }
         }
 
@@ -1300,6 +1302,23 @@ function New-DockerContainer {
                 }
             } else {
                 Write-Host "No SQL backup set found. Container will use a fresh database." -ForegroundColor Gray
+            }
+
+            if ($Parameters.ContainsKey('bakFolder') -and -not [string]::IsNullOrWhiteSpace($licenseFile)) {
+                $licenseFileName = Split-Path -Path $licenseFile -Leaf
+                $containerLicenseFile = "c:\run\my\$licenseFileName"
+                $escapedContainerLicenseFile = $containerLicenseFile.Replace("'", "''")
+                $Parameters.myScripts = @(
+                    $licenseFile
+                    @{
+                        "SetupNavUsers.ps1" = @"
+Write-Host "Importing License $escapedContainerLicenseFile before creating users"
+Import-NAVServerLicense -LicenseFile '$escapedContainerLicenseFile' -ServerInstance `$ServerInstance -Database NavDatabase -WarningAction SilentlyContinue
+. "c:\run\SetupNavUsers.ps1"
+"@
+                    }
+                )
+                Write-Host "SQL backup restore detected. The license will be imported before NAV user setup because BcContainerHelper skips -licenseFile for restored bakFolder databases." -ForegroundColor Yellow
             }
 
             New-BcContainer @Parameters
@@ -1387,6 +1406,43 @@ function Update-BcLicense {
 
         Write-Host "The docker instance $($configuration.container) should have the new license installed." -ForegroundColor Green
         Write-Host ""
+    }
+
+    if (-not $configurationFound) {
+        Write-Host "No Docker configurations found." -ForegroundColor Red
+        $false
+        return
+    }
+
+    $true
+}
+
+function Show-ActiveBcContainerLicenses {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON
+    )
+
+    $configurationFound = $false
+    foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "Container")) {
+        $configurationFound = $true
+        if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+            continue
+        }
+
+        Write-Host ""
+        Write-Host "Active license information for container '$($configuration.container)':" -ForegroundColor Green
+        try {
+            $licenseInformation = Get-BcContainerLicenseInformation -ContainerName $configuration.container -ErrorAction Stop
+            if ($null -eq $licenseInformation) {
+                Write-Host "No license information returned." -ForegroundColor Yellow
+            } else {
+                $licenseInformation | Out-Host
+            }
+        } catch {
+            Write-Host "Failed to get license information for container '$($configuration.container)'." -ForegroundColor Red
+            Write-Host $_.Exception.Message -ForegroundColor Red
+        }
     }
 
     if (-not $configurationFound) {

@@ -20,6 +20,7 @@ const directOperationIds = [
   'newDockerContainer',
   'updateLaunchJson',
   'updateBcLicenseContainer',
+  'showActiveLicenses',
   'updateBcContainerServerConfiguration',
   'backupBcContainerDatabases',
   'backupBcServiceDatabases',

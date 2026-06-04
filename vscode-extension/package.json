@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.1.3",
+  "version": "1.1.4",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -24,6 +24,14 @@
   "categories": [
     "Other"
   ],
+  "keywords": [
+    "business central",
+    "dynamics 365 business central",
+    "al",
+    "al language",
+    "bc",
+    "productivity"
+  ],
   "activationEvents": [
     "onStartupFinished",
     "onCommand:bcDevToolset.configureWorkspace",
@@ -39,6 +47,7 @@
     "onCommand:bcDevToolset.operation.newDockerContainer",
     "onCommand:bcDevToolset.operation.updateLaunchJson",
     "onCommand:bcDevToolset.operation.updateBcLicenseContainer",
+    "onCommand:bcDevToolset.operation.showActiveLicenses",
     "onCommand:bcDevToolset.operation.updateBcContainerServerConfiguration",
     "onCommand:bcDevToolset.operation.backupBcContainerDatabases",
     "onCommand:bcDevToolset.operation.backupBcServiceDatabases",
@@ -777,6 +786,10 @@
       {
         "command": "bcDevToolset.operation.updateBcLicenseContainer",
         "title": "BC Dev Toolset: Update license files in all containers"
+      },
+      {
+        "command": "bcDevToolset.operation.showActiveLicenses",
+        "title": "BC Dev Toolset: Show active licenses"
       },
       {
         "command": "bcDevToolset.operation.updateBcContainerServerConfiguration",
