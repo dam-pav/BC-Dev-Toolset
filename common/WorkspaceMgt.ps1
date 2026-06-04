@@ -1417,6 +1417,43 @@ function Update-BcLicense {
     $true
 }
 
+function Show-ActiveBcContainerLicenses {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON
+    )
+
+    $configurationFound = $false
+    foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "Container")) {
+        $configurationFound = $true
+        if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+            continue
+        }
+
+        Write-Host ""
+        Write-Host "Active license information for container '$($configuration.container)':" -ForegroundColor Green
+        try {
+            $licenseInformation = Get-BcContainerLicenseInformation -ContainerName $configuration.container -ErrorAction Stop
+            if ($null -eq $licenseInformation) {
+                Write-Host "No license information returned." -ForegroundColor Yellow
+            } else {
+                $licenseInformation | Out-Host
+            }
+        } catch {
+            Write-Host "Failed to get license information for container '$($configuration.container)'." -ForegroundColor Red
+            Write-Host $_.Exception.Message -ForegroundColor Red
+        }
+    }
+
+    if (-not $configurationFound) {
+        Write-Host "No Docker configurations found." -ForegroundColor Red
+        $false
+        return
+    }
+
+    $true
+}
+
 function Install-FontsToContainer {
     Param (
         [Parameter(Mandatory=$true)]

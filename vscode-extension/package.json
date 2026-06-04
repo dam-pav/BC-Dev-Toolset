@@ -47,6 +47,7 @@
     "onCommand:bcDevToolset.operation.newDockerContainer",
     "onCommand:bcDevToolset.operation.updateLaunchJson",
     "onCommand:bcDevToolset.operation.updateBcLicenseContainer",
+    "onCommand:bcDevToolset.operation.showActiveLicenses",
     "onCommand:bcDevToolset.operation.updateBcContainerServerConfiguration",
     "onCommand:bcDevToolset.operation.backupBcContainerDatabases",
     "onCommand:bcDevToolset.operation.backupBcServiceDatabases",
@@ -785,6 +786,10 @@
       {
         "command": "bcDevToolset.operation.updateBcLicenseContainer",
         "title": "BC Dev Toolset: Update license files in all containers"
+      },
+      {
+        "command": "bcDevToolset.operation.showActiveLicenses",
+        "title": "BC Dev Toolset: Show active licenses"
       },
       {
         "command": "bcDevToolset.operation.updateBcContainerServerConfiguration",

@@ -38,6 +38,12 @@
     "category": "Container"
   },
   {
+    "id": "showActiveLicenses",
+    "title": "Show active licenses",
+    "script": "operations/ShowActiveLicenses.ps1",
+    "category": "Container"
+  },
+  {
     "id": "updateBcContainerServerConfiguration",
     "title": "Update server configuration in all containers",
     "script": "operations/UpdateBcContainerServerConfiguration.ps1",
