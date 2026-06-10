@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -19,7 +19,7 @@
     "publish:marketplace:pre": "npm run prepare:runtime && npx @vscode/vsce publish --pre-release --no-dependencies"
   },
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.101.0"
   },
   "categories": [
     "Other"
@@ -36,8 +36,11 @@
     "onStartupFinished",
     "onCommand:bcDevToolset.configureWorkspace",
     "onCommand:bcDevToolset.openLocalSettingsJson",
+    "onCommand:bcDevToolset.configureCodexMcp",
     "onCommand:bcDevToolset.showObjectIdRangeVisualizationData",
+    "onCommand:bcDevToolset.showMcpStatus",
     "onCommand:bcDevToolset.runOperation",
+    "onMcpCollection:bcDevToolset.operations",
     "onCommand:bcDevToolset.operation.invokeTests",
     "onCommand:bcDevToolset.operation.invokePageScriptTests",
     "onCommand:bcDevToolset.operation.showBcContainerHelperVersions",
@@ -734,6 +737,12 @@
         "url": "./schemas/bcdevtoolset-settings.schema.json"
       }
     ],
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "bcDevToolset.operations",
+        "label": "BC Dev Toolset Operations"
+      }
+    ],
     "commands": [
       {
         "command": "bcDevToolset.configureWorkspace",
@@ -744,12 +753,20 @@
         "title": "BC Dev Toolset: Open Local Settings (JSON)"
       },
       {
+        "command": "bcDevToolset.configureCodexMcp",
+        "title": "BC Dev Toolset: Configure Codex MCP Integration"
+      },
+      {
         "command": "bcDevToolset.showObjectIdRangeVisualizationData",
         "title": "BC Dev Toolset: Show object id range visualization data"
       },
       {
         "command": "bcDevToolset.runOperation",
         "title": "BC Dev Toolset: Show Operations List"
+      },
+      {
+        "command": "bcDevToolset.showMcpStatus",
+        "title": "BC Dev Toolset: Show MCP Status"
       },
       {
         "command": "bcDevToolset.operation.invokeTests",

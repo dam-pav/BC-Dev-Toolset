@@ -2,6 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const childProcess = require('child_process');
+const http = require('http');
+const os = require('os');
 const vscode = require('vscode');
 
 let extensionContext;
@@ -9,6 +11,10 @@ let runtimeSyncPromise;
 let outputChannel;
 let operationTerminal;
 let operationTerminalName;
+let mcpBridgeServer;
+let mcpBridgeUrl;
+let mcpBridgeToken;
+let mcpBridgeStatePath;
 
 const directOperationIds = [
   'invokeTests',
@@ -16,6 +22,7 @@ const directOperationIds = [
   'showBcContainerHelperVersions',
   'initPrerequisites',
   'updatePowerShell',
+  'configureCodexMcp',
   'clearAppArtifacts',
   'newDockerContainer',
   'updateLaunchJson',
@@ -95,7 +102,11 @@ function activate(context) {
     vscode.commands.registerCommand('bcDevToolset.configureWorkspace', configureWorkspace),
     vscode.commands.registerCommand('bcDevToolset.openLocalSettingsJson', openLocalSettingsJson),
     vscode.commands.registerCommand('bcDevToolset.showObjectIdRangeVisualizationData', showObjectIdRangeVisualizationData),
+    vscode.commands.registerCommand('bcDevToolset.showMcpStatus', showMcpStatus),
+    vscode.commands.registerCommand('bcDevToolset.configureCodexMcp', configureCodexMcp),
     vscode.commands.registerCommand('bcDevToolset.runOperation', runOperation),
+    startMcpBridgeServer(context),
+    registerMcpServerDefinitionProvider(context),
     vscode.languages.registerCompletionItemProvider(
       [
         { language: 'json', scheme: 'file' },
@@ -120,6 +131,397 @@ function activate(context) {
 }
 
 function deactivate() {}
+
+function startMcpBridgeServer(context) {
+  mcpBridgeToken = crypto.randomBytes(32).toString('hex');
+  mcpBridgeServer = http.createServer((request, response) => {
+    void handleMcpBridgeRequest(request, response);
+  });
+
+  mcpBridgeServer.listen(0, '127.0.0.1', () => {
+    const address = mcpBridgeServer.address();
+    if (address && typeof address === 'object') {
+      mcpBridgeUrl = `http://127.0.0.1:${address.port}`;
+      writeMcpBridgeState(context);
+      writeOutput(`BC Dev Toolset MCP bridge listening at ${mcpBridgeUrl}.`);
+    }
+  });
+
+  return {
+    dispose: () => {
+      if (mcpBridgeServer) {
+        mcpBridgeServer.close();
+        mcpBridgeServer = undefined;
+        mcpBridgeUrl = undefined;
+        removeMcpBridgeState();
+      }
+    }
+  };
+}
+
+function getMcpBridgeStatePath(context) {
+  return path.join(os.tmpdir(), 'bc-dev-toolset-mcp', 'vscode-bridge.json');
+}
+
+function writeMcpBridgeState(context) {
+  if (!mcpBridgeUrl || !mcpBridgeToken) {
+    return;
+  }
+
+  mcpBridgeStatePath = getMcpBridgeStatePath(context);
+  fs.mkdirSync(path.dirname(mcpBridgeStatePath), { recursive: true });
+  fs.writeFileSync(mcpBridgeStatePath, `${JSON.stringify({
+    url: mcpBridgeUrl,
+    token: mcpBridgeToken,
+    pid: process.pid,
+    updatedAt: new Date().toISOString()
+  }, null, 2)}\n`, 'utf8');
+}
+
+function removeMcpBridgeState() {
+  if (mcpBridgeStatePath && fs.existsSync(mcpBridgeStatePath)) {
+    fs.rmSync(mcpBridgeStatePath, { force: true });
+  }
+}
+
+async function handleMcpBridgeRequest(request, response) {
+  try {
+    if (request.method !== 'POST' || request.url !== '/run-operation') {
+      writeMcpBridgeResponse(response, 404, { error: 'Not found.' });
+      return;
+    }
+
+    const authorization = request.headers.authorization || '';
+    if (authorization !== `Bearer ${mcpBridgeToken}`) {
+      writeMcpBridgeResponse(response, 401, { error: 'Unauthorized.' });
+      return;
+    }
+
+    const body = await readRequestBody(request);
+    const operationId = String((body && body.operationId) || '').trim();
+    if (!operationId) {
+      writeMcpBridgeResponse(response, 400, { error: 'operationId is required.' });
+      return;
+    }
+
+    const timeoutSeconds = Number(body.timeoutSeconds);
+    const result = await runOperationByIdForMcp(operationId, {
+      timeoutMs: Number.isFinite(timeoutSeconds) && timeoutSeconds > 0
+        ? timeoutSeconds * 1000
+        : undefined
+    });
+    writeMcpBridgeResponse(response, 200, result);
+  } catch (error) {
+    writeMcpBridgeResponse(response, 500, { error: error.message });
+  }
+}
+
+function readRequestBody(request) {
+  return new Promise((resolve, reject) => {
+    let content = '';
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => {
+      content += chunk;
+      if (content.length > 1024 * 1024) {
+        reject(new Error('Request body is too large.'));
+        request.destroy();
+      }
+    });
+    request.on('end', () => {
+      try {
+        resolve(content ? JSON.parse(content) : {});
+      } catch (error) {
+        reject(new Error(`Invalid JSON request body: ${error.message}`));
+      }
+    });
+    request.on('error', reject);
+  });
+}
+
+function writeMcpBridgeResponse(response, statusCode, body) {
+  const content = JSON.stringify(body);
+  response.writeHead(statusCode, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': Buffer.byteLength(content)
+  });
+  response.end(content);
+}
+
+function waitForMcpBridgeServer() {
+  if (mcpBridgeUrl) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const interval = setInterval(() => {
+      if (mcpBridgeUrl || Date.now() - startedAt > 5000) {
+        clearInterval(interval);
+        resolve();
+      }
+    }, 50);
+  });
+}
+
+function registerMcpServerDefinitionProvider(context) {
+  if (!vscode.lm || !vscode.lm.registerMcpServerDefinitionProvider || !vscode.McpStdioServerDefinition) {
+    writeOutput('VS Code MCP server definition provider API is not available in this VS Code version.');
+    return { dispose: () => {} };
+  }
+
+  return vscode.lm.registerMcpServerDefinitionProvider('bcDevToolset.operations', {
+    provideMcpServerDefinitions: async () => [
+      createMcpServerDefinition(context)
+    ],
+    resolveMcpServerDefinition: async (server) => {
+      await waitForRuntimeSync();
+      await waitForMcpBridgeServer();
+      server.env = {
+        ...server.env,
+      BCDEVTOOLSET_MCP_BRIDGE_URL: mcpBridgeUrl || '',
+      BCDEVTOOLSET_MCP_BRIDGE_TOKEN: mcpBridgeToken || ''
+      };
+      return server;
+    }
+  });
+}
+
+function createMcpServerDefinition(context) {
+  const serverPath = path.join(context.extensionPath, 'mcp-server.js');
+  const workspacePath = getOptionalWorkspacePath();
+  const workspaceFile = getOptionalWorkspaceFileName();
+  const localSettingsPath = getOptionalLocalSettingsPath();
+  const nodeExecutable = getMcpNodeExecutable();
+  const mcpServerVersion = getMcpServerVersion(context, serverPath);
+
+  const serverDefinition = new vscode.McpStdioServerDefinition(
+    'BC Dev Toolset Operations',
+    nodeExecutable,
+    [serverPath],
+    {
+      BCDEVTOOLSET_MCP_TOOLSET_PATH: getToolsetPath(),
+      BCDEVTOOLSET_MCP_WORKSPACE_PATH: workspacePath,
+      BCDEVTOOLSET_MCP_WORKSPACE_FILE: workspaceFile,
+      BCDEVTOOLSET_MCP_LOCAL_SETTINGS_PATH: localSettingsPath,
+      BCDEVTOOLSET_MCP_POWERSHELL_EXECUTABLE: getConfiguration().get('powershellExecutable') || 'pwsh',
+      BCDEVTOOLSET_MCP_EXTENSION_VERSION: mcpServerVersion,
+      BCDEVTOOLSET_MCP_BRIDGE_URL: mcpBridgeUrl || '',
+      BCDEVTOOLSET_MCP_BRIDGE_TOKEN: mcpBridgeToken || '',
+      BCDEVTOOLSET_MCP_BRIDGE_STATE_PATH: mcpBridgeStatePath || getMcpBridgeStatePath(context),
+      BCDEVTOOLSET_SHORTCUTS: getShortcutMode(),
+      BCDEVTOOLSET_HOST_HELPER_FOLDER: getHostHelperFolder(),
+      ELECTRON_RUN_AS_NODE: '1'
+    },
+    mcpServerVersion
+  );
+  serverDefinition.cwd = vscode.Uri.file(context.extensionPath);
+  return serverDefinition;
+}
+
+async function showMcpStatus() {
+  const hasMcpApi = Boolean(vscode.lm && vscode.lm.registerMcpServerDefinitionProvider && vscode.McpStdioServerDefinition);
+  const serverPath = extensionContext ? path.join(extensionContext.extensionPath, 'mcp-server.js') : '';
+  const nodeExecutable = getMcpNodeExecutable();
+  const message = [
+    `Extension path: ${extensionContext ? extensionContext.extensionPath : '(not set)'}`,
+    `MCP API available: ${hasMcpApi}`,
+    `MCP server file exists: ${serverPath ? fs.existsSync(serverPath) : false}`,
+    `MCP Node executable: ${nodeExecutable}`,
+    `MCP terminal bridge: ${mcpBridgeUrl || '(not ready)'}`,
+    `MCP bridge state: ${mcpBridgeStatePath || (extensionContext ? getMcpBridgeStatePath(extensionContext) : '(not ready)')}`,
+    `Toolset path: ${getToolsetPath()}`
+  ].join('\n');
+
+  writeOutput(message);
+  await vscode.window.showInformationMessage(message, { modal: true });
+}
+
+async function configureCodexMcp() {
+  const toolsetPath = await resolveToolsetRuntimePath();
+  if (!toolsetPath) {
+    return;
+  }
+
+  const configPath = getCodexConfigPath();
+  const configDirectory = path.dirname(configPath);
+  const mcpServerPath = path.join(extensionContext.extensionPath, 'mcp-server.js');
+
+  if (!fs.existsSync(mcpServerPath)) {
+    await vscode.window.showErrorMessage(`BC Dev Toolset MCP server was not found at ${mcpServerPath}.`);
+    return;
+  }
+
+  fs.mkdirSync(configDirectory, { recursive: true });
+
+  const existingContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
+  if (existingContent) {
+    const backupPath = `${configPath}.${getTimestampForFileName()}.bak`;
+    fs.writeFileSync(backupPath, existingContent, 'utf8');
+  }
+
+  const updatedContent = updateCodexMcpConfigContent(existingContent, {
+    mcpServerPath,
+    toolsetPath
+  });
+  fs.writeFileSync(configPath, updatedContent, 'utf8');
+  const agentsPath = ensureCodexGlobalAgentsInstructions();
+
+  const message = `Codex MCP configuration was updated at ${configPath}. Codex global instructions were updated at ${agentsPath}. Restart Codex to load the BC Dev Toolset MCP server.`;
+  writeOutput(message);
+  await vscode.window.showInformationMessage(message);
+}
+
+function getCodexHomePath() {
+  if (process.env.CODEX_HOME) {
+    return process.env.CODEX_HOME;
+  }
+
+  const homePath = process.env.USERPROFILE || process.env.HOME;
+  if (!homePath) {
+    throw new Error('Could not resolve the user profile folder for Codex config.');
+  }
+
+  return path.join(homePath, '.codex');
+}
+
+function getCodexConfigPath() {
+  return path.join(getCodexHomePath(), 'config.toml');
+}
+
+function updateCodexMcpConfigContent(content, values) {
+  const normalizedContent = content || '';
+  const withoutExistingSection = removeTomlTableSection(
+    removeTomlTableSection(normalizedContent, 'mcp_servers.bc-dev-toolset.env'),
+    'mcp_servers.bc-dev-toolset'
+  ).trimEnd();
+
+  const section = [
+    '[mcp_servers.bc-dev-toolset]',
+    'command = "node"',
+    `args = [${quoteTomlString(values.mcpServerPath)}]`,
+    'startup_timeout_sec = 20',
+    'tool_timeout_sec = 7200',
+    '',
+    '[mcp_servers.bc-dev-toolset.env]',
+    `BCDEVTOOLSET_MCP_TOOLSET_PATH = ${quoteTomlString(values.toolsetPath)}`,
+    ''
+  ].join('\n');
+
+  return `${withoutExistingSection}${withoutExistingSection ? '\n\n' : ''}${section}`;
+}
+
+function removeTomlTableSection(content, tableName) {
+  const lines = String(content || '').split(/\r?\n/);
+  const result = [];
+  const tableHeader = `[${tableName}]`;
+  let skipping = false;
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    if (trimmedLine.startsWith('[') && trimmedLine.endsWith(']')) {
+      if (trimmedLine === tableHeader) {
+        skipping = true;
+        continue;
+      }
+
+      skipping = false;
+    }
+
+    if (!skipping) {
+      result.push(line);
+    }
+  }
+
+  return result.join('\n');
+}
+
+function quoteTomlString(value) {
+  return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function getTimestampForFileName() {
+  return new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-');
+}
+
+function ensureCodexGlobalAgentsInstructions() {
+  const codexHomePath = getCodexHomePath();
+  const agentsPath = getCodexGlobalAgentsPath(codexHomePath);
+  const section = getCodexAgentsInstructionSection();
+  const currentContent = fs.existsSync(agentsPath) ? fs.readFileSync(agentsPath, 'utf8') : '';
+  const updatedContent = upsertGeneratedMarkdownSection(
+    currentContent,
+    'bc-dev-toolset-codex-mcp',
+    section
+  );
+
+  if (currentContent !== updatedContent) {
+    fs.mkdirSync(codexHomePath, { recursive: true });
+    if (currentContent) {
+      fs.writeFileSync(`${agentsPath}.${getTimestampForFileName()}.bak`, currentContent, 'utf8');
+    }
+    fs.writeFileSync(agentsPath, updatedContent, 'utf8');
+  }
+
+  return agentsPath;
+}
+
+function getCodexGlobalAgentsPath(codexHomePath) {
+  const overridePath = path.join(codexHomePath, 'AGENTS.override.md');
+  if (fs.existsSync(overridePath) && fs.readFileSync(overridePath, 'utf8').trim()) {
+    return overridePath;
+  }
+
+  return path.join(codexHomePath, 'AGENTS.md');
+}
+
+function getCodexAgentsInstructionSection() {
+  return [
+    '## BC Dev Toolset MCP',
+    '',
+    'For Business Central Developer\'s Toolset operations, use the Codex MCP server `bc-dev-toolset` and its direct tools named `bc_dev_toolset_*`.',
+    '',
+    'Do not duplicate supported BC Dev Toolset operations by manually inspecting Docker containers, running BcContainerHelper cmdlets, or invoking PowerShell scripts directly. If a matching `bc_dev_toolset_*` tool exists, call it first.',
+    '',
+    'PowerShell and terminal commands are appropriate for work that is not covered by a `bc_dev_toolset_*` MCP tool, for reading local files, and for normal codebase maintenance.',
+    '',
+    'PowerShell-backed MCP operations require the BC Dev Toolset VS Code extension terminal bridge. If the MCP tool reports that the bridge is unavailable, tell the user to start or reload the VS Code extension host instead of falling back to a manual implementation.',
+    ''
+  ].join('\n');
+}
+
+function upsertGeneratedMarkdownSection(content, sectionId, sectionContent) {
+  const startMarker = `<!-- BEGIN ${sectionId} -->`;
+  const endMarker = `<!-- END ${sectionId} -->`;
+  const generatedSection = `${startMarker}\n${sectionContent.trimEnd()}\n${endMarker}\n`;
+  const source = content || '';
+  const startIndex = source.indexOf(startMarker);
+  const endIndex = source.indexOf(endMarker);
+
+  if (startIndex >= 0 && endIndex > startIndex) {
+    return `${source.slice(0, startIndex)}${generatedSection}${source.slice(endIndex + endMarker.length).replace(/^\r?\n/, '')}`;
+  }
+
+  const separator = source.trim() ? (source.endsWith('\n') ? '\n' : '\n\n') : '';
+  return `${source}${separator}${generatedSection}`;
+}
+
+function getMcpNodeExecutable() {
+  const nodeExecutable = resolveExecutablePath('node');
+  if (nodeExecutable && nodeExecutable !== 'node') {
+    return nodeExecutable;
+  }
+
+  return process.execPath;
+}
+
+function getMcpServerVersion(context, serverPath) {
+  const extensionVersion = context.extension.packageJSON.version || 'unknown';
+  try {
+    return `${extensionVersion}.${Math.floor(fs.statSync(serverPath).mtimeMs)}`;
+  } catch (error) {
+    return extensionVersion;
+  }
+}
 
 function getConfiguration() {
   return vscode.workspace.getConfiguration('bcDevToolset');
@@ -212,6 +614,14 @@ function getWorkspacePath() {
   return (workspaceFolder || vscode.workspace.workspaceFolders[0]).uri.fsPath;
 }
 
+function getOptionalWorkspacePath() {
+  try {
+    return getWorkspacePath();
+  } catch (error) {
+    return '';
+  }
+}
+
 function getWorkspaceBasePath() {
   if (vscode.workspace.workspaceFile) {
     return path.dirname(vscode.workspace.workspaceFile.fsPath);
@@ -301,6 +711,23 @@ function getWorkspaceFileName() {
   const workspaceBasePath = getWorkspaceBasePath();
   const workspaceFiles = getWorkspaceFilesInDirectory(workspaceBasePath);
   return workspaceFiles.length === 1 ? workspaceFiles[0] : '';
+}
+
+function getOptionalWorkspaceFileName() {
+  try {
+    return getWorkspaceFileName();
+  } catch (error) {
+    return '';
+  }
+}
+
+function getOptionalLocalSettingsPath() {
+  try {
+    const configuredLocalSettingsPath = resolveWorkspaceBasePath(getConfiguration().get('localSettingsPath'));
+    return configuredLocalSettingsPath || path.join(getConfigPath(), 'settings.json');
+  } catch (error) {
+    return '';
+  }
 }
 
 function getWorkspaceFilesInDirectory(directoryPath) {
@@ -1048,6 +1475,20 @@ async function runOperationById(operationId) {
   await executeOperation(operation, toolsetPath);
 }
 
+async function runOperationByIdForMcp(operationId, options = {}) {
+  const toolsetPath = await resolveToolsetRuntimePath();
+  if (!toolsetPath) {
+    throw new Error('BC Dev Toolset runtime could not be resolved.');
+  }
+
+  const operation = getOperations(toolsetPath).find((candidate) => candidate.id === operationId);
+  if (!operation) {
+    throw new Error(`BC Dev Toolset operation '${operationId}' was not found.`);
+  }
+
+  return executeOperationInTerminalForMcp(operation, toolsetPath, options);
+}
+
 function getOperations(toolsetPath) {
   return JSON.parse(fs.readFileSync(getOperationMetadataPath(toolsetPath), 'utf8'));
 }
@@ -1063,6 +1504,16 @@ async function executeOperation(operation, toolsetPath) {
     return;
   }
 
+  if (operation.command === 'configureCodexMcp') {
+    await configureCodexMcp();
+    return;
+  }
+
+  if (operation.command === 'showMcpStatus') {
+    await showMcpStatus();
+    return;
+  }
+
   if (operation.command === 'showObjectIdRangeVisualizationData') {
     await showObjectIdRangeVisualizationData();
     return;
@@ -1073,6 +1524,47 @@ async function executeOperation(operation, toolsetPath) {
     return;
   }
 
+  const { command, powershellExecutable } = buildOperationTerminalCommand(operation, toolsetPath, { nonInteractive: false });
+
+  const terminal = getOperationTerminal(powershellExecutable);
+  terminal.sendText(command);
+}
+
+async function executeOperationInTerminalForMcp(operation, toolsetPath, options = {}) {
+  if (!operation.script) {
+    throw new Error(`BC Dev Toolset operation '${operation.id}' cannot be run by this extension.`);
+  }
+
+  const capture = createMcpCapturePaths(operation.id);
+  const { command, powershellExecutable } = buildOperationTerminalCommand(operation, toolsetPath, {
+    nonInteractive: false,
+    includeMcpCapture: true,
+    transcriptPath: capture.transcriptPath,
+    resultPath: capture.resultPath
+  });
+  const terminal = getOperationTerminal(powershellExecutable);
+  const terminalName = getPowerShellTerminalName(powershellExecutable);
+  const shellIntegration = await waitForTerminalShellIntegration(terminal, 3000);
+
+  if (!shellIntegration) {
+    terminal.sendText(command);
+    return waitForMcpCaptureResult(operation, terminalName, capture, options);
+  }
+
+  const timeoutMs = Number.isFinite(options.timeoutMs)
+    ? options.timeoutMs
+    : (Number.isFinite(Number(process.env.BCDEVTOOLSET_MCP_TERMINAL_TIMEOUT_MS))
+        ? Number(process.env.BCDEVTOOLSET_MCP_TERMINAL_TIMEOUT_MS)
+        : 60 * 60 * 1000);
+  const execution = shellIntegration.executeCommand(command);
+  const outputParts = [];
+  const readPromise = readTerminalExecutionOutput(execution, outputParts);
+  const captureResult = await waitForMcpCaptureResult(operation, terminalName, capture, { timeoutMs });
+  await waitForTerminalReadToSettle(readPromise, 2000);
+  return captureResult;
+}
+
+function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
   const workspacePath = getWorkspacePath();
   const bridgePath = getOperationBridgePath(toolsetPath);
   const powershellExecutable = operation.powerShellExecutable || getConfiguration().get('powershellExecutable') || 'pwsh';
@@ -1084,17 +1576,214 @@ async function executeOperation(operation, toolsetPath) {
     ? ` -WorkspaceFile ${quotePowerShellArgument(workspaceFile)}`
     : '';
 
-  const command =
-    `$env:BCDEVTOOLSET_SHORTCUTS = ${quotePowerShellArgument(getShortcutMode())}; ` +
-    `$env:BCDEVTOOLSET_HOST_HELPER_FOLDER = ${quotePowerShellArgument(getHostHelperFolder())}; ` +
+  const operationCommand =
     `& ${quotePowerShellArgument(bridgePath)}` +
     ` -Operation ${quotePowerShellArgument(operation.id)}` +
     ` -WorkspacePath ${quotePowerShellArgument(workspacePath)}` +
     workspaceFileArguments +
-    localSettingsArguments;
+    localSettingsArguments +
+    (options.nonInteractive ? ' -NonInteractive' : '');
 
-  const terminal = getOperationTerminal(powershellExecutable);
-  terminal.sendText(command);
+  const command =
+    `$env:BCDEVTOOLSET_SHORTCUTS = ${quotePowerShellArgument(getShortcutMode())}; ` +
+    `$env:BCDEVTOOLSET_HOST_HELPER_FOLDER = ${quotePowerShellArgument(getHostHelperFolder())}; ` +
+    (options.includeMcpCapture
+      ? buildMcpCapturedPowerShellCommand(operationCommand, options.transcriptPath, options.resultPath)
+      : options.includeMcpExitMarker
+        ? `try { ${operationCommand}; $bcDevToolsetMcpExitCode = if ($?) { 0 } else { 1 } } catch { Write-Error $_; $bcDevToolsetMcpExitCode = 1 }; Write-Host ${quotePowerShellArgument('__BCDEVTOOLSET_MCP_EXIT_CODE__')} $bcDevToolsetMcpExitCode`
+      : operationCommand);
+
+  return { command, powershellExecutable };
+}
+
+function buildMcpCapturedPowerShellCommand(operationCommand, transcriptPath, resultPath) {
+  const quotedTranscriptPath = quotePowerShellArgument(transcriptPath);
+  const quotedResultPath = quotePowerShellArgument(resultPath);
+  return [
+    `$bcDevToolsetMcpTranscriptPath = ${quotedTranscriptPath}`,
+    `$bcDevToolsetMcpResultPath = ${quotedResultPath}`,
+    '$bcDevToolsetMcpExitCode = 1',
+    '$bcDevToolsetMcpError = $null',
+    'try {',
+    '  Start-Transcript -Path $bcDevToolsetMcpTranscriptPath -Force | Out-Null',
+    `  try { ${operationCommand}; $bcDevToolsetMcpExitCode = if ($?) { 0 } else { 1 } } catch { $bcDevToolsetMcpError = $_.Exception.Message; Write-Error $_; $bcDevToolsetMcpExitCode = 1 }`,
+    '} finally {',
+    '  try { Stop-Transcript | Out-Null } catch {}',
+    '  [pscustomobject]@{ exitCode = $bcDevToolsetMcpExitCode; error = $bcDevToolsetMcpError } | ConvertTo-Json -Compress | Set-Content -LiteralPath $bcDevToolsetMcpResultPath -Encoding UTF8',
+    '}'
+  ].join('; ');
+}
+
+function createMcpCapturePaths(operationId) {
+  const directoryPath = path.join(os.tmpdir(), 'bc-dev-toolset-mcp');
+  fs.mkdirSync(directoryPath, { recursive: true });
+  const id = `${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${operationId}`;
+  return {
+    transcriptPath: path.join(directoryPath, `${id}.transcript.txt`),
+    resultPath: path.join(directoryPath, `${id}.result.json`)
+  };
+}
+
+async function waitForMcpCaptureResult(operation, terminalName, capture, options = {}) {
+  const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 60 * 60 * 1000;
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const result = readMcpCaptureResult(operation, terminalName, capture);
+    if (result) {
+      return result;
+    }
+
+    await delay(500);
+  }
+
+  return {
+    status: 'timeout',
+    operationId: operation.id,
+    operationTitle: operation.title,
+    terminalName,
+    exitCode: null,
+    exitCodeSource: 'mcp-capture-timeout',
+    timedOut: true,
+    outputAvailable: fs.existsSync(capture.transcriptPath),
+    output: readTextFileIfExists(capture.transcriptPath) || 'The terminal operation did not finish before the MCP timeout.'
+  };
+}
+
+function readMcpCaptureResult(operation, terminalName, capture) {
+  if (!fs.existsSync(capture.resultPath)) {
+    return undefined;
+  }
+
+  const result = JSON.parse(fs.readFileSync(capture.resultPath, 'utf8'));
+  const output = cleanPowerShellTranscript(readTextFileIfExists(capture.transcriptPath));
+  const exitCode = typeof result.exitCode === 'number' ? result.exitCode : 1;
+  return {
+    status: exitCode === 0 ? 'completed' : 'failed',
+    operationId: operation.id,
+    operationTitle: operation.title,
+    terminalName,
+    exitCode,
+    exitCodeSource: 'mcp-capture-file',
+    timedOut: false,
+    outputAvailable: true,
+    output: result.error ? `${output}\n\nError: ${result.error}`.trim() : output
+  };
+}
+
+function readTextFileIfExists(filePath) {
+  return fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
+}
+
+function cleanPowerShellTranscript(value) {
+  return stripAnsi(String(value || ''))
+    .replace(/\*{10,}\s*\nWindows PowerShell transcript start[\s\S]*?Transcript started, output file is .*\n/i, '')
+    .replace(/\*{10,}\s*\nWindows PowerShell transcript end[\s\S]*$/i, '')
+    .trim();
+}
+
+function delay(timeoutMs) {
+  return new Promise((resolve) => setTimeout(resolve, timeoutMs));
+}
+
+function getMcpExitCodeFromTerminalOutput(output) {
+  const match = String(output).match(/__BCDEVTOOLSET_MCP_EXIT_CODE__\s+(-?\d+)/);
+  return match ? Number(match[1]) : undefined;
+}
+
+function removeMcpExitCodeFromTerminalOutput(output) {
+  return String(output)
+    .replace(/\s*__BCDEVTOOLSET_MCP_EXIT_CODE__\s+-?\d+\s*/g, '\n')
+    .trim();
+}
+
+function isSuccessfulOperationOutput(output) {
+  const text = String(output || '');
+  if (/(\bfailed\b|\berror\b|exception|timed out)/i.test(text)) {
+    return false;
+  }
+
+  return /Running BC Dev Toolset operation:/i.test(text) &&
+    /Operation ID:/i.test(text) &&
+    /(!{4,}\s*DONE\s*!{4,}|Active license information|Current installed BcContainerHelper version|Docker Client Version)/i.test(text);
+}
+
+function waitForTerminalShellIntegration(terminal, timeoutMs) {
+  if (terminal.shellIntegration) {
+    return Promise.resolve(terminal.shellIntegration);
+  }
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      subscription.dispose();
+      resolve(terminal.shellIntegration);
+    }, timeoutMs);
+
+    const subscription = vscode.window.onDidChangeTerminalShellIntegration((event) => {
+      if (event.terminal === terminal) {
+        clearTimeout(timeout);
+        subscription.dispose();
+        resolve(event.shellIntegration);
+      }
+    });
+  });
+}
+
+async function readTerminalExecutionOutput(execution, outputParts) {
+  try {
+    for await (const data of execution.read()) {
+      outputParts.push(data);
+    }
+  } catch (error) {
+    outputParts.push(`\nFailed to read terminal output: ${error.message}`);
+  }
+}
+
+function waitForTerminalExecutionEnd(execution, timeoutMs) {
+  return Promise.race([
+    waitForTerminalExecutionEndEvent(execution),
+    waitForTerminalExecutionExitCode(execution),
+    new Promise((resolve) => setTimeout(() => resolve({ exitCode: null, timedOut: true }), timeoutMs))
+  ]);
+}
+
+function waitForTerminalExecutionEndEvent(execution) {
+  return new Promise((resolve) => {
+    const subscription = vscode.window.onDidEndTerminalShellExecution((event) => {
+      if (event.execution === execution) {
+        subscription.dispose();
+        resolve({
+          exitCode: typeof event.exitCode === 'number' ? event.exitCode : null,
+          timedOut: false
+        });
+      }
+    });
+  });
+}
+
+async function waitForTerminalExecutionExitCode(execution) {
+  try {
+    const exitCode = await execution.exitCode;
+    return {
+      exitCode: typeof exitCode === 'number' ? exitCode : null,
+      timedOut: false
+    };
+  } catch (error) {
+    return {
+      exitCode: null,
+      timedOut: false
+    };
+  }
+}
+
+function waitForTerminalReadToSettle(readPromise, timeoutMs) {
+  return Promise.race([
+    readPromise,
+    new Promise((resolve) => setTimeout(resolve, timeoutMs))
+  ]);
+}
+
+function stripAnsi(value) {
+  return String(value).replace(/\x1b\[[0-9;]*m/g, '');
 }
 
 module.exports = {
