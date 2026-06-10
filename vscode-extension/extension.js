@@ -14,6 +14,7 @@ let operationTerminalName;
 let mcpBridgeServer;
 let mcpBridgeUrl;
 let mcpBridgeToken;
+let mcpBridgeStatePath;
 
 const directOperationIds = [
   'invokeTests',
@@ -21,6 +22,7 @@ const directOperationIds = [
   'showBcContainerHelperVersions',
   'initPrerequisites',
   'updatePowerShell',
+  'configureCodexMcp',
   'clearAppArtifacts',
   'newDockerContainer',
   'updateLaunchJson',
@@ -101,6 +103,7 @@ function activate(context) {
     vscode.commands.registerCommand('bcDevToolset.openLocalSettingsJson', openLocalSettingsJson),
     vscode.commands.registerCommand('bcDevToolset.showObjectIdRangeVisualizationData', showObjectIdRangeVisualizationData),
     vscode.commands.registerCommand('bcDevToolset.showMcpStatus', showMcpStatus),
+    vscode.commands.registerCommand('bcDevToolset.configureCodexMcp', configureCodexMcp),
     vscode.commands.registerCommand('bcDevToolset.runOperation', runOperation),
     startMcpBridgeServer(context),
     registerMcpServerDefinitionProvider(context),
@@ -139,6 +142,7 @@ function startMcpBridgeServer(context) {
     const address = mcpBridgeServer.address();
     if (address && typeof address === 'object') {
       mcpBridgeUrl = `http://127.0.0.1:${address.port}`;
+      writeMcpBridgeState(context);
       writeOutput(`BC Dev Toolset MCP bridge listening at ${mcpBridgeUrl}.`);
     }
   });
@@ -149,9 +153,35 @@ function startMcpBridgeServer(context) {
         mcpBridgeServer.close();
         mcpBridgeServer = undefined;
         mcpBridgeUrl = undefined;
+        removeMcpBridgeState();
       }
     }
   };
+}
+
+function getMcpBridgeStatePath(context) {
+  return path.join(os.tmpdir(), 'bc-dev-toolset-mcp', 'vscode-bridge.json');
+}
+
+function writeMcpBridgeState(context) {
+  if (!mcpBridgeUrl || !mcpBridgeToken) {
+    return;
+  }
+
+  mcpBridgeStatePath = getMcpBridgeStatePath(context);
+  fs.mkdirSync(path.dirname(mcpBridgeStatePath), { recursive: true });
+  fs.writeFileSync(mcpBridgeStatePath, `${JSON.stringify({
+    url: mcpBridgeUrl,
+    token: mcpBridgeToken,
+    pid: process.pid,
+    updatedAt: new Date().toISOString()
+  }, null, 2)}\n`, 'utf8');
+}
+
+function removeMcpBridgeState() {
+  if (mcpBridgeStatePath && fs.existsSync(mcpBridgeStatePath)) {
+    fs.rmSync(mcpBridgeStatePath, { force: true });
+  }
 }
 
 async function handleMcpBridgeRequest(request, response) {
@@ -248,8 +278,8 @@ function registerMcpServerDefinitionProvider(context) {
       await waitForMcpBridgeServer();
       server.env = {
         ...server.env,
-        BCDEVTOOLSET_MCP_BRIDGE_URL: mcpBridgeUrl || '',
-        BCDEVTOOLSET_MCP_BRIDGE_TOKEN: mcpBridgeToken || ''
+      BCDEVTOOLSET_MCP_BRIDGE_URL: mcpBridgeUrl || '',
+      BCDEVTOOLSET_MCP_BRIDGE_TOKEN: mcpBridgeToken || ''
       };
       return server;
     }
@@ -277,6 +307,7 @@ function createMcpServerDefinition(context) {
       BCDEVTOOLSET_MCP_EXTENSION_VERSION: mcpServerVersion,
       BCDEVTOOLSET_MCP_BRIDGE_URL: mcpBridgeUrl || '',
       BCDEVTOOLSET_MCP_BRIDGE_TOKEN: mcpBridgeToken || '',
+      BCDEVTOOLSET_MCP_BRIDGE_STATE_PATH: mcpBridgeStatePath || getMcpBridgeStatePath(context),
       BCDEVTOOLSET_SHORTCUTS: getShortcutMode(),
       BCDEVTOOLSET_HOST_HELPER_FOLDER: getHostHelperFolder(),
       ELECTRON_RUN_AS_NODE: '1'
@@ -297,11 +328,181 @@ async function showMcpStatus() {
     `MCP server file exists: ${serverPath ? fs.existsSync(serverPath) : false}`,
     `MCP Node executable: ${nodeExecutable}`,
     `MCP terminal bridge: ${mcpBridgeUrl || '(not ready)'}`,
+    `MCP bridge state: ${mcpBridgeStatePath || (extensionContext ? getMcpBridgeStatePath(extensionContext) : '(not ready)')}`,
     `Toolset path: ${getToolsetPath()}`
   ].join('\n');
 
   writeOutput(message);
   await vscode.window.showInformationMessage(message, { modal: true });
+}
+
+async function configureCodexMcp() {
+  const toolsetPath = await resolveToolsetRuntimePath();
+  if (!toolsetPath) {
+    return;
+  }
+
+  const configPath = getCodexConfigPath();
+  const configDirectory = path.dirname(configPath);
+  const mcpServerPath = path.join(extensionContext.extensionPath, 'mcp-server.js');
+
+  if (!fs.existsSync(mcpServerPath)) {
+    await vscode.window.showErrorMessage(`BC Dev Toolset MCP server was not found at ${mcpServerPath}.`);
+    return;
+  }
+
+  fs.mkdirSync(configDirectory, { recursive: true });
+
+  const existingContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
+  if (existingContent) {
+    const backupPath = `${configPath}.${getTimestampForFileName()}.bak`;
+    fs.writeFileSync(backupPath, existingContent, 'utf8');
+  }
+
+  const updatedContent = updateCodexMcpConfigContent(existingContent, {
+    mcpServerPath,
+    toolsetPath
+  });
+  fs.writeFileSync(configPath, updatedContent, 'utf8');
+  const agentsPath = ensureCodexGlobalAgentsInstructions();
+
+  const message = `Codex MCP configuration was updated at ${configPath}. Codex global instructions were updated at ${agentsPath}. Restart Codex to load the BC Dev Toolset MCP server.`;
+  writeOutput(message);
+  await vscode.window.showInformationMessage(message);
+}
+
+function getCodexHomePath() {
+  if (process.env.CODEX_HOME) {
+    return process.env.CODEX_HOME;
+  }
+
+  const homePath = process.env.USERPROFILE || process.env.HOME;
+  if (!homePath) {
+    throw new Error('Could not resolve the user profile folder for Codex config.');
+  }
+
+  return path.join(homePath, '.codex');
+}
+
+function getCodexConfigPath() {
+  return path.join(getCodexHomePath(), 'config.toml');
+}
+
+function updateCodexMcpConfigContent(content, values) {
+  const normalizedContent = content || '';
+  const withoutExistingSection = removeTomlTableSection(
+    removeTomlTableSection(normalizedContent, 'mcp_servers.bc-dev-toolset.env'),
+    'mcp_servers.bc-dev-toolset'
+  ).trimEnd();
+
+  const section = [
+    '[mcp_servers.bc-dev-toolset]',
+    'command = "node"',
+    `args = [${quoteTomlString(values.mcpServerPath)}]`,
+    'startup_timeout_sec = 20',
+    'tool_timeout_sec = 7200',
+    '',
+    '[mcp_servers.bc-dev-toolset.env]',
+    `BCDEVTOOLSET_MCP_TOOLSET_PATH = ${quoteTomlString(values.toolsetPath)}`,
+    ''
+  ].join('\n');
+
+  return `${withoutExistingSection}${withoutExistingSection ? '\n\n' : ''}${section}`;
+}
+
+function removeTomlTableSection(content, tableName) {
+  const lines = String(content || '').split(/\r?\n/);
+  const result = [];
+  const tableHeader = `[${tableName}]`;
+  let skipping = false;
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    if (trimmedLine.startsWith('[') && trimmedLine.endsWith(']')) {
+      if (trimmedLine === tableHeader) {
+        skipping = true;
+        continue;
+      }
+
+      skipping = false;
+    }
+
+    if (!skipping) {
+      result.push(line);
+    }
+  }
+
+  return result.join('\n');
+}
+
+function quoteTomlString(value) {
+  return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function getTimestampForFileName() {
+  return new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-');
+}
+
+function ensureCodexGlobalAgentsInstructions() {
+  const codexHomePath = getCodexHomePath();
+  const agentsPath = getCodexGlobalAgentsPath(codexHomePath);
+  const section = getCodexAgentsInstructionSection();
+  const currentContent = fs.existsSync(agentsPath) ? fs.readFileSync(agentsPath, 'utf8') : '';
+  const updatedContent = upsertGeneratedMarkdownSection(
+    currentContent,
+    'bc-dev-toolset-codex-mcp',
+    section
+  );
+
+  if (currentContent !== updatedContent) {
+    fs.mkdirSync(codexHomePath, { recursive: true });
+    if (currentContent) {
+      fs.writeFileSync(`${agentsPath}.${getTimestampForFileName()}.bak`, currentContent, 'utf8');
+    }
+    fs.writeFileSync(agentsPath, updatedContent, 'utf8');
+  }
+
+  return agentsPath;
+}
+
+function getCodexGlobalAgentsPath(codexHomePath) {
+  const overridePath = path.join(codexHomePath, 'AGENTS.override.md');
+  if (fs.existsSync(overridePath) && fs.readFileSync(overridePath, 'utf8').trim()) {
+    return overridePath;
+  }
+
+  return path.join(codexHomePath, 'AGENTS.md');
+}
+
+function getCodexAgentsInstructionSection() {
+  return [
+    '## BC Dev Toolset MCP',
+    '',
+    'For Business Central Developer\'s Toolset operations, use the Codex MCP server `bc-dev-toolset` and its direct tools named `bc_dev_toolset_*`.',
+    '',
+    'Do not duplicate supported BC Dev Toolset operations by manually inspecting Docker containers, running BcContainerHelper cmdlets, or invoking PowerShell scripts directly. If a matching `bc_dev_toolset_*` tool exists, call it first.',
+    '',
+    'PowerShell and terminal commands are appropriate for work that is not covered by a `bc_dev_toolset_*` MCP tool, for reading local files, and for normal codebase maintenance.',
+    '',
+    'PowerShell-backed MCP operations require the BC Dev Toolset VS Code extension terminal bridge. If the MCP tool reports that the bridge is unavailable, tell the user to start or reload the VS Code extension host instead of falling back to a manual implementation.',
+    ''
+  ].join('\n');
+}
+
+function upsertGeneratedMarkdownSection(content, sectionId, sectionContent) {
+  const startMarker = `<!-- BEGIN ${sectionId} -->`;
+  const endMarker = `<!-- END ${sectionId} -->`;
+  const generatedSection = `${startMarker}\n${sectionContent.trimEnd()}\n${endMarker}\n`;
+  const source = content || '';
+  const startIndex = source.indexOf(startMarker);
+  const endIndex = source.indexOf(endMarker);
+
+  if (startIndex >= 0 && endIndex > startIndex) {
+    return `${source.slice(0, startIndex)}${generatedSection}${source.slice(endIndex + endMarker.length).replace(/^\r?\n/, '')}`;
+  }
+
+  const separator = source.trim() ? (source.endsWith('\n') ? '\n' : '\n\n') : '';
+  return `${source}${separator}${generatedSection}`;
 }
 
 function getMcpNodeExecutable() {
@@ -1300,6 +1501,16 @@ async function executeOperation(operation, toolsetPath) {
 
   if (operation.command === 'openLocalSettingsJson') {
     await openLocalSettingsJson();
+    return;
+  }
+
+  if (operation.command === 'configureCodexMcp') {
+    await configureCodexMcp();
+    return;
+  }
+
+  if (operation.command === 'showMcpStatus') {
+    await showMcpStatus();
     return;
   }
 

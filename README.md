@@ -66,6 +66,12 @@ Operations marked as requiring confirmation must be called with `confirm: true`.
 
 Generic MCP tools for listing and running operation IDs are hidden by default to keep agent tool selection focused on the direct `bc_dev_toolset_*` tools.
 
+#### Codex
+
+Codex does not automatically discover MCP servers contributed through the VS Code extension API. Run `BC Dev Toolset: Configure Codex MCP Integration` to add or update the `bc-dev-toolset` MCP server entry in the user's Codex `config.toml`. The operation also adds a managed section to the user's active global Codex instructions file (`AGENTS.override.md` if that active override exists, otherwise `AGENTS.md`) so Codex knows to prefer the `bc_dev_toolset_*` tools for BC Dev Toolset operations in any AL workspace. This file is a Codex instruction file under the user's Codex home; it is not loaded by VS Code and it does not have to exist in each consuming repository.
+
+The Codex MCP server uses the same VS Code terminal bridge for PowerShell-backed operations. Keep the BC Dev Toolset extension active in VS Code when you want Codex to run operations in the visible terminal and read the captured results.
+
 ### Prerequisites
 
 1. A **Windows Pro** or **Windows Enterprise** edition.

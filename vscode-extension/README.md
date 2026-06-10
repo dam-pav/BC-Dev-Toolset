@@ -81,6 +81,12 @@ Operations marked as requiring confirmation must be called with `confirm: true`.
 
 Generic MCP tools for listing and running operation IDs are hidden by default to keep agent tool selection focused on the direct `bc_dev_toolset_*` tools.
 
+### Codex
+
+Codex does not automatically discover MCP servers contributed through the VS Code extension API. Run `BC Dev Toolset: Configure Codex MCP Integration` to add or update the `bc-dev-toolset` MCP server entry in the user's Codex `config.toml`. The operation also adds a managed section to the user's active global Codex instructions file (`AGENTS.override.md` if that active override exists, otherwise `AGENTS.md`) so Codex knows to prefer the `bc_dev_toolset_*` tools for BC Dev Toolset operations in any AL workspace. This file is a Codex instruction file under the user's Codex home; it is not loaded by VS Code and it does not have to exist in each consuming repository.
+
+The Codex MCP server uses the same VS Code terminal bridge for PowerShell-backed operations. Keep the BC Dev Toolset extension active in VS Code when you want Codex to run operations in the visible terminal and read the captured results.
+
 ## Other prerequisites
 
 The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all the required components with a single operation. For practical use, you should expect to need:
@@ -98,17 +104,6 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 - `Clear App and translation artifacts`: Removes generated app and translation artifacts from the workspace.
 - `Update launch.json files in all apps in the workspace`: Refreshes launch configurations for all apps in the workspace.
 
-### Prerequisites
-
-- `Show BcContainerHelper versions (installed and available)`: Shows the installed and available BcContainerHelper versions.
-- `Install/Update Prerequisites`: Installs and updates the main prerequisites used by the toolset, including BcContainerHelper.
-- `Install/Update Microsoft PowerShell`: Updates the Windows PowerShell installation used for the toolkit setup flow.
-
-### Tests
-
-- `Run tests in all containers`: Runs tests across configured container targets.
-- `Run page script tests`: Runs page script test recordings and writes the results to the configured output location.
-
 ### Container
 
 - `Create/Overwrite Docker container based on the first app.json found in the workspace`: Creates or recreates a development container using the workspace app metadata.
@@ -120,6 +115,11 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 - `Create and export SQL backup set from Docker container`: Creates SQL backup files from a Docker container environment.
 - `Create and export SQL backup set from BC service SQL Server`: Creates SQL backup files from a Business Central service SQL Server environment. You will require credentials with the ability to create remote Powershell sessions to the SQL Server host.
 - `Restore SQL backup set to Docker container`: Restores a saved SQL backup set into a Docker container.
+
+### Tests
+
+- `Run tests in all containers`: Runs tests across configured container targets.
+- `Run page script tests`: Runs page script test recordings and writes the results to the configured output location.
 
 ### Publish
 
@@ -142,6 +142,17 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 
 - `Prepare object id range data for visualization`: Builds object ID range data for the current workspace.
 - `Show object id range visualization data`: Opens the generated object ID range visualization output.
+
+### Prerequisites
+
+- `Show BcContainerHelper versions (installed and available)`: Shows the installed and available BcContainerHelper versions.
+- `Install/Update Prerequisites`: Installs and updates the main prerequisites used by the toolset, including BcContainerHelper.
+- `Install/Update Microsoft PowerShell`: Updates the Windows PowerShell installation used for the toolkit setup flow.
+
+### MCP Configuration
+
+- `Show MCP status`: Shows the extension MCP API, server, terminal bridge, and runtime status.
+- `Configure Codex MCP integration`: Adds or updates the BC Dev Toolset MCP server entry in Codex configuration and adds managed global Codex instructions.
 
 ## Settings
 

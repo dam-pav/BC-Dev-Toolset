@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const childProcess = require('child_process');
 const http = require('http');
+const os = require('os');
 
 const defaultProtocolVersion = '2025-11-25';
 const toolsetPath = process.env.BCDEVTOOLSET_MCP_TOOLSET_PATH || path.resolve(__dirname, '..');
@@ -13,8 +14,10 @@ const defaultWorkspacePath = process.env.BCDEVTOOLSET_MCP_WORKSPACE_PATH || proc
 const defaultWorkspaceFile = process.env.BCDEVTOOLSET_MCP_WORKSPACE_FILE || '';
 const defaultLocalSettingsPath = process.env.BCDEVTOOLSET_MCP_LOCAL_SETTINGS_PATH || '';
 const defaultPowerShellExecutable = process.env.BCDEVTOOLSET_MCP_POWERSHELL_EXECUTABLE || 'pwsh';
-const bridgeUrl = process.env.BCDEVTOOLSET_MCP_BRIDGE_URL || '';
-const bridgeToken = process.env.BCDEVTOOLSET_MCP_BRIDGE_TOKEN || '';
+const bridgeStatePath = process.env.BCDEVTOOLSET_MCP_BRIDGE_STATE_PATH || path.join(os.tmpdir(), 'bc-dev-toolset-mcp', 'vscode-bridge.json');
+const bridgeState = readBridgeState();
+const bridgeUrl = process.env.BCDEVTOOLSET_MCP_BRIDGE_URL || bridgeState.url || '';
+const bridgeToken = process.env.BCDEVTOOLSET_MCP_BRIDGE_TOKEN || bridgeState.token || '';
 const outputLimit = 60000;
 
 let inputBuffer = Buffer.alloc(0);
@@ -24,6 +27,7 @@ let transportMode = 'unknown';
 log(`started pid=${process.pid} node=${process.execPath}`);
 log(`toolsetPath=${toolsetPath}`);
 log(`bridgeUrl=${bridgeUrl || '(none)'}`);
+log(`bridgeStatePath=${bridgeStatePath || '(none)'}`);
 
 process.stdin.on('data', (chunk) => {
   log(`stdin ${chunk.length} bytes`);
@@ -152,6 +156,7 @@ async function handleMessage(body) {
         sendResult(message.id, {
           protocolVersion: getProtocolVersion(message),
           capabilities: { tools: {} },
+          instructions: getServerInstructions(),
           serverInfo: {
             name: 'bc-dev-toolset',
             version: process.env.BCDEVTOOLSET_MCP_EXTENSION_VERSION || '0.0.0'
@@ -183,6 +188,14 @@ async function handleMessage(body) {
   } catch (error) {
     sendError(message.id, -32603, error.message);
   }
+}
+
+function getServerInstructions() {
+  return [
+    'Use this server for Business Central Developer\'s Toolset operations. Prefer direct tools named bc_dev_toolset_* for matching user requests; do not inspect Docker containers or call BcContainerHelper directly to duplicate a supported toolset operation.',
+    'PowerShell-backed operations require the VS Code terminal bridge and run visibly in the BC Dev Toolset terminal. If the bridge is unavailable, report that the BC Dev Toolset VS Code extension must be active instead of falling back to manual PowerShell.',
+    'Use bc_dev_toolset_show_active_licenses for requests about the current container license. Use bc_dev_toolset_new_docker_container for creating or recreating containers.'
+  ].join('\n');
 }
 
 function getProtocolVersion(message) {
@@ -640,6 +653,18 @@ function postBridgeJson(route, body) {
     request.write(content);
     request.end();
   });
+}
+
+function readBridgeState() {
+  if (!bridgeStatePath || !fs.existsSync(bridgeStatePath)) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(bridgeStatePath, 'utf8'));
+  } catch (error) {
+    return {};
+  }
 }
 
 function addOptionalArgument(args, name, value) {
