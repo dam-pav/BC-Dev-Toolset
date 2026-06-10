@@ -49,6 +49,23 @@ Your development environment for your current workspace is ready and you can sta
 
 All the operations are available through the VS Code Command Palette. You can type them out directly or you can use the ***BC Dev Toolset: Show Operations List*** that will let you select any of the operations from a drop-down menu.
 
+### MCP server
+
+The extension contributes an MCP server named `BC Dev Toolset Operations` in VS Code. Agents such as GitHub Copilot can use it to run BC Dev Toolset operations without asking the user to know script names or operation IDs.
+
+The server exposes direct operation tools named with the `bc_dev_toolset_` prefix, for example:
+
+- `bc_dev_toolset_show_active_licenses`
+- `bc_dev_toolset_new_docker_container`
+- `bc_dev_toolset_invoke_tests`
+- `bc_dev_toolset_publish_apps2_docker`
+
+PowerShell-backed operations are always run through the visible `BC Dev Toolset: <PowerShell executable>` terminal. This means long-running operations, such as creating a container and downloading artifacts, show their progress in the terminal. The MCP result is captured from the same terminal execution and returned to the agent when the operation finishes.
+
+Operations marked as requiring confirmation must be called with `confirm: true`. Some scripts can still ask interactive questions in the terminal; answer them there while the operation is running.
+
+Generic MCP tools for listing and running operation IDs are hidden by default to keep agent tool selection focused on the direct `bc_dev_toolset_*` tools.
+
 ### Prerequisites
 
 1. A **Windows Pro** or **Windows Enterprise** edition.
