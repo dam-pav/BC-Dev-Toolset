@@ -91,6 +91,51 @@ function Get-DockerInstalledVersion {
     return $null
 }
 
+function Get-DockerDesktopInstallation {
+    $programFiles = [Environment]::GetFolderPath("ProgramFiles")
+    $candidatePaths = @(
+        Join-Path $programFiles "Docker\Docker\Docker Desktop.exe",
+        Join-Path $programFiles "Docker\Docker\DockerCli.exe"
+    )
+
+    foreach ($candidatePath in $candidatePaths) {
+        if (Test-Path $candidatePath) {
+            return [PSCustomObject]@{
+                Source      = "file"
+                Description = $candidatePath
+            }
+        }
+    }
+
+    $dockerDesktopService = Get-Service -Name "com.docker.service" -ErrorAction SilentlyContinue
+    if ($dockerDesktopService) {
+        return [PSCustomObject]@{
+            Source      = "service"
+            Description = $dockerDesktopService.DisplayName
+        }
+    }
+
+    $uninstallRegistryPaths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+
+    foreach ($uninstallRegistryPath in $uninstallRegistryPaths) {
+        $dockerDesktopRegistryEntry = Get-ItemProperty -Path $uninstallRegistryPath -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -eq "Docker Desktop" } |
+            Select-Object -First 1
+
+        if ($dockerDesktopRegistryEntry) {
+            return [PSCustomObject]@{
+                Source      = "registry"
+                Description = $dockerDesktopRegistryEntry.DisplayName
+            }
+        }
+    }
+
+    return $null
+}
+
 function Get-LatestDockerRelease {
     Write-Host "Fetching latest Docker Engine release..."
     $releasesUrl = "https://download.docker.com/win/static/stable/x86_64/"
@@ -247,10 +292,13 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 
 Write-Header "BC Dev Toolset Prerequisites Installation"
 
+$dockerDesktopInstallation = Get-DockerDesktopInstallation
+$skipDockerEngineSteps = $null -ne $dockerDesktopInstallation
+
 # ============================================================================
 # 1. DOCKER ENGINE INSTALLATION
 # ============================================================================
-if (-not $SkipDockerInstall) {
+if (-not $SkipDockerInstall -and -not $skipDockerEngineSteps) {
     Write-Header "1. Installing or Updating Docker Engine"
     
     try {
@@ -282,6 +330,9 @@ if (-not $SkipDockerInstall) {
         Write-Error "Docker installation failed: $_"
         Write-Host "You can manually download from: https://download.docker.com/win/static/stable/x86_64/"
     }
+}
+elseif ($skipDockerEngineSteps) {
+    Write-Host "Skipping Docker Engine installation (Docker Desktop detected)"
 }
 else {
     Write-Host "Skipping Docker Engine installation (--SkipDockerInstall flag set)"
@@ -368,37 +419,42 @@ else {
 # ============================================================================
 # 3. ADD DOCKER TO PATH
 # ============================================================================
-Write-Header "3. Adding Docker to PATH"
+if (-not $skipDockerEngineSteps) {
+    Write-Header "3. Adding Docker to PATH"
 
-try {
-    $currentPath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
-    
-    # Check if Docker path already in PATH
-    if ($currentPath -like "*$DockerPath*") {
-        Write-Warning "Docker path already in system PATH"
-    }
-    else {
-        # Add to PATH
-        $newPath = "$currentPath;$DockerPath"
+    try {
+        $currentPath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
         
-        # Check if PATH will exceed typical limits
-        if ($newPath.Length -gt 2048) {
-            Write-Warning "System PATH is approaching or exceeds recommended length (2048 chars)"
-            Write-Warning "Current: $($newPath.Length) chars"
+        # Check if Docker path already in PATH
+        if ($currentPath -like "*$DockerPath*") {
+            Write-Warning "Docker path already in system PATH"
         }
-        
-        [Environment]::SetEnvironmentVariable("PATH", $newPath, "Machine")
-        Write-Success "Docker path added to system PATH"
+        else {
+            # Add to PATH
+            $newPath = "$currentPath;$DockerPath"
+            
+            # Check if PATH will exceed typical limits
+            if ($newPath.Length -gt 2048) {
+                Write-Warning "System PATH is approaching or exceeds recommended length (2048 chars)"
+                Write-Warning "Current: $($newPath.Length) chars"
+            }
+            
+            [Environment]::SetEnvironmentVariable("PATH", $newPath, "Machine")
+            Write-Success "Docker path added to system PATH"
+        }
+    }
+    catch {
+        Write-Error "Failed to add Docker to PATH: $_"
     }
 }
-catch {
-    Write-Error "Failed to add Docker to PATH: $_"
+else {
+    Write-Host "Skipping Docker Engine PATH update (Docker Desktop detected)"
 }
 
 # ============================================================================
 # 4. INSTALL DOCKER SERVICE
 # ============================================================================
-if (-not $SkipDockerInstall) {
+if (-not $SkipDockerInstall -and -not $skipDockerEngineSteps) {
     Write-Header "4. Installing Docker as Windows Service"
     
     try {
@@ -435,6 +491,9 @@ if (-not $SkipDockerInstall) {
         Write-Error "Failed to install Docker service: $_"
         Write-Host "You may need to create the service manually"
     }
+}
+elseif ($skipDockerEngineSteps) {
+    Write-Host "Skipping Docker Engine service installation (Docker Desktop detected)"
 }
 
 # ============================================================================
