@@ -48,7 +48,8 @@ This opens the developer-local settings file at `.bcdevtoolset/settings.json`. U
 Important local settings to review before running most operations:
 
 - `configurations`: Defines the local Business Central environments the toolset can target. The extension creates a default `Local` container configuration automatically.
-- `dependenciesPath`: Folder containing dependency `.app` packages used by dependency publishing operations.
+- `dependenciesPaths`: Folders containing dependency `.app` packages, or direct `.zip` file paths, used by dependency publishing operations.
+- `dependenciesPath`: Deprecated legacy single folder containing dependency `.app` packages. It is still read for compatibility, but users should migrate to `dependenciesPaths`.
 - `packageOutputPath`: Folder where runtime packages are written.
 - `sqlBackupPath`: Folder used by backup and restore operations.
 - `licenseFile`: Required for license update and some runtime packaging scenarios.
@@ -216,7 +217,8 @@ These are stored in `.bcdevtoolset/settings.json` and are intended for developer
 - `licenseFile`: Path to the Business Central license file.
 - `certificateFile`: Path to the certificate file used by local operations and runtime packaging.
 - `packageOutputPath`: Folder where generated packages are written.
-- `dependenciesPath`: Folder containing dependency app packages.
+- `dependenciesPaths`: Folders containing dependency `.app` packages, or direct `.zip` file paths.
+- `dependenciesPath`: Deprecated legacy single folder containing dependency app packages. It is still read for compatibility, but users should migrate to `dependenciesPaths`.
 - `recordingsPath`: Folder containing page scripting recordings.
 - `pageScriptTestResultsPath`: Folder where page script test results are written.
 - `pageScriptTestHeaded`: Whether page script tests should run headed.
