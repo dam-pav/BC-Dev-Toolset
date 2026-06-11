@@ -34,7 +34,7 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:bcDevToolset.configureWorkspace",
+    "onCommand:bcDevToolset.initializeWorkspace",
     "onCommand:bcDevToolset.openLocalSettingsJson",
     "onCommand:bcDevToolset.configureCodexMcp",
     "onCommand:bcDevToolset.showObjectIdRangeVisualizationData",
@@ -745,8 +745,8 @@
     ],
     "commands": [
       {
-        "command": "bcDevToolset.configureWorkspace",
-        "title": "BC Dev Toolset: Configure Workspace"
+        "command": "bcDevToolset.initializeWorkspace",
+        "title": "BC Dev Toolset: Initialize Workspace"
       },
       {
         "command": "bcDevToolset.openLocalSettingsJson",

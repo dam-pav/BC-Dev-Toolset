@@ -99,7 +99,7 @@ function activate(context) {
         operationTerminalName = undefined;
       }
     }),
-    vscode.commands.registerCommand('bcDevToolset.configureWorkspace', configureWorkspace),
+    vscode.commands.registerCommand('bcDevToolset.initializeWorkspace', initializeWorkspace),
     vscode.commands.registerCommand('bcDevToolset.openLocalSettingsJson', openLocalSettingsJson),
     vscode.commands.registerCommand('bcDevToolset.showObjectIdRangeVisualizationData', showObjectIdRangeVisualizationData),
     vscode.commands.registerCommand('bcDevToolset.showMcpStatus', showMcpStatus),
@@ -740,7 +740,7 @@ function getWorkspaceFilesInDirectory(directoryPath) {
     .map((fileName) => path.join(directoryPath, fileName));
 }
 
-function getWorkspaceFileNameForConfigureWorkspace() {
+function getWorkspaceFileNameForInitializeWorkspace() {
   if (vscode.workspace.workspaceFile) {
     return vscode.workspace.workspaceFile.fsPath;
   }
@@ -1331,8 +1331,8 @@ function writeOutput(message) {
   outputChannel.appendLine(message);
 }
 
-async function configureWorkspace() {
-  const workspaceFile = getWorkspaceFileNameForConfigureWorkspace();
+async function initializeWorkspace() {
+  const workspaceFile = getWorkspaceFileNameForInitializeWorkspace();
   const configPath = workspaceFile ? path.join(path.dirname(workspaceFile), '.bcdevtoolset') : getConfigPath();
   const localPath = path.join(configPath, 'settings.json');
 
@@ -1494,8 +1494,8 @@ function getOperations(toolsetPath) {
 }
 
 async function executeOperation(operation, toolsetPath) {
-  if (operation.command === 'configureWorkspace') {
-    await configureWorkspace();
+  if (operation.command === 'initializeWorkspace') {
+    await initializeWorkspace();
     return;
   }
 

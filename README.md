@@ -39,7 +39,7 @@ You already have your VS Code running? It's as simple as 1,2,3.
 
 1. Open the Extension Marketplace, search for *BC Dev Toolset* and install.
 2. Open Command Palette, select *BC Dev Toolset: Install Prerequisites* and run the operation.
-3. Open Command Palette, select BC Dev Toolset: Configure workspace and run.
+3. Open Command Palette, select BC Dev Toolset: Initialize Workspace and run.
 
 Your development environment for your current workspace is ready and you can start with creating your container, managing your workspace etc.
 
@@ -97,8 +97,9 @@ The Codex MCP server uses the same VS Code terminal bridge for PowerShell-backed
    >
    > If Docker Desktop is already present, the operation reports it and skips the Docker Engine installation, PATH, and service setup steps.
    >
-   > If this is a problem or if you simply prefer to do this manually, please continue following the steps.
+   > If you later change your mind and you would rather like to use Docker Engine after all, simply uninstall Docker Desktop and run the Install prerequisites operation again.
    >
+   > The prerequisites can also be installed manually. Just follow the steps below.
 3. Try the container solution that works for you
 
    If you are not running Docker Desktop (or even if you are) I advise using the VS Code plugin named *Container Tools*, released by Microsoft.

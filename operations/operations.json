@@ -1,8 +1,8 @@
 [
   {
-    "id": "configureWorkspace",
-    "title": "Configure Workspace",
-    "command": "configureWorkspace",
+    "id": "initializeWorkspace",
+    "title": "Initialize Workspace",
+    "command": "initializeWorkspace",
     "category": "Workspace"
   },
   {
