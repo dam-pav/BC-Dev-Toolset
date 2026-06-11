@@ -95,7 +95,7 @@ The Codex MCP server uses the same VS Code terminal bridge for PowerShell-backed
    > - installs git
    > - installs BcContainerHelper
    >
-   > The operation will not verify the presence of Docker Desktop.
+   > If Docker Desktop is already present, the operation reports it and skips the Docker Engine installation, PATH, and service setup steps.
    >
    > If this is a problem or if you simply prefer to do this manually, please continue following the steps.
    >
