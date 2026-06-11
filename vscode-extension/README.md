@@ -31,9 +31,9 @@ Run `BC Dev Toolset: Install prerequisites`.
 
 Use this to prepare the workstation for the toolset. This operation is intended to install the main external requirements used by the toolkit.
 
-### 2. Configure workspace
+### 2. Initialize workspace
 
-Run `BC Dev Toolset: Configure Workspace`.
+Run `BC Dev Toolset: Initialize Workspace`.
 
 This initializes your current project. You will actually do this for every project you start.
 
@@ -99,7 +99,7 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 
 ### Workspace
 
-- `Configure Workspace`: Creates the baseline BC Dev Toolset workspace structure and default settings content for the current workspace.
+- `Initialize Workspace`: Creates the baseline BC Dev Toolset workspace structure and default settings content for the current workspace.
 - `Open Local Settings (JSON)`: Opens `.bcdevtoolset/settings.json` for the current workspace.
 - `Clear App and translation artifacts`: Removes generated app and translation artifacts from the workspace.
 - `Update launch.json files in all apps in the workspace`: Refreshes launch configurations for all apps in the workspace.

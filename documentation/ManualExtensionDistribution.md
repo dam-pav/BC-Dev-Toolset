@@ -58,7 +58,7 @@ code --install-extension .\bc-dev-toolset-<version>.vsix
 After installing the extension:
 
 1. Open a Business Central `.code-workspace`.
-2. Run `BC Dev Toolset: Configure Workspace`.
+2. Run `BC Dev Toolset: Initialize Workspace`.
 3. Review `.bcdevtoolset/settings.json`.
 4. Review the `bcDevToolset.*` extension settings if you need to override `shortcuts` or `hostHelperFolder`.
 
@@ -72,5 +72,5 @@ Before sharing a VSIX:
 2. Run `npm run validate`.
 3. Run `npm run package`.
 4. Install the generated VSIX into a clean VS Code profile or another machine.
-5. Verify `Configure Workspace`, `Open Local Settings (JSON)`, and `Show Operations List`.
+5. Verify `Initialize Workspace`, `Open Local Settings (JSON)`, and `Show Operations List`.
 6. Attach the VSIX to a GitHub release.

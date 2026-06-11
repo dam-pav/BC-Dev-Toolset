@@ -265,7 +265,7 @@ Deliverables:
 Initial command palette surface:
 
 - Automatic central toolset runtime sync after extension updates
-- `BC Dev Toolset: Configure Workspace`
+- `BC Dev Toolset: Initialize Workspace`
 - `BC Dev Toolset: Show Operations List`
 - `BC Dev Toolset: Create/Overwrite Docker Container`
 - `BC Dev Toolset: Update launch.json`
