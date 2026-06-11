@@ -13,7 +13,7 @@
   },
   "scripts": {
     "validate": "node --check extension.js",
-    "prepare:runtime": "node ./scripts/prepare-runtime-package.js",
+    "prepare:runtime": "node ./build/prepare-runtime-package.js",
     "package": "npm run prepare:runtime && npx @vscode/vsce package --no-dependencies",
     "publish:marketplace": "npm run prepare:runtime && npx @vscode/vsce publish --no-dependencies",
     "publish:marketplace:pre": "npm run prepare:runtime && npx @vscode/vsce publish --pre-release --no-dependencies"
