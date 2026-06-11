@@ -155,6 +155,7 @@ Examples:
 - `licenseFile`
 - `certificateFile`
 - `packageOutputPath`
+- `dependenciesPaths`
 - `dependenciesPath`
 - `recordingsPath`
 - `pageScriptTestResultsPath`

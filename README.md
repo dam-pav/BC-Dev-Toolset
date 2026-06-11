@@ -394,7 +394,8 @@ These settings are stored in `.bcdevtoolset/settings.json`:
 - `licenseFile`: Specify if you have one. Mandatory for runtime packages.
 - `certificateFile`: Specify if you have one. Mandatory for runtime packages.
 - `packageOutputPath`: Folder path for runtime packages. If empty, a `runtime` subfolder is created and used in the project.
-- `dependenciesPath`: Folder path containing the required app packages.
+- `dependenciesPaths`: Folder paths containing the required `.app` packages, or direct `.zip` file paths. Use this setting for dependency publishing.
+- `dependenciesPath`: Deprecated legacy single folder path containing the required app packages. It is still read for compatibility, but users should migrate to `dependenciesPaths`.
 - `sqlBackupPath`: Local folder used by SQL backup operations. Container backup, BC service SQL Server backup, restore, and new-container initialization all use this folder as the common backup-set location.
 - `loadOnPremMgtModule`: Path to `NavAdminTool.ps1` when OnPrem deployments need the management module on the server host.
 - `configurations`: Developer-local additional list of deployment targets. It uses the same structure as workspace `configurations`, and both lists are used together.

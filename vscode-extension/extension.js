@@ -832,7 +832,7 @@ function getDefaultLocalSettings() {
     licenseFile: '',
     certificateFile: '',
     packageOutputPath: '',
-    dependenciesPath: '',
+    dependenciesPaths: [],
     recordingsPath: '',
     pageScriptTestResultsPath: '',
     pageScriptTestHeaded: 'false',

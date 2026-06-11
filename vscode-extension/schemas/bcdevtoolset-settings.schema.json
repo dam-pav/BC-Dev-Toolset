@@ -19,7 +19,18 @@
     },
     "dependenciesPath": {
       "type": "string",
-      "description": "Path containing app dependency packages."
+      "description": "Deprecated legacy single path containing app dependency packages. Use dependenciesPaths instead.",
+      "deprecated": true,
+      "deprecationMessage": "Field \"dependenciesPath\" is deprecated. Use \"dependenciesPaths\" instead.",
+      "markdownDeprecationMessage": "Field `dependenciesPath` is deprecated. Use `dependenciesPaths` instead."
+    },
+    "dependenciesPaths": {
+      "type": "array",
+      "description": "Paths containing dependency packages. Each entry can be a folder or a .zip file containing .app files.",
+      "items": {
+        "type": "string"
+      },
+      "default": []
     },
     "recordingsPath": {
       "type": "string",
