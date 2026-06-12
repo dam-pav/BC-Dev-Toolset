@@ -107,7 +107,7 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 
 ### Container
 
-- `Create/Overwrite Docker container based on the first app.json found in the workspace`: Creates or recreates a development container using the workspace app metadata.
+- `Create/Overwrite Docker container based on the first app.json found in the workspace`: Creates or recreates a development container using the workspace app metadata. If more than one Container configuration has a non-empty `container` value, choose one configuration or process all qualified configurations; duplicate `container` values abort the operation.
 - `Update license files in all containers`: Applies the configured license file to container environments.
 - `Update server configuration in all containers`: Applies configured server settings to container environments.
 
@@ -188,7 +188,7 @@ Each workspace `configuration` entry can contain:
 - `targetType`: Intended role of the target. Valid values: `Dev`, `Test`, `Production`.
 - `server`: Business Central server name for `OnPrem`.
 - `serverInstance`: Business Central server instance for `OnPrem`.
-- `container`: Docker container name for `Container`.
+- `container`: Docker container name for `Container`. Create-container processing only includes Container configurations with a non-empty `container` value, and duplicate `container` values abort the operation.
 - `port`: Service port for `OnPrem`.
 - `environmentType`: Environment kind. Valid values: `Sandbox`, `OnPrem`.
 - `environmentName`: Business Central environment name for `Cloud`.

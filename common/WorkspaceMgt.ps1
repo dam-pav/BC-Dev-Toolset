@@ -1071,6 +1071,85 @@ function Repair-HostsFilePermissions {
     return (Test-HostsFileWritable)
 }
 
+function Get-QualifiedDockerContainerConfigurations {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON
+    )
+
+    return @($settingsJSON.configurations | Where-Object {
+        $_.serverType -eq "Container" -and -not [string]::IsNullOrWhiteSpace($_.container)
+    })
+}
+
+function Test-UniqueDockerContainerConfigurationNames {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [array] $configurations
+    )
+
+    $duplicates = @($configurations |
+        Group-Object -Property { ([string]$_.container).Trim().ToLowerInvariant() } |
+        Where-Object { $_.Count -gt 1 })
+
+    if ($duplicates.Count -eq 0) {
+        return $true
+    }
+
+    Write-Host "Create container operation stopped." -ForegroundColor Red
+    Write-Host "Each Container configuration must specify a unique 'container' value." -ForegroundColor Red
+    Write-Host "Duplicate container values found:" -ForegroundColor Red
+
+    foreach ($duplicate in $duplicates) {
+        $containerName = $duplicate.Group[0].container
+        $configurationNames = @($duplicate.Group | ForEach-Object { $_.name }) -join "', '"
+        Write-Host " - '$containerName' is used by configurations '$configurationNames'." -ForegroundColor Red
+    }
+
+    Write-Host "Update the duplicate configuration entries and run the operation again." -ForegroundColor Yellow
+    return $false
+}
+
+function Select-DockerContainerConfigurations {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)]
+        [string] $operationName
+    )
+
+    $qualifiedConfigurations = @(Get-QualifiedDockerContainerConfigurations -settingsJSON $settingsJSON)
+    if ($qualifiedConfigurations.Count -eq 0) {
+        Write-Host "No Container configurations with a non-empty container value found." -ForegroundColor Red
+        return @()
+    }
+
+    if (-not (Test-UniqueDockerContainerConfigurationNames -configurations $qualifiedConfigurations)) {
+        return @()
+    }
+
+    if ($qualifiedConfigurations.Count -eq 1) {
+        return @($qualifiedConfigurations[0])
+    }
+
+    $options = @()
+    foreach ($configuration in $qualifiedConfigurations) {
+        $options += "$($configuration.name) ($($configuration.container))"
+    }
+    $options += "All qualified containers"
+
+    $selectedIndex = Select-IndexFromList `
+        -Title "Select container configuration for $($operationName):" `
+        -Options $options `
+        -DefaultIndex 0
+
+    if ($selectedIndex -eq ($options.Count - 1)) {
+        return $qualifiedConfigurations
+    }
+
+    return @($qualifiedConfigurations[$selectedIndex])
+}
+
 function New-DockerContainer {
     Param (
         [bool] $testMode = $false,
@@ -1086,9 +1165,16 @@ function New-DockerContainer {
         [bool] $pullFullArtifact
     )
     
-    $configurationFound = $false
-    foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "Container")) {
-        $configurationFound = $true
+    $selectedConfigurations = @(Select-DockerContainerConfigurations `
+        -settingsJSON $settingsJSON `
+        -operationName "container creation")
+
+    if ($selectedConfigurations.Count -eq 0) {
+        $false
+        return
+    }
+
+    foreach ($configuration in $selectedConfigurations) {
 
         # No mutex for the time being, we do it manually
         $credential = Get-BcConfigurationCredential -configuration $configuration
@@ -1330,12 +1416,6 @@ Import-NAVServerLicense -LicenseFile '$escapedContainerLicenseFile' -ServerInsta
 
         Write-Host "The docker instance $($configuration.container) should be ready." -ForegroundColor Green
         Write-Host ""
-    }
-
-    if (-not $configurationFound) {
-        Write-Host "No Docker configurations found." -ForegroundColor Red
-        $false
-        return
     }
 
     $true

@@ -359,7 +359,7 @@ Each `configurations` entry can contain:
 - `targetType`: Accepted values are `Dev`, `Test`, `Production`.
 - `server`: Valid for `OnPrem`.
 - `serverInstance`: Valid for `OnPrem`.
-- `container`: Docker container name. The default value is the name of the workspace. Valid for `Container`.
+- `container`: Docker container name. The default value is the name of the workspace. Valid for `Container`. Create-container processing only includes Container configurations with a non-empty `container` value, and duplicate `container` values abort the operation.
 - `port`: Valid for `OnPrem`.
 - `environmentType`: Type of BC instance to create. Valid values are `Sandbox` or `OnPrem`. The default is `Sandbox`. Valid for `Container` and `Cloud`.
 - `environmentName`: Valid for `Cloud`.
