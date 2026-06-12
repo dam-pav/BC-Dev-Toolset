@@ -836,7 +836,6 @@ function getDefaultLocalSettings() {
     recordingsPath: '',
     pageScriptTestResultsPath: '',
     pageScriptTestHeaded: 'false',
-    sqlBackupPath: '',
     configurations: [
       getDefaultLocalConfiguration()
     ]
@@ -855,6 +854,7 @@ function getDefaultLocalConfiguration() {
     authentication: 'UserPassword',
     bcUser: 'admin',
     bcPassword: 'P@ssw0rd',
+    sqlBackupPath: '',
     network: '',
     hostIP: ''
   };

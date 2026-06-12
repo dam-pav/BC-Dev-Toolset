@@ -587,7 +587,6 @@ function Build-Settings {
         $defaultSettings | Add-Member -MemberType NoteProperty -Name recordingsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestResultsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestHeaded -Value "false"
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
 
         # add container configuration
@@ -602,6 +601,7 @@ function Build-Settings {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value "UserPassword"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name bcUser -Value "admin"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name bcPassword -Value "P@ssw0rd"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name network -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name hostIP -Value ""
         $defaultSettings.configurations += $remoteConfiguration
@@ -767,13 +767,17 @@ function Initialize-Context {
     } else {
         $settingsJSONvalue.shortcuts = Get-ShortcutMode $settingsJSONvalue
     }
-    if ($null -eq $settingsJSONvalue.sqlBackupPath) {
-        $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
-    }
-    
     # Add configurations from code-workspace
     foreach ($remote in $workspaceJSON.value.settings."dam-pav.bcdevtoolset".configurations) {
         $settingsJSONvalue.configurations = $settingsJSONvalue.configurations + $remote
+    }
+
+    foreach ($configuration in $settingsJSONvalue.configurations) {
+        if ($configuration.serverType -eq "Container") {
+            if ($null -eq $configuration.sqlBackupPath) {
+                $configuration | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
+            }
+        }
     }
     # finally, pass the object
     $settingsJSON.Value = $settingsJSONvalue
@@ -1274,7 +1278,7 @@ function New-DockerContainer {
         if (-not $testmode) {
             $backupRootPath = Get-SqlBackupRootPath `
                 -scriptPath $scriptPath `
-                -sqlBackupPath $settingsJSON.sqlBackupPath
+                -sqlBackupPath $configuration.sqlBackupPath
 
             if (-not [string]::IsNullOrWhiteSpace($backupRootPath) -and (Test-Path -Path $backupRootPath -PathType Container)) {
                 $backupEntries = @(Get-SqlBackupSetEntries -backupRootPath $backupRootPath)
