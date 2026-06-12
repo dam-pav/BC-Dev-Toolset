@@ -51,7 +51,7 @@ Important local settings to review before running most operations:
 - `dependenciesPaths`: Folders containing dependency `.app` packages, or direct `.zip` file paths, used by dependency publishing operations.
 - `dependenciesPath`: Deprecated legacy single folder containing dependency `.app` packages. It is still read for compatibility, but users should migrate to `dependenciesPaths`.
 - `packageOutputPath`: Folder where runtime packages are written.
-- `sqlBackupPath`: Folder used by backup and restore operations.
+- `sqlBackupPath`: Set this inside each Container `configurations` entry that uses SQL backup operations. Different containers can use different folders; set the same folder on multiple Container configurations only when sharing is intentional.
 - `licenseFile`: Required for license update and some runtime packaging scenarios.
 - `certificateFile`: Required when creating signed runtime packages.
 - `recordingsPath`: Folder containing page scripting recordings.
@@ -107,15 +107,15 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 
 ### Container
 
-- `Create/Overwrite Docker container based on the first app.json found in the workspace`: Creates or recreates a development container using the workspace app metadata.
+- `Create/Overwrite Docker container based on the first app.json found in the workspace`: Creates or recreates a development container using the workspace app metadata. If more than one Container configuration has a non-empty `container` value, choose one configuration or process all qualified configurations; duplicate `container` values abort the operation.
 - `Update license files in all containers`: Applies the configured license file to container environments.
 - `Update server configuration in all containers`: Applies configured server settings to container environments.
 
 ### Backup
 
-- `Create and export SQL backup set from Docker container`: Creates SQL backup files from a Docker container environment.
+- `Create and export SQL backup set from Docker container`: Creates SQL backup files from a Docker container environment. If more than one Container configuration has a non-empty `sqlBackupPath`, choose one container or back up all qualified containers.
 - `Create and export SQL backup set from BC service SQL Server`: Creates SQL backup files from a Business Central service SQL Server environment. You will require credentials with the ability to create remote Powershell sessions to the SQL Server host.
-- `Restore SQL backup set to Docker container`: Restores a saved SQL backup set into a Docker container.
+- `Restore SQL backup set to Docker container`: Restores a saved SQL backup set into a Docker container. If more than one Container configuration has a non-empty `sqlBackupPath`, choose which container to restore.
 
 ### Tests
 
@@ -188,7 +188,7 @@ Each workspace `configuration` entry can contain:
 - `targetType`: Intended role of the target. Valid values: `Dev`, `Test`, `Production`.
 - `server`: Business Central server name for `OnPrem`.
 - `serverInstance`: Business Central server instance for `OnPrem`.
-- `container`: Docker container name for `Container`.
+- `container`: Docker container name for `Container`. Create-container processing only includes Container configurations with a non-empty `container` value, and duplicate `container` values abort the operation.
 - `port`: Service port for `OnPrem`.
 - `environmentType`: Environment kind. Valid values: `Sandbox`, `OnPrem`.
 - `environmentName`: Business Central environment name for `Cloud`.
@@ -206,6 +206,7 @@ Each workspace `configuration` entry can contain:
 - `dns`: Optional DNS value passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. `HostDNS` adds the host DNS servers; explicit DNS server values are also allowed. Use a comma-delimited string for multiple DNS servers, for example `8.8.8.8,1.1.1.1`.
 - `databaseUser`: Optional SQL user for database operations.
 - `databasePassword`: Optional SQL password for database operations.
+- `sqlBackupPath`: Folder used for SQL backup files for this configuration. Valid only for `Container`; container backup, restore, and new-container initialization use the path from the selected Container configuration. BC service SQL Server backups export into the configured Container backup folders.
 - `remoteUser`: Optional PowerShell remoting user.
 - `remotePassword`: Optional PowerShell remoting password.
 - `serverConfiguration`: Additional Business Central server configuration entries as `KeyName` and `KeyValue` pairs.
@@ -222,7 +223,6 @@ These are stored in `.bcdevtoolset/settings.json` and are intended for developer
 - `recordingsPath`: Folder containing page scripting recordings.
 - `pageScriptTestResultsPath`: Folder where page script test results are written.
 - `pageScriptTestHeaded`: Whether page script tests should run headed.
-- `sqlBackupPath`: Folder used for SQL backup files.
 - `configurations`: Developer-local target definitions. These use the same structure as workspace `configurations` and are merged with them at runtime.
 
 The extension adds JSON validation for `.bcdevtoolset/settings.json`, so VS Code can help you keep the local settings file in shape while editing it.

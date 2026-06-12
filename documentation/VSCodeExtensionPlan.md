@@ -159,7 +159,7 @@ Examples:
 - `dependenciesPath`
 - `recordingsPath`
 - `pageScriptTestResultsPath`
-- `sqlBackupPath`
+- per-container `sqlBackupPath`
 - personal container names
 - local BC service targets
 

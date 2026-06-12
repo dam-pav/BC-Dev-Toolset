@@ -171,12 +171,112 @@ function Assert-SqlBackupPath {
         [AllowEmptyString()]
         [string] $sqlBackupPath,
         [Parameter(Mandatory=$true)]
-        [string] $operationName
+        [string] $operationName,
+        [Parameter(Mandatory=$false)]
+        [AllowEmptyString()]
+        [string] $configurationName = ""
     )
 
     if ([string]::IsNullOrWhiteSpace($sqlBackupPath)) {
-        throw "The 'sqlBackupPath' setting is empty. Please set it in your local BC Dev Toolset settings.json before $operationName."
+        if ([string]::IsNullOrWhiteSpace($configurationName)) {
+            throw "The 'sqlBackupPath' setting is empty. Please set it on the target configuration before $operationName."
+        }
+
+        throw "The 'sqlBackupPath' setting is empty for configuration '$configurationName'. Please set it on that configuration before $operationName."
     }
+}
+
+function Get-ContainerSqlBackupConfigurations {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON
+    )
+
+    return @($settingsJSON.configurations | Where-Object {
+        $_.serverType -eq "Container" -and -not [string]::IsNullOrWhiteSpace($_.sqlBackupPath)
+    })
+}
+
+function Test-DockerContainerRunning {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [AllowEmptyString()]
+        [string] $containerName
+    )
+
+    if (-not (Test-DockerContainerExists -containerName $containerName)) {
+        return $false
+    }
+
+    $running = docker container inspect --format "{{.State.Running}}" $containerName 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($running) -or $running.Trim() -ne "true") {
+        Write-Host "Docker container '$containerName' is not running. Skipping this configuration." -ForegroundColor Yellow
+        return $false
+    }
+
+    return $true
+}
+
+function Select-ContainerSqlBackupConfigurations {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)]
+        [string] $operationName,
+        [Parameter(Mandatory=$false)]
+        [switch] $IncludeAllOption
+    )
+
+    $qualifiedConfigurations = @(Get-ContainerSqlBackupConfigurations -settingsJSON $settingsJSON)
+    if ($qualifiedConfigurations.Count -eq 0) {
+        Write-Host "No Container configurations with a non-empty sqlBackupPath found." -ForegroundColor Red
+        return @()
+    }
+
+    if ($qualifiedConfigurations.Count -eq 1) {
+        return @($qualifiedConfigurations[0])
+    }
+
+    $options = @()
+    foreach ($configuration in $qualifiedConfigurations) {
+        $options += "$($configuration.name) ($($configuration.container)) -> $($configuration.sqlBackupPath)"
+    }
+
+    if ($IncludeAllOption) {
+        $options += "All qualified containers"
+    }
+
+    $selectedIndex = Select-IndexFromList `
+        -Title "Select container for $($operationName):" `
+        -Options $options `
+        -DefaultIndex 0
+
+    if ($IncludeAllOption -and $selectedIndex -eq ($options.Count - 1)) {
+        return $qualifiedConfigurations
+    }
+
+    return @($qualifiedConfigurations[$selectedIndex])
+}
+
+function Get-ContainerSqlBackupRootPaths {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON
+    )
+
+    $backupRootPaths = @()
+    foreach ($configuration in @(Get-ContainerSqlBackupConfigurations -settingsJSON $settingsJSON)) {
+        $backupRootPath = Get-SqlBackupRootPath `
+            -scriptPath $scriptPath `
+            -sqlBackupPath $configuration.sqlBackupPath
+        if (-not [string]::IsNullOrWhiteSpace($backupRootPath) -and $backupRootPaths -notcontains $backupRootPath) {
+            $backupRootPaths += $backupRootPath
+        }
+    }
+
+    return $backupRootPaths
 }
 
 function Export-BcContainerSqlBackupSet {
@@ -187,20 +287,24 @@ function Export-BcContainerSqlBackupSet {
         [PSObject] $settingsJSON
     )
 
-    Assert-SqlBackupPath `
-        -sqlBackupPath $settingsJSON.sqlBackupPath `
-        -operationName "creating a SQL backup"
+    $selectedConfigurations = @(Select-ContainerSqlBackupConfigurations `
+        -settingsJSON $settingsJSON `
+        -operationName "SQL backup export" `
+        -IncludeAllOption)
 
-    $configurationFound = $false
-    foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "Container")) {
-        $configurationFound = $true
-        if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+    foreach ($configuration in $selectedConfigurations) {
+        if (-not (Test-DockerContainerRunning -containerName $configuration.container)) {
             continue
         }
 
+        Assert-SqlBackupPath `
+            -sqlBackupPath $configuration.sqlBackupPath `
+            -operationName "creating a SQL backup" `
+            -configurationName $configuration.name
+
         $exportRootPath = Get-SqlBackupRootPath `
             -scriptPath $scriptPath `
-            -sqlBackupPath $settingsJSON.sqlBackupPath
+            -sqlBackupPath $configuration.sqlBackupPath
 
         $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
         $sharedBackupPath = Join-Path $hostHelperFolder "Extensions\$($configuration.container)\SqlBackups\$timestamp"
@@ -233,10 +337,6 @@ function Export-BcContainerSqlBackupSet {
 
         Write-Host "SQL backup set exported for container '$($configuration.container)'." -ForegroundColor Green
     }
-
-    if (-not $configurationFound) {
-        Write-Host "No Docker configurations found." -ForegroundColor Red
-    }
 }
 
 function Restore-BcContainerSqlBackupSet {
@@ -247,20 +347,23 @@ function Restore-BcContainerSqlBackupSet {
         [PSObject] $settingsJSON
     )
 
-    Assert-SqlBackupPath `
-        -sqlBackupPath $settingsJSON.sqlBackupPath `
-        -operationName "restoring a SQL backup"
+    $selectedConfigurations = @(Select-ContainerSqlBackupConfigurations `
+        -settingsJSON $settingsJSON `
+        -operationName "SQL backup restore")
 
-    $configurationFound = $false
-    foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "Container")) {
-        $configurationFound = $true
-        if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+    foreach ($configuration in $selectedConfigurations) {
+        if (-not (Test-DockerContainerRunning -containerName $configuration.container)) {
             continue
         }
 
+        Assert-SqlBackupPath `
+            -sqlBackupPath $configuration.sqlBackupPath `
+            -operationName "restoring a SQL backup" `
+            -configurationName $configuration.name
+
         $backupRootPath = Get-SqlBackupRootPath `
             -scriptPath $scriptPath `
-            -sqlBackupPath $settingsJSON.sqlBackupPath
+            -sqlBackupPath $configuration.sqlBackupPath
 
         if (-not (Test-Path -Path $backupRootPath -PathType Container)) {
             throw "The sqlBackupPath folder '$backupRootPath' does not exist."
@@ -296,10 +399,6 @@ function Restore-BcContainerSqlBackupSet {
             -bakFolder $sharedRestorePath
 
         Write-Host "SQL backup set restored to container '$($configuration.container)'." -ForegroundColor Green
-    }
-
-    if (-not $configurationFound) {
-        Write-Host "No Docker configurations found." -ForegroundColor Red
     }
 }
 
@@ -696,16 +795,14 @@ function Export-BcServiceSqlBackupSet {
         [PSObject] $settingsJSON
     )
 
-    Assert-SqlBackupPath `
-        -sqlBackupPath $settingsJSON.sqlBackupPath `
-        -operationName "creating a SQL backup"
-
     Import-BcServiceBackupDiscoveryModules
-
-    $exportRootPath = Get-SqlBackupRootPath `
+    $exportRootPaths = @(Get-ContainerSqlBackupRootPaths `
         -scriptPath $scriptPath `
-        -sqlBackupPath $settingsJSON.sqlBackupPath
-    New-Item -ItemType Directory -Path $exportRootPath -Force | Out-Null
+        -settingsJSON $settingsJSON)
+
+    if ($exportRootPaths.Count -eq 0) {
+        throw "No container configuration has a 'sqlBackupPath' setting. Please set it on at least one Container configuration before creating a SQL backup from a BC service."
+    }
 
     $configurationFound = $false
     foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "OnPrem")) {
@@ -719,7 +816,10 @@ function Export-BcServiceSqlBackupSet {
 
         Write-Host ""
         Write-Host "Creating SQL backup set for BC service instance '$serverInstance'." -ForegroundColor Green
-        Write-Host "Export folder: $exportRootPath" -ForegroundColor Gray
+        Write-Host "Export folders:" -ForegroundColor Gray
+        foreach ($exportRootPath in $exportRootPaths) {
+            Write-Host " - $exportRootPath" -ForegroundColor Gray
+        }
 
         $serviceDatabaseInfo = Get-BcServiceDatabaseInfo `
             -configuration $configuration `
@@ -773,26 +873,29 @@ function Export-BcServiceSqlBackupSet {
             }
         }
 
-        if (Test-IsLocalSqlServer -databaseServer $databaseServer) {
+        foreach ($exportRootPath in $exportRootPaths) {
+            New-Item -ItemType Directory -Path $exportRootPath -Force | Out-Null
             Get-ChildItem -Path $exportRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue |
                 Remove-Item -Force
 
-            foreach ($request in $backupRequests) {
-                Backup-RegularSqlDatabase `
-                    -databaseServerInstance $databaseServerInstance `
-                    -databaseName $request.DatabaseName `
-                    -backupFile (Join-Path $exportRootPath $request.FileName) `
+            if (Test-IsLocalSqlServer -databaseServer $databaseServer) {
+                foreach ($request in $backupRequests) {
+                    Backup-RegularSqlDatabase `
+                        -databaseServerInstance $databaseServerInstance `
+                        -databaseName $request.DatabaseName `
+                        -backupFile (Join-Path $exportRootPath $request.FileName) `
+                        -sqlCredential $sqlCredential
+                }
+            } else {
+                Write-Host "Remote SQL Server detected. Backups will be created on '$databaseServer' and copied back to '$exportRootPath'." -ForegroundColor Yellow
+                Backup-RemoteSqlDatabases `
+                    -computerName $databaseServer `
+                    -databaseInstance $databaseInstance `
+                    -backupRequests $backupRequests `
+                    -localExportPath $exportRootPath `
+                    -configuration $configuration `
                     -sqlCredential $sqlCredential
             }
-        } else {
-            Write-Host "Remote SQL Server detected. Backups will be created on '$databaseServer' and copied back to '$exportRootPath'." -ForegroundColor Yellow
-            Backup-RemoteSqlDatabases `
-                -computerName $databaseServer `
-                -databaseInstance $databaseInstance `
-                -backupRequests $backupRequests `
-                -localExportPath $exportRootPath `
-                -configuration $configuration `
-                -sqlCredential $sqlCredential
         }
 
         Write-Host "SQL backup set exported for BC service instance '$serverInstance'." -ForegroundColor Green

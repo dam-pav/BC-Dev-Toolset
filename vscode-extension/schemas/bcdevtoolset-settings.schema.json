@@ -48,8 +48,9 @@
       "description": "Whether page script tests should run headed."
     },
     "sqlBackupPath": {
-      "type": "string",
-      "description": "Path used for SQL backup files."
+      "not": {},
+      "errorMessage": "Field \"sqlBackupPath\" has moved. Set it inside each relevant \"configurations\" entry.",
+      "doNotSuggest": true
     },
     "configurations": {
       "type": "array",
@@ -64,6 +65,7 @@
           "authentication": "UserPassword",
           "bcUser": "admin",
           "bcPassword": "P@ssw0rd",
+          "sqlBackupPath": "",
           "network": "",
           "hostIP": ""
         }
@@ -192,6 +194,10 @@
               "bcPassword": {
                 "type": "string",
                 "description": "Business Central service password."
+              },
+              "sqlBackupPath": {
+                "type": "string",
+                "description": "Path used for SQL backup files for this Container configuration."
               },
               "admin": {
                 "type": "string",
@@ -456,6 +462,11 @@
               "bcPassword": {
                 "not": {},
                 "errorMessage": "Field \"bcPassword\" is not valid when \"serverType\" is not \"Container\".",
+                "doNotSuggest": true
+              },
+              "sqlBackupPath": {
+                "not": {},
+                "errorMessage": "Field \"sqlBackupPath\" is not valid when \"serverType\" is not \"Container\".",
                 "doNotSuggest": true
               },
               "admin": {
