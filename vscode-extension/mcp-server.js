@@ -206,6 +206,40 @@ function getProtocolVersion(message) {
 
 function getTools() {
   const tools = getOperationTools();
+  tools.push(
+    {
+      name: 'bc_dev_toolset_get_operation_status',
+      description: 'Get status for a BC Dev Toolset MCP operation session, including pending prompts and captured completion output.',
+      inputSchema: {
+        type: 'object',
+        required: ['sessionId'],
+        properties: {
+          sessionId: {
+            type: 'string',
+            description: 'Session ID returned by an operation that is waiting for input.'
+          }
+        }
+      }
+    },
+    {
+      name: 'bc_dev_toolset_answer_operation_prompt',
+      description: 'Answer a pending BC Dev Toolset operation prompt. Use only when a prior operation result or status says it is waiting for input.',
+      inputSchema: {
+        type: 'object',
+        required: ['sessionId', 'answer'],
+        properties: {
+          sessionId: {
+            type: 'string',
+            description: 'Session ID returned by the waiting operation.'
+          },
+          answer: {
+            type: 'string',
+            description: 'Prompt answer. Use yes/no for confirmation prompts; use the requested text or choice value for other prompt types.'
+          }
+        }
+      }
+    }
+  );
   if (shouldExposeGenericTools()) {
     tools.push(
       {
@@ -357,6 +391,10 @@ async function callTool(params) {
   }
 
   switch (params.name) {
+    case 'bc_dev_toolset_get_operation_status':
+      return getOperationStatus(toolArguments);
+    case 'bc_dev_toolset_answer_operation_prompt':
+      return answerOperationPrompt(toolArguments);
     case 'list_bc_dev_toolset_operations':
       return textResult(JSON.stringify(listRunnableOperations(toolArguments.category), null, 2));
     case 'run_bc_dev_toolset_operation':
@@ -574,18 +612,103 @@ async function runOperationInTerminal(operation, args, progress) {
   const bridgeResult = response.body || {};
   const completed = bridgeResult.status === 'completed';
   const startedOnly = bridgeResult.status === 'started';
+  const waitingForInput = bridgeResult.status === 'waiting_for_input';
   return textResult([
     `Operation: ${operation.title}`,
     `Operation ID: ${operation.id}`,
     `Status: ${bridgeResult.status || 'unknown'}`,
+    bridgeResult.sessionId ? `Session ID: ${bridgeResult.sessionId}` : '',
     typeof bridgeResult.exitCode === 'number' ? `Exit code: ${bridgeResult.exitCode}` : '',
     bridgeResult.exitCodeSource ? `Exit code source: ${bridgeResult.exitCodeSource}` : '',
     `Terminal: ${bridgeResult.terminalName || 'BC Dev Toolset PowerShell terminal'}`,
-    startedOnly
+    waitingForInput
+      ? formatPendingPromptInstruction(bridgeResult)
+      : startedOnly
       ? 'Instruction: The operation is running visibly in the VS Code terminal. Terminal output capture was unavailable, so watch that terminal for progress and final output.'
       : 'Instruction: The operation ran visibly in the VS Code terminal. Use the captured terminal output below as the MCP result.',
     bridgeResult.output ? ['', 'TERMINAL OUTPUT:', truncateOutput(bridgeResult.output)].join('\n') : ''
-  ].filter((line) => line !== '').join('\n'), !completed && !startedOnly);
+  ].filter((line) => line !== '').join('\n'), !completed && !startedOnly && !waitingForInput);
+}
+
+async function getOperationStatus(args) {
+  if (!shouldUseTerminalBridge()) {
+    return textResult('BC Dev Toolset MCP operation status requires the VS Code terminal bridge.', true);
+  }
+
+  const sessionId = String(args.sessionId || '').trim();
+  if (!sessionId) {
+    return textResult('sessionId is required.', true);
+  }
+
+  const response = await postBridgeJson('/operation-status', { sessionId });
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    return textResult(`Failed to get BC Dev Toolset operation status: ${response.body.error || response.rawBody}`, true);
+  }
+
+  return textResult(formatOperationStatus(response.body || {}), response.body && response.body.status === 'failed');
+}
+
+async function answerOperationPrompt(args) {
+  if (!shouldUseTerminalBridge()) {
+    return textResult('BC Dev Toolset MCP prompt answers require the VS Code terminal bridge.', true);
+  }
+
+  const sessionId = String(args.sessionId || '').trim();
+  const answer = String(args.answer || '').trim();
+  if (!sessionId) {
+    return textResult('sessionId is required.', true);
+  }
+  if (!answer) {
+    return textResult('answer is required.', true);
+  }
+
+  const response = await postBridgeJson('/prompt/answer', { sessionId, answer });
+  if (response.statusCode < 200 || response.statusCode >= 300 || response.body.status === 'failed') {
+    return textResult(`Failed to answer BC Dev Toolset prompt: ${response.body.error || response.rawBody}`, true);
+  }
+
+  return textResult([
+    `Status: ${response.body.status}`,
+    `Session ID: ${response.body.sessionId}`,
+    `Answer: ${response.body.answer}`,
+    'Instruction: The operation has resumed in the visible VS Code terminal. Call bc_dev_toolset_get_operation_status with this session ID to check completion and captured output.'
+  ].join('\n'));
+}
+
+function formatPendingPromptInstruction(bridgeResult) {
+  const prompt = bridgeResult.prompt || {};
+  const answerHint = prompt.type === 'confirm'
+    ? "answer 'yes' or 'no'"
+    : 'answer with the requested text or choice value';
+  return [
+    'Instruction: The operation is waiting for input and remains paused in the visible VS Code terminal.',
+    `Prompt ID: ${prompt.id || '(unknown)'}`,
+    prompt.question ? `Question: ${prompt.question}` : '',
+    prompt.default ? `Default: ${prompt.default}` : '',
+    Array.isArray(prompt.choices) ? `Choices: ${prompt.choices.join(', ')}` : '',
+    prompt.risk ? `Risk: ${prompt.risk}` : '',
+    prompt.agentAllowed === false ? 'Agent allowed: false. Ask the user before answering this prompt.' : 'Agent allowed: true.',
+    prompt.destructive ? 'Destructive: true' : '',
+    prompt.sensitive ? 'Sensitive: true. Do not answer sensitive prompts through MCP.' : '',
+    `Next: call bc_dev_toolset_answer_operation_prompt with sessionId '${bridgeResult.sessionId}' and ${answerHint}, or ask the user what to choose.`
+  ].filter((line) => line !== '').join('\n');
+}
+
+function formatOperationStatus(status) {
+  const result = status.result || {};
+  const prompt = status.prompt || {};
+  return [
+    `Status: ${status.status || 'unknown'}`,
+    `Session ID: ${status.sessionId || ''}`,
+    status.operationId ? `Operation ID: ${status.operationId}` : '',
+    status.operationTitle ? `Operation: ${status.operationTitle}` : '',
+    status.terminalName ? `Terminal: ${status.terminalName}` : '',
+    status.status === 'waiting_for_input' ? formatPendingPromptInstruction(status) : '',
+    result.exitCodeSource ? `Exit code source: ${result.exitCodeSource}` : '',
+    typeof result.exitCode === 'number' ? `Exit code: ${result.exitCode}` : '',
+    result.output ? ['', 'TERMINAL OUTPUT:', truncateOutput(result.output)].join('\n') : '',
+    status.status === 'running' && prompt.id ? `Last prompt: ${prompt.id}` : ''
+  ].filter((line) => line !== '').join('\n');
 }
 
 function getTerminalTimeoutSeconds(operation, args) {

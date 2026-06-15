@@ -19,7 +19,7 @@ Initialize-Context `
 Clear-Artifacts -scriptPath $scriptRoot -workspaceJSON $workspaceJSON
 
 # Ask whether to pull full artifacts
-$pullFullArtifact = (Confirm-Option -question "Do you want to perform a complete pull of all artifacts? This will take longer but ensure you have the latest base image and artifacts. Do this if your previous pull attempt resulted in errors during container deployment, such as version mismatches between data and components." -defaultYes:$false)
+$pullFullArtifact = (Confirm-Option -question "Do you want to perform a complete pull of all artifacts? This will take longer but ensure you have the latest base image and artifacts. Do this if your previous pull attempt resulted in errors during container deployment, such as version mismatches between data and components." -defaultYes:$false -PromptId "newDockerContainer.pullFullArtifact" -Risk "Downloads fresh artifacts and can significantly increase container creation time.")
 if ($pullFullArtifact) {
     Write-Host "All artifacts will be pulled." -ForegroundColor Blue
 }

@@ -52,7 +52,13 @@ if ($null -ne $pool_range -and $null -ne $pool_range.to -and [string]::IsNullOrW
     try { $defaultTo = [int]$pool_range.to } catch { $defaultTo = 59999 }
 }
 
-$fromInput = Read-Host -Prompt "Set the pool range 'from' value [$defaultFrom]"
+$fromPrompt = "Set the pool range 'from' value [$defaultFrom]"
+$fromInput = Request-BcDevToolsetMcpPrompt -PromptId "objectIdRange.from" -Type 'text' -Question $fromPrompt -DefaultValue "$defaultFrom" -Risk "Updates the lower bound of the object ID pool range."
+if ($null -eq $fromInput) {
+    $fromInput = Read-Host -Prompt $fromPrompt
+} else {
+    Write-Host "Answer received through MCP: $fromInput" -ForegroundColor Green
+}
 if ([string]::IsNullOrWhiteSpace($fromInput)) {
     $From = $defaultFrom
 } else {
@@ -60,7 +66,13 @@ if ([string]::IsNullOrWhiteSpace($fromInput)) {
 }
 if ($From -lt 50000) { throw "The value 'from' ($From) must be equal to or larger than 50000." }
 
-$toInput = Read-Host -Prompt "Set the pool range 'to' value [$defaultTo]"
+$toPrompt = "Set the pool range 'to' value [$defaultTo]"
+$toInput = Request-BcDevToolsetMcpPrompt -PromptId "objectIdRange.to" -Type 'text' -Question $toPrompt -DefaultValue "$defaultTo" -Risk "Updates the upper bound of the object ID pool range."
+if ($null -eq $toInput) {
+    $toInput = Read-Host -Prompt $toPrompt
+} else {
+    Write-Host "Answer received through MCP: $toInput" -ForegroundColor Green
+}
 if ([string]::IsNullOrWhiteSpace($toInput)) {
     $To = $defaultTo
 } else {
