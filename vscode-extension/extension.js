@@ -15,6 +15,7 @@ let mcpBridgeServer;
 let mcpBridgeUrl;
 let mcpBridgeToken;
 let mcpBridgeStatePath;
+const mcpPromptSessions = new Map();
 
 const directOperationIds = [
   'invokeTests',
@@ -186,7 +187,7 @@ function removeMcpBridgeState() {
 
 async function handleMcpBridgeRequest(request, response) {
   try {
-    if (request.method !== 'POST' || request.url !== '/run-operation') {
+    if (request.method !== 'POST') {
       writeMcpBridgeResponse(response, 404, { error: 'Not found.' });
       return;
     }
@@ -198,6 +199,26 @@ async function handleMcpBridgeRequest(request, response) {
     }
 
     const body = await readRequestBody(request);
+    if (request.url === '/prompt/request') {
+      await handleMcpPromptRequest(body, response);
+      return;
+    }
+
+    if (request.url === '/prompt/answer') {
+      writeMcpBridgeResponse(response, 200, answerMcpPrompt(body));
+      return;
+    }
+
+    if (request.url === '/operation-status') {
+      writeMcpBridgeResponse(response, 200, getMcpOperationStatus(body));
+      return;
+    }
+
+    if (request.url !== '/run-operation') {
+      writeMcpBridgeResponse(response, 404, { error: 'Not found.' });
+      return;
+    }
+
     const operationId = String((body && body.operationId) || '').trim();
     if (!operationId) {
       writeMcpBridgeResponse(response, 400, { error: 'operationId is required.' });
@@ -214,6 +235,161 @@ async function handleMcpBridgeRequest(request, response) {
   } catch (error) {
     writeMcpBridgeResponse(response, 500, { error: error.message });
   }
+}
+
+async function handleMcpPromptRequest(body, response) {
+  const sessionId = String((body && body.sessionId) || '').trim();
+  const prompt = body && body.prompt;
+  if (!sessionId || !prompt || typeof prompt !== 'object') {
+    writeMcpBridgeResponse(response, 400, { error: 'sessionId and prompt are required.' });
+    return;
+  }
+
+  const session = getOrCreateMcpPromptSession(sessionId);
+  const promptRequest = {
+    ...prompt,
+    requestedAt: new Date().toISOString()
+  };
+  session.status = 'waiting_for_input';
+  session.prompt = promptRequest;
+  session.answer = undefined;
+  session.respondedAt = undefined;
+  writeOutput(`BC Dev Toolset MCP operation is waiting for input: ${promptRequest.question || promptRequest.id || '(unknown prompt)'}`);
+
+  await new Promise((resolve) => {
+    response.setTimeout(0);
+    session.resolvePrompt = (answer) => {
+      session.status = 'running';
+      session.answer = answer;
+      session.respondedAt = new Date().toISOString();
+      writeMcpBridgeResponse(response, 200, answer);
+      resolve();
+    };
+    requestCleanupOnResponseClose(response, session);
+  });
+}
+
+function requestCleanupOnResponseClose(response, session) {
+  response.on('close', () => {
+    if (!response.writableEnded && session.resolvePrompt) {
+      session.resolvePrompt = undefined;
+      session.status = 'running';
+    }
+  });
+}
+
+function answerMcpPrompt(body) {
+  const sessionId = String((body && body.sessionId) || '').trim();
+  const answer = body && body.answer;
+  if (!sessionId) {
+    return { status: 'failed', error: 'sessionId is required.' };
+  }
+
+  const session = mcpPromptSessions.get(sessionId);
+  if (!session || session.status !== 'waiting_for_input' || !session.resolvePrompt) {
+    return { status: 'failed', sessionId, error: 'No pending prompt was found for this session.' };
+  }
+
+  const prompt = session.prompt || {};
+  if (prompt.sensitive) {
+    return { status: 'failed', sessionId, error: 'Sensitive prompts cannot be answered through MCP.' };
+  }
+  if (prompt.agentAllowed === false) {
+    return { status: 'failed', sessionId, error: 'This prompt is marked as requiring a user decision.' };
+  }
+
+  const normalizedAnswer = normalizeMcpPromptAnswer(answer, prompt);
+  session.resolvePrompt({ answer: normalizedAnswer, answeredBy: 'mcp' });
+  session.resolvePrompt = undefined;
+  return { status: 'answered', sessionId, answer: normalizedAnswer };
+}
+
+function normalizeMcpPromptAnswer(answer, prompt = {}) {
+  if (typeof answer === 'boolean') {
+    return answer ? 'yes' : 'no';
+  }
+
+  const value = String(answer || '').trim().toLowerCase();
+  if (prompt.type && prompt.type !== 'confirm') {
+    if (!value && prompt.default) {
+      return String(prompt.default);
+    }
+    if (!value) {
+      throw new Error('answer is required.');
+    }
+    return String(answer).trim();
+  }
+
+  if (['yes', 'y', 'true', '1'].includes(value)) {
+    return 'yes';
+  }
+  if (['no', 'n', 'false', '0'].includes(value)) {
+    return 'no';
+  }
+
+  throw new Error('answer must be yes or no.');
+}
+
+function getMcpOperationStatus(body) {
+  const sessionId = String((body && body.sessionId) || '').trim();
+  if (!sessionId) {
+    return { status: 'failed', error: 'sessionId is required.' };
+  }
+
+  const session = mcpPromptSessions.get(sessionId);
+  if (!session) {
+    return { status: 'unknown', sessionId };
+  }
+
+  if (session.capture && session.operationId && session.terminalName) {
+    const result = readMcpCaptureResult(
+      { id: session.operationId, title: session.operationTitle || session.operationId },
+      session.terminalName,
+      session.capture
+    );
+    if (result) {
+      session.status = result.status;
+      session.completedAt = session.completedAt || new Date().toISOString();
+      session.result = result;
+    }
+  }
+
+  return getMcpPromptSessionSnapshot(session);
+}
+
+function getOrCreateMcpPromptSession(sessionId) {
+  const existing = mcpPromptSessions.get(sessionId);
+  if (existing) {
+    return existing;
+  }
+
+  const session = {
+    sessionId,
+    status: 'running',
+    prompt: undefined,
+    answer: undefined,
+    startedAt: new Date().toISOString(),
+    completedAt: undefined,
+    result: undefined,
+    resolvePrompt: undefined
+  };
+  mcpPromptSessions.set(sessionId, session);
+  return session;
+}
+
+function getMcpPromptSessionSnapshot(session) {
+  return {
+    sessionId: session.sessionId,
+    status: session.status,
+    operationId: session.operationId,
+    operationTitle: session.operationTitle,
+    terminalName: session.terminalName,
+    prompt: session.prompt,
+    answer: session.answer,
+    startedAt: session.startedAt,
+    completedAt: session.completedAt,
+    result: session.result
+  };
 }
 
 function readRequestBody(request) {
@@ -1536,14 +1712,20 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
   }
 
   const capture = createMcpCapturePaths(operation.id);
+  const session = getOrCreateMcpPromptSession(capture.sessionId);
+  session.operationId = operation.id;
+  session.operationTitle = operation.title;
   const { command, powershellExecutable } = buildOperationTerminalCommand(operation, toolsetPath, {
     nonInteractive: false,
     includeMcpCapture: true,
     transcriptPath: capture.transcriptPath,
-    resultPath: capture.resultPath
+    resultPath: capture.resultPath,
+    mcpSessionId: capture.sessionId
   });
   const terminal = getOperationTerminal(powershellExecutable);
   const terminalName = getPowerShellTerminalName(powershellExecutable);
+  session.terminalName = terminalName;
+  session.capture = capture;
   const shellIntegration = await waitForTerminalShellIntegration(terminal, 3000);
 
   if (!shellIntegration) {
@@ -1584,9 +1766,18 @@ function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
     localSettingsArguments +
     (options.nonInteractive ? ' -NonInteractive' : '');
 
+  const mcpPromptEnvironment = options.mcpSessionId
+    ? [
+        `$env:BCDEVTOOLSET_MCP_SESSION_ID = ${quotePowerShellArgument(options.mcpSessionId)}`,
+        `$env:BCDEVTOOLSET_MCP_PROMPT_URL = ${quotePowerShellArgument(`${mcpBridgeUrl}/prompt/request`)}`,
+        `$env:BCDEVTOOLSET_MCP_PROMPT_TOKEN = ${quotePowerShellArgument(mcpBridgeToken)}`
+      ].join('; ') + '; '
+    : '';
+
   const command =
     `$env:BCDEVTOOLSET_SHORTCUTS = ${quotePowerShellArgument(getShortcutMode())}; ` +
     `$env:BCDEVTOOLSET_HOST_HELPER_FOLDER = ${quotePowerShellArgument(getHostHelperFolder())}; ` +
+    mcpPromptEnvironment +
     (options.includeMcpCapture
       ? buildMcpCapturedPowerShellCommand(operationCommand, options.transcriptPath, options.resultPath)
       : options.includeMcpExitMarker
@@ -1619,6 +1810,7 @@ function createMcpCapturePaths(operationId) {
   fs.mkdirSync(directoryPath, { recursive: true });
   const id = `${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${operationId}`;
   return {
+    sessionId: id,
     transcriptPath: path.join(directoryPath, `${id}.transcript.txt`),
     resultPath: path.join(directoryPath, `${id}.result.json`)
   };
@@ -1630,7 +1822,28 @@ async function waitForMcpCaptureResult(operation, terminalName, capture, options
   while (Date.now() - startedAt < timeoutMs) {
     const result = readMcpCaptureResult(operation, terminalName, capture);
     if (result) {
+      const session = getOrCreateMcpPromptSession(capture.sessionId);
+      session.status = result.status;
+      session.completedAt = new Date().toISOString();
+      session.result = result;
       return result;
+    }
+
+    const session = mcpPromptSessions.get(capture.sessionId);
+    if (session && session.status === 'waiting_for_input') {
+      return {
+        status: 'waiting_for_input',
+        operationId: operation.id,
+        operationTitle: operation.title,
+        terminalName,
+        sessionId: capture.sessionId,
+        prompt: session.prompt,
+        exitCode: null,
+        exitCodeSource: 'mcp-prompt',
+        timedOut: false,
+        outputAvailable: fs.existsSync(capture.transcriptPath),
+        output: cleanPowerShellTranscript(readTextFileIfExists(capture.transcriptPath))
+      };
     }
 
     await delay(500);

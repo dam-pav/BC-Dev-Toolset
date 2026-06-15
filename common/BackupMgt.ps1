@@ -389,7 +389,7 @@ function Restore-BcContainerSqlBackupSet {
         }
         Write-Host "This will replace the matching application and tenant databases in the container." -ForegroundColor Yellow
 
-        if (-not (Confirm-Option -question "Do you want to restore the backup set from '$backupRootPath' to container '$($configuration.container)'?")) {
+        if (-not (Confirm-Option -question "Do you want to restore the backup set from '$backupRootPath' to container '$($configuration.container)'?" -PromptId "backup.restoreBackupSet" -Risk "Restores database backups into the selected container." -AgentAllowed $false -Destructive $true)) {
             Write-Host "Restore skipped for container '$($configuration.container)'." -ForegroundColor Blue
             continue
         }

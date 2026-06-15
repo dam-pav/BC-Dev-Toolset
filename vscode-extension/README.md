@@ -67,24 +67,17 @@ All operations are available directly as well.
 
 ## MCP server
 
-The extension contributes an MCP server named `BC Dev Toolset Operations` in VS Code. Agents such as GitHub Copilot can use it to run BC Dev Toolset operations without asking you to know script names or operation IDs.
+The extension contributes an MCP server named `BC Dev Toolset Operations` in VS Code. MCP-aware agents can use it to run BC Dev Toolset operations for the current AL workspace, such as creating containers, publishing apps, invoking tests, or showing active licenses.
 
-The server exposes direct operation tools named with the `bc_dev_toolset_` prefix, for example:
+PowerShell-backed operations still run in the visible `BC Dev Toolset: <PowerShell executable>` terminal. This keeps long-running work, such as container creation and artifact downloads, visible while the agent waits for the operation result.
 
-- `bc_dev_toolset_show_active_licenses`
-- `bc_dev_toolset_new_docker_container`
-- `bc_dev_toolset_invoke_tests`
-- `bc_dev_toolset_publish_apps2_docker`
+Some operations require confirmation before they start. If an operation asks a supported question while running, the visible terminal shows the question and the operation pauses. The agent may answer low-risk operational questions when it has enough context, but sensitive prompts and destructive user decisions still require you to choose. Operations started from the Command Palette keep the normal terminal behavior and can always be answered directly in the terminal.
 
-PowerShell-backed operations are always run through the visible `BC Dev Toolset: <PowerShell executable>` terminal. This keeps long-running work, such as container creation and artifact downloads, visible while it runs. The MCP result is captured from the same terminal execution and returned to the agent when the operation finishes.
-
-Operations marked as requiring confirmation must be called with `confirm: true`. Some scripts can still ask interactive questions in the terminal; answer them there while the operation is running.
-
-Generic MCP tools for listing and running operation IDs are hidden by default to keep agent tool selection focused on the direct `bc_dev_toolset_*` tools.
+You do not need to know the MCP tool names for normal use. Ask the agent for the BC Dev Toolset action you want, and the MCP server exposes focused operation tools for the agent to choose from.
 
 ### Codex
 
-Codex does not automatically discover MCP servers contributed through the VS Code extension API. Run `BC Dev Toolset: Configure Codex MCP Integration` to add or update the `bc-dev-toolset` MCP server entry in the user's Codex `config.toml`. The operation also adds a managed section to the user's active global Codex instructions file (`AGENTS.override.md` if that active override exists, otherwise `AGENTS.md`) so Codex knows to prefer the `bc_dev_toolset_*` tools for BC Dev Toolset operations in any AL workspace. This file is a Codex instruction file under the user's Codex home; it is not loaded by VS Code and it does not have to exist in each consuming repository.
+Codex does not automatically discover MCP servers contributed through the VS Code extension API. Run `BC Dev Toolset: Configure Codex MCP Integration` to add or update the `bc-dev-toolset` MCP server entry in your Codex configuration. The operation also adds managed global Codex instructions so Codex knows to use BC Dev Toolset MCP operations in your AL workspaces. You do not need to add these instructions to each AL repository.
 
 The Codex MCP server uses the same VS Code terminal bridge for PowerShell-backed operations. Keep the BC Dev Toolset extension active in VS Code when you want Codex to run operations in the visible terminal and read the captured results.
 

@@ -384,7 +384,7 @@ function Unpublish-Apps {
                     }
 
                     $installedApps = (Get-BcContainerAppInfo -containerName $configuration.container)
-                    $removeAppData = (Confirm-Option -question "Do you want to REMOVE ALL EXTENSIONS' DATA AND SCHEMA from '$($configuration.name)'?")
+                    $removeAppData = (Confirm-Option -question "Do you want to REMOVE ALL EXTENSIONS' DATA AND SCHEMA from '$($configuration.name)'?" -PromptId "publishApps.removeExtensionData" -Risk "Removes extension data and schema from the target environment." -AgentAllowed $false -Destructive $true)
                     ForEach ($App in ($sortedApps|Sort-Object -Property ProcessOrder -Descending)) {
                         Write-Host "Try removing $($App.Name) (Order: $($App.ProcessOrder))"
                         $installedApps | Where-Object { $_.Name -eq $App.Name -and $_.AppId -eq $App.AppId } | ForEach-Object{

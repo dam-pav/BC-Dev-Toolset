@@ -11,3 +11,7 @@ test-results/.last-run.json
 .altestrunner
 .serena/
 .keys
+
+#Ignore vscode AI rules
+.github/instructions/
+vscode-extension/.github/instructions/

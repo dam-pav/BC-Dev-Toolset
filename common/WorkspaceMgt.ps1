@@ -518,7 +518,17 @@ function Confirm-Option {
         [Parameter(Mandatory=$false)]
         [string] $answerNo = 'n',
         [Parameter(Mandatory=$false)]
-        [string] $defaultYes = $false
+        [string] $defaultYes = $false,
+        [Parameter(Mandatory=$false)]
+        [string] $PromptId = '',
+        [Parameter(Mandatory=$false)]
+        [string] $Risk = '',
+        [Parameter(Mandatory=$false)]
+        [bool] $AgentAllowed = $true,
+        [Parameter(Mandatory=$false)]
+        [bool] $Destructive = $false,
+        [Parameter(Mandatory=$false)]
+        [bool] $Sensitive = $false
     )
 
     if ($defaultYes -eq $true) {
@@ -530,6 +540,11 @@ function Confirm-Option {
     }
 
     $Confirm = $answerNo
+    $mcpAnswer = Request-BcDevToolsetMcpConfirm -Question $question -DefaultYes:($defaultYes -eq $true) -PromptId $PromptId -Risk $Risk -AgentAllowed $AgentAllowed -Destructive $Destructive -Sensitive $Sensitive
+    if ($null -ne $mcpAnswer) {
+        return $mcpAnswer
+    }
+
     Write-Host "$question [$answerYes/$answerNo]: " -NoNewline -ForegroundColor Green
     $Confirm = Read-Host
     if ([string]::IsNullOrWhiteSpace($Confirm)) {
@@ -537,6 +552,130 @@ function Confirm-Option {
     }
         
     return($Confirm.ToUpper() -eq $answerYes.ToUpper())
+}
+
+function Request-BcDevToolsetMcpConfirm {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $Question,
+        [Parameter(Mandatory=$false)]
+        [bool] $DefaultYes = $false,
+        [Parameter(Mandatory=$false)]
+        [string] $PromptId = '',
+        [Parameter(Mandatory=$false)]
+        [string] $Risk = '',
+        [Parameter(Mandatory=$false)]
+        [bool] $AgentAllowed = $true,
+        [Parameter(Mandatory=$false)]
+        [bool] $Destructive = $false,
+        [Parameter(Mandatory=$false)]
+        [bool] $Sensitive = $false
+    )
+
+    $choiceText = if ($DefaultYes) { 'Y/n' } else { 'y/N' }
+    Write-Host "$Question [$choiceText]" -ForegroundColor Green
+
+    $answer = Request-BcDevToolsetMcpPrompt `
+        -PromptId $PromptId `
+        -Type 'confirm' `
+        -Question $Question `
+        -DefaultValue $(if ($DefaultYes) { 'yes' } else { 'no' }) `
+        -Choices @('yes', 'no') `
+        -Risk $Risk `
+        -AgentAllowed $AgentAllowed `
+        -Destructive $Destructive `
+        -Sensitive $Sensitive
+
+    if ($null -eq $answer) {
+        return $null
+    }
+
+    try {
+        $normalizedAnswer = $answer.Trim().ToLowerInvariant()
+        if ($normalizedAnswer -in @('true', 'yes', 'y', '1')) {
+            Write-Host "Answer received through MCP: Yes" -ForegroundColor Green
+            return $true
+        }
+        if ($normalizedAnswer -in @('false', 'no', 'n', '0')) {
+            Write-Host "Answer received through MCP: No" -ForegroundColor Green
+            return $false
+        }
+
+        throw "Unsupported MCP answer '$answer'. Expected yes or no."
+    } catch {
+        Write-Host "MCP prompt handling failed: $($_.Exception.Message)" -ForegroundColor Red
+        throw
+    }
+}
+
+function Request-BcDevToolsetMcpPrompt {
+    Param (
+        [Parameter(Mandatory=$false)]
+        [string] $PromptId = '',
+        [Parameter(Mandatory=$true)]
+        [string] $Type,
+        [Parameter(Mandatory=$true)]
+        [string] $Question,
+        [Parameter(Mandatory=$false)]
+        [string] $DefaultValue = '',
+        [Parameter(Mandatory=$false)]
+        [array] $Choices = @(),
+        [Parameter(Mandatory=$false)]
+        [string] $Risk = '',
+        [Parameter(Mandatory=$false)]
+        [bool] $AgentAllowed = $true,
+        [Parameter(Mandatory=$false)]
+        [bool] $Destructive = $false,
+        [Parameter(Mandatory=$false)]
+        [bool] $Sensitive = $false
+    )
+
+    $promptUrl = $env:BCDEVTOOLSET_MCP_PROMPT_URL
+    $promptToken = $env:BCDEVTOOLSET_MCP_PROMPT_TOKEN
+    $sessionId = $env:BCDEVTOOLSET_MCP_SESSION_ID
+    if ([string]::IsNullOrWhiteSpace($promptUrl) -or [string]::IsNullOrWhiteSpace($promptToken) -or [string]::IsNullOrWhiteSpace($sessionId)) {
+        return $null
+    }
+
+    $effectivePromptId = $PromptId
+    if ([string]::IsNullOrWhiteSpace($effectivePromptId)) {
+        $hashBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Question))
+        $effectivePromptId = -join ($hashBytes[0..5] | ForEach-Object { $_.ToString('x2') })
+    }
+
+    $body = @{
+        sessionId = $sessionId
+        prompt = @{
+            id = $effectivePromptId
+            type = $Type
+            question = $Question
+            default = $DefaultValue
+            choices = $Choices
+            agentAllowed = $AgentAllowed
+            destructive = $Destructive
+            sensitive = $Sensitive
+            risk = $Risk
+        }
+    } | ConvertTo-Json -Depth 8
+
+    Write-Host "Waiting for MCP agent/user answer..." -ForegroundColor Yellow
+
+    try {
+        $headers = @{ Authorization = "Bearer $promptToken" }
+        $response = Invoke-RestMethod -Method Post -Uri $promptUrl -Headers $headers -Body $body -ContentType 'application/json'
+        $answer = [string]$response.answer
+        if ([string]::IsNullOrWhiteSpace($answer)) {
+            $answer = [string]$response.value
+        }
+        if ([string]::IsNullOrWhiteSpace($answer)) {
+            $answer = $DefaultValue
+        }
+
+        return $answer
+    } catch {
+        Write-Host "MCP prompt handling failed: $($_.Exception.Message)" -ForegroundColor Red
+        throw
+    }
 }
 
 # Formats JSON in a nicer format than the built-in ConvertTo-Json does.
@@ -636,7 +775,12 @@ function Select-IndexFromList {
 
     while ($true) {
         $prompt = "Select an option [1..{0}] (Enter={1}): " -f $Options.Count, ($DefaultIndex+1)
-        $input = Read-Host -Prompt $prompt
+        $input = Request-BcDevToolsetMcpPrompt -PromptId "selectIndex.$($Title -replace '[^A-Za-z0-9]+', '.')" -Type 'choice' -Question $prompt -DefaultValue "$($DefaultIndex + 1)" -Choices @(1..$Options.Count | ForEach-Object { "$_" }) -Risk "Selects one of the displayed options."
+        if ($null -eq $input) {
+            $input = Read-Host -Prompt $prompt
+        } else {
+            Write-Host "Answer received through MCP: $input" -ForegroundColor Green
+        }
         if ([string]::IsNullOrWhiteSpace($input)) { return $DefaultIndex }
 
         $n = 0
@@ -1021,7 +1165,7 @@ function Clear-Artifacts {
     )
     $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
 
-    if (Confirm-Option -question "Do you want to clear the translation files?") {
+    if (Confirm-Option -question "Do you want to clear the translation files?" -PromptId "clearArtifacts.translationFiles" -Risk "Deletes generated translation files from the workspace.") {
         foreach ($appPath in $workspaceJSON.folders.path) {
             # Read app.json
             $appPath = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $appPath
@@ -1034,7 +1178,7 @@ function Clear-Artifacts {
         Write-Host "Translation files cleared." -ForegroundColor Blue
     }
     
-    if (Confirm-Option -question "Do you want to clear all APP files? You will need to download symbols for all projects.") {
+    if (Confirm-Option -question "Do you want to clear all APP files? You will need to download symbols for all projects." -PromptId "clearArtifacts.appFiles" -Risk "Deletes APP files and requires downloading symbols again.") {
         foreach ($appPath in $workspaceJSON.folders.path) {
             # Read app.json
             $appPath = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $appPath
