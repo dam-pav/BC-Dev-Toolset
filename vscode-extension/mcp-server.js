@@ -470,7 +470,7 @@ function getFallbackWorkspaceContext() {
   const workspaceFilePath = defaultWorkspaceFile || '';
   const workspaceFolders = getWorkspaceFoldersFromFile(workspaceFilePath, defaultWorkspacePath);
   const activeAlProjectPath = getActiveAlProjectPath(workspaceFolders.map((folder) => folder.path), defaultWorkspacePath);
-  const appJsonPath = activeAlProjectPath ? path.join(activeAlProjectPath, 'app.json') : '';
+  const appJsonPath = getAppJsonPath(activeAlProjectPath, workspaceFolders.map((folder) => folder.path), defaultWorkspacePath);
 
   return {
     source: 'mcp-server-env',
@@ -480,7 +480,7 @@ function getFallbackWorkspaceContext() {
     localSettingsPath: defaultLocalSettingsPath,
     workspaceFolders,
     activeAlProjectPath,
-    appJsonPath: fs.existsSync(appJsonPath) ? appJsonPath : '',
+    appJsonPath,
     settings: getWorkspaceSettingsFromFile(workspaceFilePath)
   };
 }
@@ -496,9 +496,10 @@ function getWorkspaceFoldersFromFile(workspaceFilePath, fallbackWorkspacePath) {
           return undefined;
         }
 
-        const resolvedPath = path.isAbsolute(folderPath)
-          ? folderPath
-          : path.resolve(workspaceBasePath, folderPath);
+        const resolvedPath = resolveWorkspaceFolderPath(workspaceBasePath, folderPath);
+        if (!resolvedPath) {
+          return undefined;
+        }
         return {
           name: typeof folder.name === 'string' ? folder.name : path.basename(resolvedPath),
           path: resolvedPath
@@ -514,7 +515,42 @@ function getWorkspaceFoldersFromFile(workspaceFilePath, fallbackWorkspacePath) {
 
 function getActiveAlProjectPath(workspaceFolderPaths, fallbackWorkspacePath) {
   const candidatePaths = [...workspaceFolderPaths, fallbackWorkspacePath].filter(Boolean);
-  return candidatePaths.find((folderPath) => fs.existsSync(path.join(folderPath, 'app.json'))) || '';
+  return candidatePaths.find((folderPath) => {
+    const appJsonPath = getAppJsonPath(folderPath, workspaceFolderPaths, fallbackWorkspacePath);
+    return Boolean(appJsonPath && readJsonFile(appJsonPath));
+  }) || '';
+}
+
+function resolveWorkspaceFolderPath(workspaceBasePath, folderPath) {
+  const resolvedPath = path.isAbsolute(folderPath)
+    ? path.normalize(folderPath)
+    : path.normalize(`${workspaceBasePath}${path.sep}${folderPath}`);
+
+  if (workspaceBasePath && !isSameOrChildPath(workspaceBasePath, resolvedPath)) {
+    return '';
+  }
+
+  return resolvedPath;
+}
+
+function getAppJsonPath(projectPath, workspaceFolderPaths, fallbackWorkspacePath) {
+  if (!projectPath || !isAllowedWorkspacePath(projectPath, workspaceFolderPaths, fallbackWorkspacePath)) {
+    return '';
+  }
+
+  const normalizedProjectPath = path.normalize(projectPath);
+  const appJsonPath = `${normalizedProjectPath}${path.sep}app.json`;
+  return isSameOrChildPath(projectPath, appJsonPath) ? appJsonPath : '';
+}
+
+function isAllowedWorkspacePath(candidatePath, workspaceFolderPaths, fallbackWorkspacePath) {
+  const allowedRoots = [...workspaceFolderPaths, fallbackWorkspacePath].filter(Boolean);
+  return allowedRoots.some((rootPath) => isSameOrChildPath(rootPath, candidatePath));
+}
+
+function isSameOrChildPath(parentPath, candidatePath) {
+  const relativePath = path.relative(path.normalize(parentPath), path.normalize(candidatePath));
+  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
 }
 
 function getWorkspaceSettingsFromFile(workspaceFilePath) {
@@ -532,7 +568,7 @@ function getWorkspaceSettingsFromFile(workspaceFilePath) {
 }
 
 function readJsonFile(filePath) {
-  if (!filePath || !fs.existsSync(filePath)) {
+  if (!filePath) {
     return undefined;
   }
 
