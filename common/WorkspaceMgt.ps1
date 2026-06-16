@@ -518,7 +518,7 @@ function Confirm-Option {
         [Parameter(Mandatory=$false)]
         [string] $answerNo = 'n',
         [Parameter(Mandatory=$false)]
-        [string] $defaultYes = $false,
+        [bool] $defaultYes = $false,
         [Parameter(Mandatory=$false)]
         [string] $PromptId = '',
         [Parameter(Mandatory=$false)]
@@ -673,8 +673,8 @@ function Request-BcDevToolsetMcpPrompt {
 
         return $answer
     } catch {
-        Write-Host "MCP prompt handling failed: $($_.Exception.Message)" -ForegroundColor Red
-        throw
+        Write-Host "MCP prompt handling failed, falling back to terminal input: $($_.Exception.Message)" -ForegroundColor Yellow
+        return $null
     }
 }
 
@@ -775,16 +775,16 @@ function Select-IndexFromList {
 
     while ($true) {
         $prompt = "Select an option [1..{0}] (Enter={1}): " -f $Options.Count, ($DefaultIndex+1)
-        $input = Request-BcDevToolsetMcpPrompt -PromptId "selectIndex.$($Title -replace '[^A-Za-z0-9]+', '.')" -Type 'choice' -Question $prompt -DefaultValue "$($DefaultIndex + 1)" -Choices @(1..$Options.Count | ForEach-Object { "$_" }) -Risk "Selects one of the displayed options."
-        if ($null -eq $input) {
-            $input = Read-Host -Prompt $prompt
+        $selection = Request-BcDevToolsetMcpPrompt -PromptId "selectIndex.$($Title -replace '[^A-Za-z0-9]+', '.')" -Type 'choice' -Question $prompt -DefaultValue "$($DefaultIndex + 1)" -Choices @(1..$Options.Count | ForEach-Object { "$_" }) -Risk "Selects one of the displayed options."
+        if ($null -eq $selection) {
+            $selection = Read-Host -Prompt $prompt
         } else {
-            Write-Host "Answer received through MCP: $input" -ForegroundColor Green
+            Write-Host "Answer received through MCP: $selection" -ForegroundColor Green
         }
-        if ([string]::IsNullOrWhiteSpace($input)) { return $DefaultIndex }
+        if ([string]::IsNullOrWhiteSpace($selection)) { return $DefaultIndex }
 
         $n = 0
-        if ([int]::TryParse($input, [ref]$n)) {
+        if ([int]::TryParse($selection, [ref]$n)) {
             if ($n -ge 1 -and $n -le $Options.Count) {
                 return ($n - 1)
             }
@@ -815,32 +815,10 @@ function Initialize-Context {
     # Workspace
     $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath -WorkspacePath $WorkspacePath
     $Script:bcDevToolsetWorkspaceRootPath = $workspaceRootPath.FullName
-    $filterExtension = ".code-workspace"  # Replace with the file extension you want to filter by
-    
-    # List all files in the folder and filter by extension
-    if (-not [string]::IsNullOrWhiteSpace($WorkspaceFile)) {
-        if ([System.IO.Path]::IsPathRooted($WorkspaceFile)) {
-            $filteredFiles = @(Get-Item -LiteralPath $WorkspaceFile)
-        } else {
-            $filteredFiles = @(Get-Item -LiteralPath (Join-Path $workspaceRootPath.FullName $WorkspaceFile))
-        }
-    } else {
-        $filteredFiles = @(Get-ChildItem -Path $workspaceRootPath.FullName | Where-Object { $_.Extension -eq $filterExtension })
-    }
-    
-    # Check if there are any matching files
-    if ($filteredFiles.Count -gt 0) {
-        # If multiple workspace files exist, let the user pick which one to use
-        $selectedFile = $null
-        if ($filteredFiles.Count -eq 1) {
-            $selectedFile = $filteredFiles[0]
-        } else {
-            $options = @()
-            foreach ($f in $filteredFiles) { $options += $f.Name }
-            $idx = Select-IndexFromList -Title "Multiple workspace files found. Please select one:" -Options $options -DefaultIndex 0
-            $selectedFile = $filteredFiles[$idx]
-        }
 
+    $selectedFile = Resolve-BcDevToolsetWorkspaceFile -WorkspaceRootPath $workspaceRootPath.FullName -WorkspaceFile $WorkspaceFile
+
+    if ($null -ne $selectedFile) {
         # Read selected *.code-workspace
         $workspaceJSON.Value = Get-Content -Path $selectedFile.FullName | ConvertFrom-Json
         $workspaceName = $selectedFile.Name
@@ -925,6 +903,50 @@ function Initialize-Context {
     }
     # finally, pass the object
     $settingsJSON.Value = $settingsJSONvalue
+}
+
+function Resolve-BcDevToolsetWorkspaceFile {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $WorkspaceRootPath,
+        [Parameter(Mandatory=$false)]
+        [string] $WorkspaceFile
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($WorkspaceFile)) {
+        $workspaceFilePath = if ([System.IO.Path]::IsPathRooted($WorkspaceFile)) {
+            $WorkspaceFile
+        } else {
+            Join-Path $WorkspaceRootPath $WorkspaceFile
+        }
+
+        if (-not (Test-Path -LiteralPath $workspaceFilePath -PathType Leaf)) {
+            throw "Workspace file not found: $workspaceFilePath"
+        }
+
+        return Get-Item -LiteralPath $workspaceFilePath
+    }
+
+    if ($env:BCDEVTOOLSET_ALLOW_WORKSPACE_FILE_DISCOVERY -ne 'true') {
+        return $null
+    }
+
+    $workspaceFiles = @(Get-ChildItem -Path $WorkspaceRootPath -Filter '*.code-workspace' -File)
+    if ($workspaceFiles.Count -eq 0) {
+        return $null
+    }
+
+    if ($workspaceFiles.Count -eq 1) {
+        return $workspaceFiles[0]
+    }
+
+    $options = @()
+    foreach ($workspaceFileCandidate in $workspaceFiles) {
+        $options += $workspaceFileCandidate.Name
+    }
+
+    $idx = Select-IndexFromList -Title "Multiple workspace files found. Please select one:" -Options $options -DefaultIndex 0
+    return $workspaceFiles[$idx]
 }
 
 function Get-AppJSON {

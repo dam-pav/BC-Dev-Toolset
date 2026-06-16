@@ -12,6 +12,7 @@ const operationsPath = path.join(toolsetPath, 'operations', 'operations.json');
 const bridgePath = path.join(toolsetPath, 'Invoke-BcDevToolsetOperation.ps1');
 const defaultWorkspacePath = process.env.BCDEVTOOLSET_MCP_WORKSPACE_PATH || process.cwd();
 const defaultWorkspaceFile = process.env.BCDEVTOOLSET_MCP_WORKSPACE_FILE || '';
+const defaultWorkspaceContext = parseJsonEnvironmentValue(process.env.BCDEVTOOLSET_MCP_WORKSPACE_CONTEXT);
 const defaultLocalSettingsPath = process.env.BCDEVTOOLSET_MCP_LOCAL_SETTINGS_PATH || '';
 const defaultPowerShellExecutable = process.env.BCDEVTOOLSET_MCP_POWERSHELL_EXECUTABLE || 'pwsh';
 const bridgeStatePath = process.env.BCDEVTOOLSET_MCP_BRIDGE_STATE_PATH || path.join(os.tmpdir(), 'bc-dev-toolset-mcp', 'vscode-bridge.json');
@@ -155,7 +156,7 @@ async function handleMessage(body) {
       case 'initialize':
         sendResult(message.id, {
           protocolVersion: getProtocolVersion(message),
-          capabilities: { tools: {} },
+          capabilities: { tools: {}, resources: {} },
           instructions: getServerInstructions(),
           serverInfo: {
             name: 'bc-dev-toolset',
@@ -170,7 +171,10 @@ async function handleMessage(body) {
         sendResult(message.id, await callTool(message.params || {}));
         break;
       case 'resources/list':
-        sendResult(message.id, { resources: [] });
+        sendResult(message.id, { resources: getResources() });
+        break;
+      case 'resources/read':
+        sendResult(message.id, await readResource(message.params || {}));
         break;
       case 'resources/templates/list':
         sendResult(message.id, { resourceTemplates: [] });
@@ -193,6 +197,7 @@ async function handleMessage(body) {
 function getServerInstructions() {
   return [
     'Use this server for Business Central Developer\'s Toolset operations. Prefer direct tools named bc_dev_toolset_* for matching user requests; do not inspect Docker containers or call BcContainerHelper directly to duplicate a supported toolset operation.',
+    'Before answering questions about the active VS Code workspace, workspace file, workspace folders, AL project path, app.json location, .code-workspace settings, local .bcdevtoolset settings path, or AL settings such as assembly probing paths, call bc_dev_toolset_get_workspace or read bcdevtoolset://workspace/current. Do not infer the workspace by scanning parent folders unless this tool/resource is unavailable.',
     'PowerShell-backed operations require the VS Code terminal bridge and run visibly in the BC Dev Toolset terminal. If the bridge is unavailable, report that the BC Dev Toolset VS Code extension must be active instead of falling back to manual PowerShell.',
     'Use bc_dev_toolset_show_active_licenses for requests about the current container license. Use bc_dev_toolset_new_docker_container for creating or recreating containers.'
   ].join('\n');
@@ -207,6 +212,14 @@ function getProtocolVersion(message) {
 function getTools() {
   const tools = getOperationTools();
   tools.push(
+    {
+      name: 'bc_dev_toolset_get_workspace',
+      description: 'Use this tool first whenever the user asks about the current workspace, active VS Code workspace file, workspace folders, AL project context, app.json location, .code-workspace settings, local .bcdevtoolset settings path, or AL settings such as assembly probing paths. Returns the active VS Code workspace context known to BC Dev Toolset. Do not guess by scanning folders before calling this.',
+      inputSchema: {
+        type: 'object',
+        properties: {}
+      }
+    },
     {
       name: 'bc_dev_toolset_get_operation_status',
       description: 'Get status for a BC Dev Toolset MCP operation session, including pending prompts and captured completion output.',
@@ -337,6 +350,34 @@ function getLegacyTools() {
   ];
 }
 
+function getResources() {
+  return [
+    {
+      uri: 'bcdevtoolset://workspace/current',
+      name: 'Current BC Dev Toolset Workspace Context',
+      description: 'Active VS Code workspace context known to BC Dev Toolset: workspace file, folders, active AL project, app.json, local settings path, and effective AL settings.',
+      mimeType: 'application/json'
+    }
+  ];
+}
+
+async function readResource(params) {
+  const uri = String(params.uri || '').trim();
+  if (uri !== 'bcdevtoolset://workspace/current') {
+    throw new Error(`Unknown resource: ${uri}`);
+  }
+
+  return {
+    contents: [
+      {
+        uri,
+        mimeType: 'application/json',
+        text: JSON.stringify(await getWorkspaceContextObject(), null, 2)
+      }
+    ]
+  };
+}
+
 function shouldExposeGenericTools() {
   return process.env.BCDEVTOOLSET_MCP_EXPOSE_GENERIC_TOOLS === 'true';
 }
@@ -391,6 +432,8 @@ async function callTool(params) {
   }
 
   switch (params.name) {
+    case 'bc_dev_toolset_get_workspace':
+      return getWorkspaceContext();
     case 'bc_dev_toolset_get_operation_status':
       return getOperationStatus(toolArguments);
     case 'bc_dev_toolset_answer_operation_prompt':
@@ -406,6 +449,55 @@ async function callTool(params) {
       }, progress);
     default:
       return textResult(`Unknown tool: ${params.name}`, true);
+  }
+}
+
+async function getWorkspaceContext() {
+  return textResult(JSON.stringify(await getWorkspaceContextObject(), null, 2));
+}
+
+async function getWorkspaceContextObject() {
+  if (shouldUseTerminalBridge()) {
+    const response = await postBridgeJson('/workspace-context', {});
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return response.body || {};
+    }
+  }
+
+  return getFallbackWorkspaceContext();
+}
+
+function getFallbackWorkspaceContext() {
+  if (defaultWorkspaceContext && typeof defaultWorkspaceContext === 'object') {
+    return defaultWorkspaceContext;
+  }
+
+  const workspaceFilePath = defaultWorkspaceFile || '';
+  const workspaceFolders = defaultWorkspacePath
+    ? [{ name: path.basename(defaultWorkspacePath), path: defaultWorkspacePath }]
+    : [];
+
+  return {
+    source: 'mcp-server-env',
+    workspacePath: defaultWorkspacePath,
+    workspaceFilePath,
+    workspaceBasePath: '',
+    localSettingsPath: defaultLocalSettingsPath,
+    workspaceFolders,
+    activeAlProjectPath: defaultWorkspacePath,
+    appJsonPath: '',
+    settings: {}
+  };
+}
+
+function parseJsonEnvironmentValue(value) {
+  if (!value) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return undefined;
   }
 }
 

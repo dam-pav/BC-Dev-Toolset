@@ -16,6 +16,9 @@ let mcpBridgeUrl;
 let mcpBridgeToken;
 let mcpBridgeStatePath;
 const mcpPromptSessions = new Map();
+const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
+const mcpPromptSessionMaxCount = 50;
+const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 
 const directOperationIds = [
   'invokeTests',
@@ -107,6 +110,7 @@ function activate(context) {
     vscode.commands.registerCommand('bcDevToolset.configureCodexMcp', configureCodexMcp),
     vscode.commands.registerCommand('bcDevToolset.runOperation', runOperation),
     startMcpBridgeServer(context),
+    startMcpPromptSessionCleanup(),
     registerMcpServerDefinitionProvider(context),
     vscode.languages.registerCompletionItemProvider(
       [
@@ -157,6 +161,13 @@ function startMcpBridgeServer(context) {
         removeMcpBridgeState();
       }
     }
+  };
+}
+
+function startMcpPromptSessionCleanup() {
+  const timer = setInterval(pruneMcpPromptSessions, mcpPromptSessionCleanupIntervalMs);
+  return {
+    dispose: () => clearInterval(timer)
   };
 }
 
@@ -214,6 +225,11 @@ async function handleMcpBridgeRequest(request, response) {
       return;
     }
 
+    if (request.url === '/workspace-context') {
+      writeMcpBridgeResponse(response, 200, getMcpWorkspaceContext());
+      return;
+    }
+
     if (request.url !== '/run-operation') {
       writeMcpBridgeResponse(response, 404, { error: 'Not found.' });
       return;
@@ -227,6 +243,9 @@ async function handleMcpBridgeRequest(request, response) {
 
     const timeoutSeconds = Number(body.timeoutSeconds);
     const result = await runOperationByIdForMcp(operationId, {
+      workspacePath: body.workspacePath,
+      workspaceFile: body.workspaceFile,
+      localSettingsPath: body.localSettingsPath,
       timeoutMs: Number.isFinite(timeoutSeconds) && timeoutSeconds > 0
         ? timeoutSeconds * 1000
         : undefined
@@ -254,6 +273,7 @@ async function handleMcpPromptRequest(body, response) {
   session.prompt = promptRequest;
   session.answer = undefined;
   session.respondedAt = undefined;
+  touchMcpPromptSession(session);
   writeOutput(`BC Dev Toolset MCP operation is waiting for input: ${promptRequest.question || promptRequest.id || '(unknown prompt)'}`);
 
   await new Promise((resolve) => {
@@ -262,6 +282,7 @@ async function handleMcpPromptRequest(body, response) {
       session.status = 'running';
       session.answer = answer;
       session.respondedAt = new Date().toISOString();
+      touchMcpPromptSession(session);
       writeMcpBridgeResponse(response, 200, answer);
       resolve();
     };
@@ -274,6 +295,7 @@ function requestCleanupOnResponseClose(response, session) {
     if (!response.writableEnded && session.resolvePrompt) {
       session.resolvePrompt = undefined;
       session.status = 'running';
+      touchMcpPromptSession(session);
     }
   });
 }
@@ -289,6 +311,7 @@ function answerMcpPrompt(body) {
   if (!session || session.status !== 'waiting_for_input' || !session.resolvePrompt) {
     return { status: 'failed', sessionId, error: 'No pending prompt was found for this session.' };
   }
+  touchMcpPromptSession(session);
 
   const prompt = session.prompt || {};
   if (prompt.sensitive) {
@@ -331,6 +354,7 @@ function normalizeMcpPromptAnswer(answer, prompt = {}) {
 }
 
 function getMcpOperationStatus(body) {
+  pruneMcpPromptSessions();
   const sessionId = String((body && body.sessionId) || '').trim();
   if (!sessionId) {
     return { status: 'failed', error: 'sessionId is required.' };
@@ -340,6 +364,7 @@ function getMcpOperationStatus(body) {
   if (!session) {
     return { status: 'unknown', sessionId };
   }
+  touchMcpPromptSession(session);
 
   if (session.capture && session.operationId && session.terminalName) {
     const result = readMcpCaptureResult(
@@ -351,6 +376,7 @@ function getMcpOperationStatus(body) {
       session.status = result.status;
       session.completedAt = session.completedAt || new Date().toISOString();
       session.result = result;
+      touchMcpPromptSession(session);
     }
   }
 
@@ -358,23 +384,81 @@ function getMcpOperationStatus(body) {
 }
 
 function getOrCreateMcpPromptSession(sessionId) {
+  pruneMcpPromptSessions();
   const existing = mcpPromptSessions.get(sessionId);
   if (existing) {
+    touchMcpPromptSession(existing);
     return existing;
   }
 
+  const now = new Date().toISOString();
   const session = {
     sessionId,
     status: 'running',
     prompt: undefined,
     answer: undefined,
-    startedAt: new Date().toISOString(),
+    startedAt: now,
+    updatedAt: now,
     completedAt: undefined,
     result: undefined,
     resolvePrompt: undefined
   };
   mcpPromptSessions.set(sessionId, session);
+  pruneMcpPromptSessions();
   return session;
+}
+
+function touchMcpPromptSession(session) {
+  session.updatedAt = new Date().toISOString();
+}
+
+function pruneMcpPromptSessions() {
+  const now = Date.now();
+  for (const [sessionId, session] of mcpPromptSessions) {
+    const sessionTime = Date.parse(session.updatedAt || session.completedAt || session.startedAt || '');
+    if (Number.isFinite(sessionTime) && now - sessionTime > mcpPromptSessionMaxAgeMs) {
+      deleteMcpPromptSession(sessionId, session);
+    }
+  }
+
+  if (mcpPromptSessions.size <= mcpPromptSessionMaxCount) {
+    return;
+  }
+
+  const removableSessions = [...mcpPromptSessions.entries()]
+    .filter(([, session]) => !session.resolvePrompt)
+    .sort((left, right) => getMcpPromptSessionSortTime(left[1]) - getMcpPromptSessionSortTime(right[1]));
+
+  while (mcpPromptSessions.size > mcpPromptSessionMaxCount && removableSessions.length > 0) {
+    const [sessionId, session] = removableSessions.shift();
+    deleteMcpPromptSession(sessionId, session);
+  }
+}
+
+function getMcpPromptSessionSortTime(session) {
+  const value = Date.parse(session.updatedAt || session.completedAt || session.startedAt || '');
+  return Number.isFinite(value) ? value : 0;
+}
+
+function deleteMcpPromptSession(sessionId, session) {
+  mcpPromptSessions.delete(sessionId);
+  cleanupMcpCaptureFiles(session && session.capture);
+}
+
+function cleanupMcpCaptureFiles(capture) {
+  if (!capture) {
+    return;
+  }
+
+  for (const filePath of [capture.transcriptPath, capture.resultPath]) {
+    if (filePath && fs.existsSync(filePath)) {
+      try {
+        fs.rmSync(filePath, { force: true });
+      } catch (error) {
+        writeOutput(`Failed to remove MCP capture file ${filePath}: ${error.message}`);
+      }
+    }
+  }
 }
 
 function getMcpPromptSessionSnapshot(session) {
@@ -478,6 +562,7 @@ function createMcpServerDefinition(context) {
       BCDEVTOOLSET_MCP_TOOLSET_PATH: getToolsetPath(),
       BCDEVTOOLSET_MCP_WORKSPACE_PATH: workspacePath,
       BCDEVTOOLSET_MCP_WORKSPACE_FILE: workspaceFile,
+      BCDEVTOOLSET_MCP_WORKSPACE_CONTEXT: JSON.stringify(getMcpWorkspaceContext()),
       BCDEVTOOLSET_MCP_LOCAL_SETTINGS_PATH: localSettingsPath,
       BCDEVTOOLSET_MCP_POWERSHELL_EXECUTABLE: getConfiguration().get('powershellExecutable') || 'pwsh',
       BCDEVTOOLSET_MCP_EXTENSION_VERSION: mcpServerVersion,
@@ -904,6 +989,50 @@ function getOptionalLocalSettingsPath() {
   } catch (error) {
     return '';
   }
+}
+
+function getMcpWorkspaceContext() {
+  const workspaceFolders = (vscode.workspace.workspaceFolders || []).map((folder) => ({
+    name: folder.name,
+    path: folder.uri.fsPath
+  }));
+  const activeAlProjectPath = getActiveAlProjectPath(workspaceFolders.map((folder) => folder.path));
+  const appJsonPath = activeAlProjectPath ? path.join(activeAlProjectPath, 'app.json') : '';
+
+  return {
+    source: 'vscode',
+    workspacePath: getOptionalWorkspacePath(),
+    workspaceFilePath: getOptionalWorkspaceFileName(),
+    workspaceBasePath: getOptionalValue(getWorkspaceBasePath),
+    localSettingsPath: getOptionalLocalSettingsPath(),
+    workspaceFolders,
+    activeAlProjectPath,
+    appJsonPath: fs.existsSync(appJsonPath) ? appJsonPath : '',
+    settings: getMcpWorkspaceSettings()
+  };
+}
+
+function getOptionalValue(callback) {
+  try {
+    return callback();
+  } catch (error) {
+    return '';
+  }
+}
+
+function getActiveAlProjectPath(workspaceFolderPaths) {
+  const firstAppFolder = workspaceFolderPaths.find((folderPath) => fs.existsSync(path.join(folderPath, 'app.json')));
+  return firstAppFolder || '';
+}
+
+function getMcpWorkspaceSettings() {
+  const alConfiguration = vscode.workspace.getConfiguration('al');
+  return {
+    'al.assemblyProbingPaths': alConfiguration.get('assemblyProbingPaths') || [],
+    'al.enableCodeAnalysis': alConfiguration.get('enableCodeAnalysis'),
+    'al.enableCodeActions': alConfiguration.get('enableCodeActions'),
+    'al.compilationOptions': alConfiguration.get('compilationOptions') || {}
+  };
 }
 
 function getWorkspaceFilesInDirectory(directoryPath) {
@@ -1715,17 +1844,22 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
   const session = getOrCreateMcpPromptSession(capture.sessionId);
   session.operationId = operation.id;
   session.operationTitle = operation.title;
+  touchMcpPromptSession(session);
   const { command, powershellExecutable } = buildOperationTerminalCommand(operation, toolsetPath, {
     nonInteractive: false,
     includeMcpCapture: true,
     transcriptPath: capture.transcriptPath,
     resultPath: capture.resultPath,
-    mcpSessionId: capture.sessionId
+    mcpSessionId: capture.sessionId,
+    workspacePath: options.workspacePath,
+    workspaceFile: options.workspaceFile,
+    localSettingsPath: options.localSettingsPath
   });
   const terminal = getOperationTerminal(powershellExecutable);
   const terminalName = getPowerShellTerminalName(powershellExecutable);
   session.terminalName = terminalName;
   session.capture = capture;
+  touchMcpPromptSession(session);
   const shellIntegration = await waitForTerminalShellIntegration(terminal, 3000);
 
   if (!shellIntegration) {
@@ -1747,12 +1881,12 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
 }
 
 function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
-  const workspacePath = getWorkspacePath();
+  const workspacePath = options.workspacePath || getWorkspacePath();
   const bridgePath = getOperationBridgePath(toolsetPath);
   const powershellExecutable = operation.powerShellExecutable || getConfiguration().get('powershellExecutable') || 'pwsh';
-  const workspaceFile = getWorkspaceFileName();
+  const workspaceFile = options.workspaceFile || getWorkspaceFileName();
   const configPath = getConfigPath();
-  const localSettingsPath = resolveWorkspaceBasePath(getConfiguration().get('localSettingsPath')) || path.join(configPath, 'settings.json');
+  const localSettingsPath = options.localSettingsPath || resolveWorkspaceBasePath(getConfiguration().get('localSettingsPath')) || path.join(configPath, 'settings.json');
   const localSettingsArguments = ` -LocalSettingsPath ${quotePowerShellArgument(localSettingsPath)}`;
   const workspaceFileArguments = workspaceFile
     ? ` -WorkspaceFile ${quotePowerShellArgument(workspaceFile)}`
@@ -1826,6 +1960,7 @@ async function waitForMcpCaptureResult(operation, terminalName, capture, options
       session.status = result.status;
       session.completedAt = new Date().toISOString();
       session.result = result;
+      touchMcpPromptSession(session);
       return result;
     }
 
@@ -1849,7 +1984,7 @@ async function waitForMcpCaptureResult(operation, terminalName, capture, options
     await delay(500);
   }
 
-  return {
+  const timeoutResult = {
     status: 'timeout',
     operationId: operation.id,
     operationTitle: operation.title,
@@ -1860,6 +1995,12 @@ async function waitForMcpCaptureResult(operation, terminalName, capture, options
     outputAvailable: fs.existsSync(capture.transcriptPath),
     output: readTextFileIfExists(capture.transcriptPath) || 'The terminal operation did not finish before the MCP timeout.'
   };
+  const session = getOrCreateMcpPromptSession(capture.sessionId);
+  session.status = timeoutResult.status;
+  session.completedAt = new Date().toISOString();
+  session.result = timeoutResult;
+  touchMcpPromptSession(session);
+  return timeoutResult;
 }
 
 function readMcpCaptureResult(operation, terminalName, capture) {
