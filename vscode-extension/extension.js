@@ -562,6 +562,7 @@ function createMcpServerDefinition(context) {
       BCDEVTOOLSET_MCP_TOOLSET_PATH: getToolsetPath(),
       BCDEVTOOLSET_MCP_WORKSPACE_PATH: workspacePath,
       BCDEVTOOLSET_MCP_WORKSPACE_FILE: workspaceFile,
+      BCDEVTOOLSET_MCP_WORKSPACE_CONTEXT: JSON.stringify(getMcpWorkspaceContext()),
       BCDEVTOOLSET_MCP_LOCAL_SETTINGS_PATH: localSettingsPath,
       BCDEVTOOLSET_MCP_POWERSHELL_EXECUTABLE: getConfiguration().get('powershellExecutable') || 'pwsh',
       BCDEVTOOLSET_MCP_EXTENSION_VERSION: mcpServerVersion,

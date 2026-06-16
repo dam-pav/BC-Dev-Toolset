@@ -12,6 +12,7 @@ const operationsPath = path.join(toolsetPath, 'operations', 'operations.json');
 const bridgePath = path.join(toolsetPath, 'Invoke-BcDevToolsetOperation.ps1');
 const defaultWorkspacePath = process.env.BCDEVTOOLSET_MCP_WORKSPACE_PATH || process.cwd();
 const defaultWorkspaceFile = process.env.BCDEVTOOLSET_MCP_WORKSPACE_FILE || '';
+const defaultWorkspaceContext = parseJsonEnvironmentValue(process.env.BCDEVTOOLSET_MCP_WORKSPACE_CONTEXT);
 const defaultLocalSettingsPath = process.env.BCDEVTOOLSET_MCP_LOCAL_SETTINGS_PATH || '';
 const defaultPowerShellExecutable = process.env.BCDEVTOOLSET_MCP_POWERSHELL_EXECUTABLE || 'pwsh';
 const bridgeStatePath = process.env.BCDEVTOOLSET_MCP_BRIDGE_STATE_PATH || path.join(os.tmpdir(), 'bc-dev-toolset-mcp', 'vscode-bridge.json');
@@ -467,113 +468,34 @@ async function getWorkspaceContextObject() {
 }
 
 function getFallbackWorkspaceContext() {
+  if (defaultWorkspaceContext && typeof defaultWorkspaceContext === 'object') {
+    return defaultWorkspaceContext;
+  }
+
   const workspaceFilePath = defaultWorkspaceFile || '';
-  const workspaceFolders = getWorkspaceFoldersFromFile(workspaceFilePath, defaultWorkspacePath);
-  const activeAlProjectPath = getActiveAlProjectPath(workspaceFolders.map((folder) => folder.path), defaultWorkspacePath);
-  const appJsonPath = getAppJsonPath(activeAlProjectPath, workspaceFolders.map((folder) => folder.path), defaultWorkspacePath);
+  const workspaceFolders = defaultWorkspacePath
+    ? [{ name: path.basename(defaultWorkspacePath), path: defaultWorkspacePath }]
+    : [];
 
   return {
     source: 'mcp-server-env',
     workspacePath: defaultWorkspacePath,
     workspaceFilePath,
-    workspaceBasePath: workspaceFilePath ? path.dirname(workspaceFilePath) : '',
+    workspaceBasePath: '',
     localSettingsPath: defaultLocalSettingsPath,
     workspaceFolders,
-    activeAlProjectPath,
-    appJsonPath,
-    settings: getWorkspaceSettingsFromFile(workspaceFilePath)
+    activeAlProjectPath: defaultWorkspacePath,
+    appJsonPath: '',
+    settings: {}
   };
 }
 
-function getWorkspaceFoldersFromFile(workspaceFilePath, fallbackWorkspacePath) {
-  const workspace = readJsonFile(workspaceFilePath);
-  const workspaceBasePath = workspaceFilePath ? path.dirname(workspaceFilePath) : '';
-  if (workspace && Array.isArray(workspace.folders)) {
-    return workspace.folders
-      .map((folder) => {
-        const folderPath = typeof folder === 'string' ? folder : folder.path;
-        if (!folderPath) {
-          return undefined;
-        }
-
-        const resolvedPath = resolveWorkspaceFolderPath(workspaceBasePath, folderPath);
-        if (!resolvedPath) {
-          return undefined;
-        }
-        return {
-          name: typeof folder.name === 'string' ? folder.name : path.basename(resolvedPath),
-          path: resolvedPath
-        };
-      })
-      .filter(Boolean);
-  }
-
-  return fallbackWorkspacePath
-    ? [{ name: path.basename(fallbackWorkspacePath), path: fallbackWorkspacePath }]
-    : [];
-}
-
-function getActiveAlProjectPath(workspaceFolderPaths, fallbackWorkspacePath) {
-  const candidatePaths = [...workspaceFolderPaths, fallbackWorkspacePath].filter(Boolean);
-  return candidatePaths.find((folderPath) => {
-    const appJsonPath = getAppJsonPath(folderPath, workspaceFolderPaths, fallbackWorkspacePath);
-    return Boolean(appJsonPath && readJsonFile(appJsonPath));
-  }) || '';
-}
-
-function resolveWorkspaceFolderPath(workspaceBasePath, folderPath) {
-  const resolvedPath = path.isAbsolute(folderPath)
-    ? path.normalize(folderPath)
-    : path.normalize(`${workspaceBasePath}${path.sep}${folderPath}`);
-
-  if (workspaceBasePath && !isSameOrChildPath(workspaceBasePath, resolvedPath)) {
-    return '';
-  }
-
-  return resolvedPath;
-}
-
-function getAppJsonPath(projectPath, workspaceFolderPaths, fallbackWorkspacePath) {
-  if (!projectPath || !isAllowedWorkspacePath(projectPath, workspaceFolderPaths, fallbackWorkspacePath)) {
-    return '';
-  }
-
-  const normalizedProjectPath = path.normalize(projectPath);
-  const appJsonPath = `${normalizedProjectPath}${path.sep}app.json`;
-  return isSameOrChildPath(projectPath, appJsonPath) ? appJsonPath : '';
-}
-
-function isAllowedWorkspacePath(candidatePath, workspaceFolderPaths, fallbackWorkspacePath) {
-  const allowedRoots = [...workspaceFolderPaths, fallbackWorkspacePath].filter(Boolean);
-  return allowedRoots.some((rootPath) => isSameOrChildPath(rootPath, candidatePath));
-}
-
-function isSameOrChildPath(parentPath, candidatePath) {
-  const relativePath = path.relative(path.normalize(parentPath), path.normalize(candidatePath));
-  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
-}
-
-function getWorkspaceSettingsFromFile(workspaceFilePath) {
-  const workspace = readJsonFile(workspaceFilePath);
-  const settings = workspace && workspace.settings && typeof workspace.settings === 'object'
-    ? workspace.settings
-    : {};
-
-  return {
-    'al.assemblyProbingPaths': settings['al.assemblyProbingPaths'] || [],
-    'al.enableCodeAnalysis': settings['al.enableCodeAnalysis'],
-    'al.enableCodeActions': settings['al.enableCodeActions'],
-    'al.compilationOptions': settings['al.compilationOptions'] || {}
-  };
-}
-
-function readJsonFile(filePath) {
-  if (!filePath) {
+function parseJsonEnvironmentValue(value) {
+  if (!value) {
     return undefined;
   }
-
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return JSON.parse(value);
   } catch (error) {
     return undefined;
   }
