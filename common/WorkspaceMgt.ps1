@@ -518,7 +518,7 @@ function Confirm-Option {
         [Parameter(Mandatory=$false)]
         [string] $answerNo = 'n',
         [Parameter(Mandatory=$false)]
-        [string] $defaultYes = $false,
+        [bool] $defaultYes = $false,
         [Parameter(Mandatory=$false)]
         [string] $PromptId = '',
         [Parameter(Mandatory=$false)]
@@ -673,8 +673,8 @@ function Request-BcDevToolsetMcpPrompt {
 
         return $answer
     } catch {
-        Write-Host "MCP prompt handling failed: $($_.Exception.Message)" -ForegroundColor Red
-        throw
+        Write-Host "MCP prompt handling failed, falling back to terminal input: $($_.Exception.Message)" -ForegroundColor Yellow
+        return $null
     }
 }
 
@@ -775,16 +775,16 @@ function Select-IndexFromList {
 
     while ($true) {
         $prompt = "Select an option [1..{0}] (Enter={1}): " -f $Options.Count, ($DefaultIndex+1)
-        $input = Request-BcDevToolsetMcpPrompt -PromptId "selectIndex.$($Title -replace '[^A-Za-z0-9]+', '.')" -Type 'choice' -Question $prompt -DefaultValue "$($DefaultIndex + 1)" -Choices @(1..$Options.Count | ForEach-Object { "$_" }) -Risk "Selects one of the displayed options."
-        if ($null -eq $input) {
-            $input = Read-Host -Prompt $prompt
+        $selection = Request-BcDevToolsetMcpPrompt -PromptId "selectIndex.$($Title -replace '[^A-Za-z0-9]+', '.')" -Type 'choice' -Question $prompt -DefaultValue "$($DefaultIndex + 1)" -Choices @(1..$Options.Count | ForEach-Object { "$_" }) -Risk "Selects one of the displayed options."
+        if ($null -eq $selection) {
+            $selection = Read-Host -Prompt $prompt
         } else {
-            Write-Host "Answer received through MCP: $input" -ForegroundColor Green
+            Write-Host "Answer received through MCP: $selection" -ForegroundColor Green
         }
-        if ([string]::IsNullOrWhiteSpace($input)) { return $DefaultIndex }
+        if ([string]::IsNullOrWhiteSpace($selection)) { return $DefaultIndex }
 
         $n = 0
-        if ([int]::TryParse($input, [ref]$n)) {
+        if ([int]::TryParse($selection, [ref]$n)) {
             if ($n -ge 1 -and $n -le $Options.Count) {
                 return ($n - 1)
             }
