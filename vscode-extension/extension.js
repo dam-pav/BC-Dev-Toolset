@@ -214,6 +214,11 @@ async function handleMcpBridgeRequest(request, response) {
       return;
     }
 
+    if (request.url === '/workspace-context') {
+      writeMcpBridgeResponse(response, 200, getMcpWorkspaceContext());
+      return;
+    }
+
     if (request.url !== '/run-operation') {
       writeMcpBridgeResponse(response, 404, { error: 'Not found.' });
       return;
@@ -227,6 +232,9 @@ async function handleMcpBridgeRequest(request, response) {
 
     const timeoutSeconds = Number(body.timeoutSeconds);
     const result = await runOperationByIdForMcp(operationId, {
+      workspacePath: body.workspacePath,
+      workspaceFile: body.workspaceFile,
+      localSettingsPath: body.localSettingsPath,
       timeoutMs: Number.isFinite(timeoutSeconds) && timeoutSeconds > 0
         ? timeoutSeconds * 1000
         : undefined
@@ -904,6 +912,50 @@ function getOptionalLocalSettingsPath() {
   } catch (error) {
     return '';
   }
+}
+
+function getMcpWorkspaceContext() {
+  const workspaceFolders = (vscode.workspace.workspaceFolders || []).map((folder) => ({
+    name: folder.name,
+    path: folder.uri.fsPath
+  }));
+  const activeAlProjectPath = getActiveAlProjectPath(workspaceFolders.map((folder) => folder.path));
+  const appJsonPath = activeAlProjectPath ? path.join(activeAlProjectPath, 'app.json') : '';
+
+  return {
+    source: 'vscode',
+    workspacePath: getOptionalWorkspacePath(),
+    workspaceFilePath: getOptionalWorkspaceFileName(),
+    workspaceBasePath: getOptionalValue(getWorkspaceBasePath),
+    localSettingsPath: getOptionalLocalSettingsPath(),
+    workspaceFolders,
+    activeAlProjectPath,
+    appJsonPath: fs.existsSync(appJsonPath) ? appJsonPath : '',
+    settings: getMcpWorkspaceSettings()
+  };
+}
+
+function getOptionalValue(callback) {
+  try {
+    return callback();
+  } catch (error) {
+    return '';
+  }
+}
+
+function getActiveAlProjectPath(workspaceFolderPaths) {
+  const firstAppFolder = workspaceFolderPaths.find((folderPath) => fs.existsSync(path.join(folderPath, 'app.json')));
+  return firstAppFolder || '';
+}
+
+function getMcpWorkspaceSettings() {
+  const alConfiguration = vscode.workspace.getConfiguration('al');
+  return {
+    'al.assemblyProbingPaths': alConfiguration.get('assemblyProbingPaths') || [],
+    'al.enableCodeAnalysis': alConfiguration.get('enableCodeAnalysis'),
+    'al.enableCodeActions': alConfiguration.get('enableCodeActions'),
+    'al.compilationOptions': alConfiguration.get('compilationOptions') || {}
+  };
 }
 
 function getWorkspaceFilesInDirectory(directoryPath) {
@@ -1720,7 +1772,10 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
     includeMcpCapture: true,
     transcriptPath: capture.transcriptPath,
     resultPath: capture.resultPath,
-    mcpSessionId: capture.sessionId
+    mcpSessionId: capture.sessionId,
+    workspacePath: options.workspacePath,
+    workspaceFile: options.workspaceFile,
+    localSettingsPath: options.localSettingsPath
   });
   const terminal = getOperationTerminal(powershellExecutable);
   const terminalName = getPowerShellTerminalName(powershellExecutable);
@@ -1747,12 +1802,12 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
 }
 
 function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
-  const workspacePath = getWorkspacePath();
+  const workspacePath = options.workspacePath || getWorkspacePath();
   const bridgePath = getOperationBridgePath(toolsetPath);
   const powershellExecutable = operation.powerShellExecutable || getConfiguration().get('powershellExecutable') || 'pwsh';
-  const workspaceFile = getWorkspaceFileName();
+  const workspaceFile = options.workspaceFile || getWorkspaceFileName();
   const configPath = getConfigPath();
-  const localSettingsPath = resolveWorkspaceBasePath(getConfiguration().get('localSettingsPath')) || path.join(configPath, 'settings.json');
+  const localSettingsPath = options.localSettingsPath || resolveWorkspaceBasePath(getConfiguration().get('localSettingsPath')) || path.join(configPath, 'settings.json');
   const localSettingsArguments = ` -LocalSettingsPath ${quotePowerShellArgument(localSettingsPath)}`;
   const workspaceFileArguments = workspaceFile
     ? ` -WorkspaceFile ${quotePowerShellArgument(workspaceFile)}`

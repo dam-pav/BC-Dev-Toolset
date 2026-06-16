@@ -815,32 +815,10 @@ function Initialize-Context {
     # Workspace
     $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath -WorkspacePath $WorkspacePath
     $Script:bcDevToolsetWorkspaceRootPath = $workspaceRootPath.FullName
-    $filterExtension = ".code-workspace"  # Replace with the file extension you want to filter by
-    
-    # List all files in the folder and filter by extension
-    if (-not [string]::IsNullOrWhiteSpace($WorkspaceFile)) {
-        if ([System.IO.Path]::IsPathRooted($WorkspaceFile)) {
-            $filteredFiles = @(Get-Item -LiteralPath $WorkspaceFile)
-        } else {
-            $filteredFiles = @(Get-Item -LiteralPath (Join-Path $workspaceRootPath.FullName $WorkspaceFile))
-        }
-    } else {
-        $filteredFiles = @(Get-ChildItem -Path $workspaceRootPath.FullName | Where-Object { $_.Extension -eq $filterExtension })
-    }
-    
-    # Check if there are any matching files
-    if ($filteredFiles.Count -gt 0) {
-        # If multiple workspace files exist, let the user pick which one to use
-        $selectedFile = $null
-        if ($filteredFiles.Count -eq 1) {
-            $selectedFile = $filteredFiles[0]
-        } else {
-            $options = @()
-            foreach ($f in $filteredFiles) { $options += $f.Name }
-            $idx = Select-IndexFromList -Title "Multiple workspace files found. Please select one:" -Options $options -DefaultIndex 0
-            $selectedFile = $filteredFiles[$idx]
-        }
 
+    $selectedFile = Resolve-BcDevToolsetWorkspaceFile -WorkspaceRootPath $workspaceRootPath.FullName -WorkspaceFile $WorkspaceFile
+
+    if ($null -ne $selectedFile) {
         # Read selected *.code-workspace
         $workspaceJSON.Value = Get-Content -Path $selectedFile.FullName | ConvertFrom-Json
         $workspaceName = $selectedFile.Name
@@ -925,6 +903,50 @@ function Initialize-Context {
     }
     # finally, pass the object
     $settingsJSON.Value = $settingsJSONvalue
+}
+
+function Resolve-BcDevToolsetWorkspaceFile {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $WorkspaceRootPath,
+        [Parameter(Mandatory=$false)]
+        [string] $WorkspaceFile
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($WorkspaceFile)) {
+        $workspaceFilePath = if ([System.IO.Path]::IsPathRooted($WorkspaceFile)) {
+            $WorkspaceFile
+        } else {
+            Join-Path $WorkspaceRootPath $WorkspaceFile
+        }
+
+        if (-not (Test-Path -LiteralPath $workspaceFilePath -PathType Leaf)) {
+            throw "Workspace file not found: $workspaceFilePath"
+        }
+
+        return Get-Item -LiteralPath $workspaceFilePath
+    }
+
+    if ($env:BCDEVTOOLSET_ALLOW_WORKSPACE_FILE_DISCOVERY -ne 'true') {
+        return $null
+    }
+
+    $workspaceFiles = @(Get-ChildItem -Path $WorkspaceRootPath -Filter '*.code-workspace' -File)
+    if ($workspaceFiles.Count -eq 0) {
+        return $null
+    }
+
+    if ($workspaceFiles.Count -eq 1) {
+        return $workspaceFiles[0]
+    }
+
+    $options = @()
+    foreach ($workspaceFileCandidate in $workspaceFiles) {
+        $options += $workspaceFileCandidate.Name
+    }
+
+    $idx = Select-IndexFromList -Title "Multiple workspace files found. Please select one:" -Options $options -DefaultIndex 0
+    return $workspaceFiles[$idx]
 }
 
 function Get-AppJSON {
