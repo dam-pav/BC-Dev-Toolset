@@ -165,6 +165,66 @@ function Get-LatestDockerRelease {
     return $latestRelease
 }
 
+function Get-ProcessesUsingPath {
+    param([string]$Path)
+
+    $resolvedPath = [System.IO.Path]::GetFullPath($Path).TrimEnd('\') + '\'
+
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.ExecutablePath -and
+            [System.IO.Path]::GetFullPath($_.ExecutablePath).StartsWith($resolvedPath, [System.StringComparison]::OrdinalIgnoreCase)
+        }
+}
+
+function Stop-ProcessesUsingPath {
+    param([string]$Path)
+
+    $processes = @(Get-ProcessesUsingPath -Path $Path)
+    foreach ($process in $processes) {
+        Write-Host "Stopping process using Docker Engine files: $($process.Name) (PID $($process.ProcessId))"
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+
+    $timeoutAt = (Get-Date).AddSeconds(30)
+    do {
+        $remainingProcesses = @(Get-ProcessesUsingPath -Path $Path)
+        if ($remainingProcesses.Count -eq 0) {
+            return
+        }
+
+        Start-Sleep -Seconds 1
+    } while ((Get-Date) -lt $timeoutAt)
+
+    $processList = ($remainingProcesses | ForEach-Object { "$($_.Name) (PID $($_.ProcessId))" }) -join ", "
+    throw "Timed out waiting for processes to release Docker Engine files: $processList"
+}
+
+function Copy-DockerEngineFiles {
+    param(
+        [string]$SourcePath,
+        [string]$DockerPath
+    )
+
+    $timeoutAt = (Get-Date).AddSeconds(90)
+    $lastError = $null
+
+    do {
+        try {
+            Copy-Item -Path (Join-Path $SourcePath "*") -Destination $DockerPath -Recurse -Force -ErrorAction Stop
+            return
+        }
+        catch {
+            $lastError = $_
+            Write-Warning "Docker Engine files are still locked; retrying..."
+            Stop-ProcessesUsingPath -Path $DockerPath
+            Start-Sleep -Seconds 2
+        }
+    } while ((Get-Date) -lt $timeoutAt)
+
+    throw "Failed to replace Docker Engine files in '$DockerPath'. Close Docker CLI sessions and any process using files in that folder, then run the prerequisites operation again. Original error: $($lastError.Exception.Message)"
+}
+
 function Install-DockerEngine {
     param(
         [string]$DockerPath,
@@ -201,6 +261,8 @@ function Install-DockerEngine {
     $tempExtractPath = Join-Path $env:TEMP "docker-extract-$([System.IO.Path]::GetRandomFileName())"
     New-Item -ItemType Directory -Path $tempExtractPath -Force | Out-Null
 
+    $serviceWasRunning = $false
+
     try {
         Expand-Archive -Path $downloadPath -DestinationPath $tempExtractPath -Force
         $sourcePath = Join-Path $tempExtractPath "docker"
@@ -208,24 +270,39 @@ function Install-DockerEngine {
             $sourcePath = $tempExtractPath
         }
 
-        $serviceWasRunning = $false
         $existingService = Get-Service -Name "Docker" -ErrorAction SilentlyContinue
         if ($existingService -and $existingService.Status -eq "Running") {
             $serviceWasRunning = $true
             Write-Host "Stopping Docker service before replacing binaries..."
             Stop-Service -Name "Docker" -Force -ErrorAction Stop
+            $existingService.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(60))
+            $existingService.Refresh()
+
+            if ($existingService.Status -ne "Stopped") {
+                throw "Docker service did not stop within 60 seconds"
+            }
+
+            Stop-ProcessesUsingPath -Path $DockerPath
         }
 
-        Copy-Item -Path (Join-Path $sourcePath "*") -Destination $DockerPath -Recurse -Force
+        Copy-DockerEngineFiles -SourcePath $sourcePath -DockerPath $DockerPath
         Write-Success "Docker Engine extracted to: $DockerPath"
-
-        if ($serviceWasRunning) {
-            Write-Host "Restarting Docker service..."
-            Start-Service -Name "Docker"
-            Write-Success "Docker service restarted"
-        }
     }
     finally {
+        if ($serviceWasRunning) {
+            try {
+                $dockerService = Get-Service -Name "Docker" -ErrorAction SilentlyContinue
+                if ($dockerService -and $dockerService.Status -ne "Running") {
+                    Write-Host "Restarting Docker service..."
+                    Start-Service -Name "Docker" -ErrorAction Stop
+                    Write-Success "Docker service restarted"
+                }
+            }
+            catch {
+                Write-Warning "Failed to restart Docker service: $($_.Exception.Message)"
+            }
+        }
+
         if (Test-Path $tempExtractPath) {
             Remove-Item $tempExtractPath -Force -Recurse
         }
