@@ -19,6 +19,7 @@ Publish-Apps `
     -settingsJSON $settingsJSON `
     -workspaceJSON $workspaceJSON `
     -targetType "Production" `
+    -publishAsDev:$false `
     -skipMissing `
     -authContext ([ref]$authContext)
 

@@ -1906,7 +1906,11 @@ function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
         `$env:BCDEVTOOLSET_MCP_PROMPT_URL = ${quotePowerShellArgument(`${mcpBridgeUrl}/prompt/request`)}`,
         `$env:BCDEVTOOLSET_MCP_PROMPT_TOKEN = ${quotePowerShellArgument(mcpBridgeToken)}`
       ].join('; ') + '; '
-    : '';
+    : [
+        '$env:BCDEVTOOLSET_MCP_SESSION_ID = $null',
+        '$env:BCDEVTOOLSET_MCP_PROMPT_URL = $null',
+        '$env:BCDEVTOOLSET_MCP_PROMPT_TOKEN = $null'
+      ].join('; ') + '; ';
 
   const command =
     `$env:BCDEVTOOLSET_SHORTCUTS = ${quotePowerShellArgument(getShortcutMode())}; ` +

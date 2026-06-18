@@ -1,7 +1,7 @@
 function Get-SqlBackupRootPath {
     Param (
-        [Parameter(Mandatory=$true)]
-        [string] $scriptPath,
+        [Parameter(Mandatory=$false)]
+        [string] $scriptPath = "",
         [Parameter(Mandatory=$false)]
         [AllowEmptyString()]
         [string] $sqlBackupPath
@@ -15,7 +15,8 @@ function Get-SqlBackupRootPath {
         return $sqlBackupPath
     }
 
-    return (Join-Path ((Get-Item $scriptPath).Parent).FullName $sqlBackupPath)
+    $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
+    return (Join-Path $workspaceRootPath.FullName $sqlBackupPath)
 }
 
 function Copy-SqlBackupSetToSharedFolder {
