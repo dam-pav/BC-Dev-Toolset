@@ -81,6 +81,7 @@ const configurationFields = [
   { name: 'password', validServerTypes: ['Container'] },
   { name: 'network', validServerTypes: ['Container'] },
   { name: 'hostIP', validServerTypes: ['Container'] },
+  { name: 'updateHosts', validServerTypes: ['Container'] },
   { name: 'macAddress', validServerTypes: ['Container'], requiredNetwork: 'transparent' },
   { name: 'IP', validServerTypes: ['Container'], requiredNetwork: 'transparent' },
   { name: 'dns', validServerTypes: ['Container'], requiredNetwork: 'transparent' },
@@ -1161,7 +1162,8 @@ function getDefaultLocalConfiguration() {
     bcPassword: 'P@ssw0rd',
     sqlBackupPath: '',
     network: '',
-    hostIP: ''
+    hostIP: '',
+    updateHosts: true
   };
 }
 
