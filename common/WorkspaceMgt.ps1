@@ -740,6 +740,7 @@ function Build-Settings {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name network -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name hostIP -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name updateHosts -Value $true
         $defaultSettings.configurations += $remoteConfiguration
 
         $defaultSettings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
@@ -1488,10 +1489,13 @@ function New-DockerContainer {
             shortcuts = $settingsJSON.shortcuts
             }
 
-        if (Repair-HostsFilePermissions) {
-            $Parameters.updateHosts = $true
-        } else {
-            throw "Hosts file is not writable after running Check-BcContainerHelperPermissions -Fix. Container hostname resolution is required, so create-container processing cannot continue."
+        $updateHosts = -not ($configuration.PSObject.Properties['updateHosts'] -and ([string]$configuration.updateHosts).Trim().ToLowerInvariant() -eq 'false')
+        if ($updateHosts) {
+            if (Repair-HostsFilePermissions) {
+                $Parameters.updateHosts = $true
+            } else {
+                throw "Hosts file is not writable after running Check-BcContainerHelperPermissions -Fix. Container hostname resolution is required, so create-container processing cannot continue."
+            }
         }
 
         if ($configuration.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") {

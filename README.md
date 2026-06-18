@@ -65,7 +65,7 @@ Codex does not automatically discover MCP servers contributed through the VS Cod
 
 The Codex MCP server uses the same VS Code terminal bridge for PowerShell-backed operations. Keep the BC Dev Toolset extension active in VS Code when you want Codex to run operations in the visible terminal and read the captured results.
 
-### Prerequisites
+## Prerequisites
 
 1. A **Windows Pro** or **Windows Enterprise** edition.
    Docker requires Hyper-V and a feature named Containers to work on Windows. Windows Home does not provide these features. Make sure your BIOS has virtualization enabled. The Hyper-V feature might appear to be enabled, but won't work without proper HW support.
@@ -93,6 +93,7 @@ The Codex MCP server uses the same VS Code terminal bridge for PowerShell-backed
    > If you later change your mind and you would rather like to use Docker Engine after all, simply uninstall Docker Desktop and run the Install prerequisites operation again.
    >
    > The prerequisites can also be installed manually. Just follow the steps below.
+   >
 3. Try the container solution that works for you
 
    If you are not running Docker Desktop (or even if you are) I advise using the VS Code plugin named *Container Tools*, released by Microsoft.
@@ -170,15 +171,19 @@ The Codex MCP server uses the same VS Code terminal bridge for PowerShell-backed
 
    You can learn more at the [GitHub BcContainerHelper repository](https://github.com/microsoft/navcontainerhelper).
 
-   *Note: the module is being updated from time to time. For your convenience, an update option is available in the list of Operations.*
+   > Note: the module is being updated from time to time. For your convenience, you can use the Install/Update prerequisites operation to keep your setup up to date.
+   >
 
-### Workspaces
+   > Note: Microsoft is announcing the [deprecation of BcContainerHelper](https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/al-go/algo-deprecating-bccontainerhelper). At the time of this writing, it said: *"For local development on Docker, equivalent functionality will likely become available in a new PowerShell module released as part of AL-Go for GitHub."* Until this new module is actually revealed, BcContainerHelper continues to be the basis of our local process. Naturally, we will implement the new module and functionality as soon as it becomes available.
+   >
+
+## Workspaces
 
 There are two scenarios for workspaces, in relation to repositories they handle.
 
 ---
 
-1. A workspace can contain one or more separate repositories, some of them containing an app of its own. The workspace definition is not included in any of them. It can include other otherwise independent folders, not necessarily containing apps. This is perfect for the developer that wants to use the toolset casually without involving it in any workflows.
+1. A workspace can contain one or more separate repositories, some of them containing apps of their own. The workspace definition is not included in any of them. It can include other otherwise independent folders, not necessarily containing apps. This is perfect for the developer that wants to use the toolset casually without involving it in any workflows.
 2. The workspace can be part of a main repository. The main repository contains an arbitrary number of folders, some of them might contain apps. This is great for the developer that wants to predefine resources and setup for all team members.
 
 ---
@@ -221,18 +226,6 @@ Starting a new workspace should be easy.
    You can create the workspace from VS Code, but creating it manually works just as well. You can also skip this step in which case the file will be created automatically by the toolset initialization.
 2. I do recommend to add **`launch.json`** to *.gitignore*. These files are personalized per developer and managed by the toolset.
 3. You can now create your first Docker container.
-
-### Backup & Restore
-
-Be aware that backup and restore work only within the context of the same BC release. The database defines the version which is limited to running on a specific platform (service). You cannot use this to "upgrade" your data in a meaningful way, say use a configuration from BC22 in BC27.
-
-That said; you can maintain data persistence in a couple of ways. One is to use the backup and restore functionality of *BcContainerHelper*. You can backup the current state of your container and restore it later, or share it with other developers. You can retrieve the state of a central test database and use it with your development to find test scenarios more easily or skip tedious configuration.
-
-SQL backup operations create and consume a compatible backup set in each Container configuration's *sqlBackupPath*. Different container configurations can use different folders; set the same folder on multiple Container configurations only when sharing the backup set is intentional. When more than one Container configuration has a non-empty *sqlBackupPath*, container backup and restore operations ask which container to use; backup also offers an option to back up all qualified containers. Missing or stopped containers are reported and skipped. Container backups and regular BC service SQL Server backups use the same file naming convention: *\<database\>.app.bak* for the application database, *\<database\>.tenant.bak* for multitenant tenant databases, or *\<database\>.database.bak* for a single-tenant database.
-
-To retrieve bak files from a SQL Server host you will require credentials with the ability to create remote Powershell sessions to the SQL Server host.
-
-You can follow the naming convention manually and prepare a bak file set manually, if you find yourself unable to use the toolset backup scripts. A regular MS artifact based container is multi-tenant and contains three databases. *CRONUS* is the app database while the other two, *default* and *tenant*, are tenant databases.
 
 ## Setup
 
@@ -365,6 +358,7 @@ Each `configurations` entry can contain:
 - `password`: Obsolete fallback for `bcPassword`. Use `bcPassword` instead; this field will be removed in the next major release.
 - `network`: Optional Docker network passed to `New-BcContainer`. Valid for `Container`. Suggested Windows container network values include `NAT`, `transparent`, `l2bridge`, `l2tunnel`, `overlay`, and `none`; custom Docker network names are also allowed. For suggested network names, the toolset verifies that the Docker network exists with the expected driver and creates missing creatable networks, for example `docker network create -d transparent transparent`. Custom network setup is left to the user. Use a transparent network when the container should appear on the LAN with a real address.
 - `hostIP`: Optional `host.containerhelper.internal` IP address passed to `New-BcContainer`. Valid for `Container`.
+- `updateHosts`: Optional switch controlling whether `New-BcContainer` updates the host machine's hosts file. Defaults to `true` when omitted. Valid for `Container`.
 - `macAddress`: Optional container MAC address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Use Docker's colon-delimited MAC address format, for example `02:42:ac:11:00:02`.
 - `IP`: Optional static container IP address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Leave empty to let the selected network assign the address, for example through DHCP.
 - `dns`: Optional DNS value passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. `HostDNS` adds the host DNS servers; explicit DNS server values are also allowed. Use a comma-delimited string for multiple DNS servers, for example `8.8.8.8,1.1.1.1`.
@@ -393,4 +387,22 @@ These settings are stored in `.bcdevtoolset/settings.json`:
 - `loadOnPremMgtModule`: Path to `NavAdminTool.ps1` when OnPrem deployments need the management module on the server host.
 - `configurations`: Developer-local additional list of deployment targets. It uses the same structure as workspace `configurations`, and both lists are used together.
 
-> **Note:** BC 21.1 (BC 2022 release wave 2) introduced global and workspace launch configuration. This is interesting but not in the same scope and purpose as the ***configurations*** in BC Dev Tools which can also be set in the workspace. Launch setup is used directly by VS Code to deploy and start apps. Configurations is used by BC Dev Tools to initialize launch setup at app level, where a workspace can contain tens of apps. After that, you are free to use and modify the initialized setup. Sure, instead of using launch setup at app level you can use a single setup at the workspace level and if that fits your requirements, by all means do that. However, if you need any kind of granularity, for instance, having different pages loading when running different apps, you may want to stick with app level setup. BC Dev Tools doesn't initialize launch setup at workspace level at this time.
+> Note: BC 21.1 (BC 2022 release wave 2) introduced global and workspace launch configuration. This is interesting but not in the same scope and purpose as the ***configurations*** in BC Dev Toolset which can also be set in the workspace. Launch setup is used directly by VS Code to deploy and start apps. Configurations is used by BC Dev Tools to initialize launch setup at app level, where a workspace can contain tens of apps. After that, you are free to use and modify the initialized setup. Sure, instead of using launch setup at app level you can use a single setup at the workspace level and if that fits your requirements, by all means do that. However, if you need any kind of granularity, for instance, having different pages loading when running different apps, you may want to stick with app level setup.
+>
+> Point is, using ***configurations*** in BC Dev Toolset supplements and does not collide with standard launch setup.
+>
+> BC Dev Tools doesn't initialize launch setup at workspace level at this time.
+
+## Additional Notes
+
+### Backup & Restore
+
+Be aware that backup and restore work only within the context of the same BC release. The database defines the version which is limited to running on a specific platform (service). You cannot use this to "upgrade" your data in a meaningful way, say use a configuration from BC22 in BC27.
+
+That said; you can maintain data persistence in a couple of ways. One is to use the backup and restore functionality of *BcContainerHelper*. You can backup the current state of your container and restore it later, or share it with other developers. You can retrieve the state of a central test database and use it with your development to find test scenarios more easily or skip tedious configuration.
+
+SQL backup operations create and consume a compatible backup set in each Container configuration's *sqlBackupPath*. Different container configurations can use different folders; set the same folder on multiple Container configurations only when sharing the backup set is intentional. When more than one Container configuration has a non-empty *sqlBackupPath*, container backup and restore operations ask which container to use; backup also offers an option to back up all qualified containers. Missing or stopped containers are reported and skipped. Container backups and regular BC service SQL Server backups use the same file naming convention: *\<database\>.app.bak* for the application database, *\<database\>.tenant.bak* for multitenant tenant databases, or *\<database\>.database.bak* for a single-tenant database.
+
+To retrieve bak files from a SQL Server host you will require credentials with the ability to create remote Powershell sessions to the SQL Server host.
+
+You can follow the naming convention manually and prepare a bak file set manually, if you find yourself unable to use the toolset backup scripts. A regular MS artifact based container is multi-tenant and contains three databases. *CRONUS* is the app database while the other two, *default* and *tenant*, are tenant databases.

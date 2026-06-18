@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.1.13",
+  "version": "1.1.14",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -380,6 +380,21 @@
                         "hostIP": {
                           "type": "string",
                           "description": "Optional host.containerhelper.internal IP address passed to New-BcContainer."
+                        },
+                        "updateHosts": {
+                          "type": [
+                            "string",
+                            "boolean"
+                          ],
+                          "enum": [
+                            "",
+                            "true",
+                            "false",
+                            true,
+                            false
+                          ],
+                          "default": true,
+                          "description": "Whether New-BcContainer should update the host machine's hosts file. Defaults to true when omitted."
                         }
                       }
                     }
@@ -630,6 +645,11 @@
                         "hostIP": {
                           "not": {},
                           "errorMessage": "Field \"hostIP\" is not valid when \"serverType\" is not \"Container\".",
+                          "doNotSuggest": true
+                        },
+                        "updateHosts": {
+                          "not": {},
+                          "errorMessage": "Field \"updateHosts\" is not valid when \"serverType\" is not \"Container\".",
                           "doNotSuggest": true
                         }
                       }
