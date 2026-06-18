@@ -20,6 +20,7 @@ Publish-Apps `
     -workspaceJSON $workspaceJSON `
     -targetType "Test" `
     -runtime $true `
+    -publishAsDev:$false `
     -skipMissing `
     -authContext ([ref]$authContext)
 

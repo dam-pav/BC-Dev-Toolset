@@ -53,8 +53,8 @@ function Get-BcConfigurationCredential {
 
 function Get-WorkspaceRootPath {
     param(
-        [Parameter(Mandatory=$true)]
-        [string] $scriptPath,
+        [Parameter(Mandatory=$false)]
+        [string] $scriptPath = '',
         [Parameter(Mandatory=$false)]
         [string] $WorkspacePath = ''
     )
@@ -67,7 +67,7 @@ function Get-WorkspaceRootPath {
         return Get-Item -LiteralPath $Script:bcDevToolsetWorkspaceRootPath
     }
 
-    return (Get-Item -LiteralPath $scriptPath).Parent
+    return Get-Item -LiteralPath (Get-Location).Path
 }
 
 function Get-OperationDefinitions {
@@ -572,9 +572,6 @@ function Request-BcDevToolsetMcpConfirm {
         [bool] $Sensitive = $false
     )
 
-    $choiceText = if ($DefaultYes) { 'Y/n' } else { 'y/N' }
-    Write-Host "$Question [$choiceText]" -ForegroundColor Green
-
     $answer = Request-BcDevToolsetMcpPrompt `
         -PromptId $PromptId `
         -Type 'confirm' `
@@ -836,21 +833,22 @@ function Initialize-Context {
         $workspaceName = $workspaceRootPath.Name
     }
 
-    Write-Host "Running from: $scriptPath" -ForegroundColor Gray
+    Write-Host "Toolset root is: $scriptPath" -ForegroundColor Gray
     Write-Host "Root folder is: $workspaceRootPath" -ForegroundColor Gray
     Write-Host "Workspace Name is: $workspaceName" -ForegroundColor Gray
     
     # Set the path for settings.json
     $localSettingsMergedAsBase = $false
-    if ([string]::IsNullOrWhiteSpace($SettingsPath) -and [string]::IsNullOrWhiteSpace($LocalSettingsPath) -and $null -ne $selectedFile) {
-        $LocalSettingsPath = Join-Path $selectedFile.DirectoryName '.bcdevtoolset' 'settings.json'
+    if ([string]::IsNullOrWhiteSpace($SettingsPath) -and [string]::IsNullOrWhiteSpace($LocalSettingsPath)) {
+        $LocalSettingsPath = Join-Path $workspaceRootPath.FullName '.bcdevtoolset' 'settings.json'
     }
 
     if ([string]::IsNullOrWhiteSpace($SettingsPath) -and -not [string]::IsNullOrWhiteSpace($LocalSettingsPath)) {
         $settingsPath = Resolve-SettingsPath -workspaceRootPath $workspaceRootPath.FullName -settingsPath $LocalSettingsPath
         $localSettingsMergedAsBase = $true
     } elseif ([string]::IsNullOrWhiteSpace($SettingsPath)) {
-        $settingsPath = "$scriptPath\settings.json"
+        $settingsPath = Join-Path $workspaceRootPath.FullName '.bcdevtoolset\settings.json'
+        $localSettingsMergedAsBase = $true
     } elseif ([System.IO.Path]::IsPathRooted($SettingsPath)) {
         $settingsPath = $SettingsPath
     } else {
@@ -980,6 +978,8 @@ function Get-AppJSON {
 
 function Get-PackageParams {
     Param (
+        [Parameter(Mandatory=$false)]
+        [string] $scriptPath = "",
         [Parameter(Mandatory=$true)]
         [PSObject] $settingsJSON,
         [Parameter(Mandatory=$true)]
@@ -997,7 +997,7 @@ function Get-PackageParams {
         if ("$($settingsJSON.packageOutputPath)" -eq "") {
             throw "For deployment of Runtime packages please specify a valid path in 'packageOutputPath' of settings.json"
         } else {
-            $packagePath.Value = $($settingsJSON.packageOutputPath)
+            $packagePath.Value = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $($settingsJSON.packageOutputPath)
         }
         $packageName.Value = $packName + "_runtime.app"
     } else {

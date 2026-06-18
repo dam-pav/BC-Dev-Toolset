@@ -20,6 +20,7 @@ Publish-Apps `
     -workspaceJSON $workspaceJSON `
     -runtime $true `
     -targetType "Dev" `
+    -publishAsDev:$false `
     -skipMissing
 
 Write-Done
