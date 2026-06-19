@@ -880,7 +880,7 @@
       },
       {
         "command": "bcDevToolset.operation.createRuntimePackage",
-        "title": "BC Dev Toolset: Create runtime packages for all apps in the workspace"
+        "title": "BC Dev Toolset: Create deployment runtime packages for all apps in the workspace (not compile/build validation)"
       },
       {
         "command": "bcDevToolset.operation.publishRuntimeApps2Docker",

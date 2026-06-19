@@ -113,7 +113,7 @@
   },
   {
     "id": "createRuntimePackage",
-    "title": "Create runtime packages for all apps in the workspace",
+    "title": "Create deployment runtime packages for all apps in the workspace (not compile/build validation)",
     "script": "operations/CreateRuntimePackage.ps1",
     "category": "Runtime"
   },
