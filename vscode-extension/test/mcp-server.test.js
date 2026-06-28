@@ -28,10 +28,18 @@ test('reads multiple newline-delimited JSON objects from one buffer', () => {
 });
 
 test('reads a complete JSON object without a trailing newline', () => {
-  mcpServer.setInputBuffer('{"jsonrpc":"2.0","method":"notifications/initialized"}');
+  mcpServer.setInputBuffer(' \t\r{"jsonrpc":"2.0","method":"notifications/initialized"}');
 
   assert.equal(mcpServer.tryReadRawJsonMessage(), true);
   assert.equal(mcpServer.getInputBuffer().length, 0);
+});
+
+test('rejects a non-JSON buffer before decoding it as text', () => {
+  const value = ' \t\rContent-Length: 42';
+  mcpServer.setInputBuffer(value);
+
+  assert.equal(mcpServer.tryReadRawJsonMessage(), false);
+  assert.equal(mcpServer.getInputBuffer().toString('utf8'), value);
 });
 
 test('returns false and preserves incomplete JSON fragments', () => {
