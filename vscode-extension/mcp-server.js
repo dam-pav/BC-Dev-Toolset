@@ -115,6 +115,7 @@ function tryReadRawJsonMessage() {
     }
 
     if (!text.startsWith('{')) {
+      inputBuffer = inputBuffer.slice(newlineIndex + 1);
       return false;
     }
 
