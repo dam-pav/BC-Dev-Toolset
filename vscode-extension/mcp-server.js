@@ -101,6 +101,31 @@ function readBufferedMessages() {
 }
 
 function tryReadRawJsonMessage() {
+  const newlineIndex = inputBuffer.indexOf('\n');
+  if (newlineIndex >= 0) {
+    const text = inputBuffer
+      .slice(0, newlineIndex)
+      .toString('utf8')
+      .replace(/\r$/, '')
+      .trim();
+
+    if (!text) {
+      inputBuffer = inputBuffer.slice(newlineIndex + 1);
+      return true;
+    }
+
+    if (!text.startsWith('{')) {
+      return false;
+    }
+
+    inputBuffer = inputBuffer.slice(newlineIndex + 1);
+    transportMode = 'raw-json';
+    waitingForMessageLogged = false;
+    void handleMessage(text);
+    return true;
+  }
+
+  // Preserve compatibility with clients that send one JSON message without a delimiter.
   const text = inputBuffer.toString('utf8').trim();
   if (!text.startsWith('{')) {
     return false;
