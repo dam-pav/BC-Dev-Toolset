@@ -11,7 +11,7 @@ Initialize-Context `
     -workspaceJSON ([ref]$workspaceJSON)
 
 
-$replaceJSON = Confirm-Option -question "Do you want to clear existing launch.json files so that only new settings remain?"
+$replaceJSON = Confirm-Option -question "Do you want to clear existing launch.json files so that only new settings remain?" -PromptId "updateLaunchJson.clearExisting" -Risk "Replaces existing launch.json entries with generated settings."
 if ($replaceJSON -eq $true) {
     Write-Host "Launch.json setup will be replaced." -ForegroundColor Blue
 } else {

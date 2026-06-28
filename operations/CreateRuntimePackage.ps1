@@ -30,6 +30,7 @@ foreach ($configuration in $($settingsJSON.configurations | Where-Object { $_.ta
             $packageName = ""
             $packagePath = ""
             Get-PackageParams `
+                -scriptPath $scriptPath `
                 -settingsJSON $settingsJSON  `
                 -appJSON $appJSON `
                 -packageName ([ref]$packageName) `

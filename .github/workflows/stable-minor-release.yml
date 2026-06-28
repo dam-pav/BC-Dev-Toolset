@@ -1,19 +1,19 @@
-name: Stable minor release
+name: Prepare stable minor release
 
 on:
   workflow_dispatch:
 
 permissions:
-  actions: write
   contents: write
+  pull-requests: write
 
 concurrency:
   group: stable-minor-release
   cancel-in-progress: false
 
 jobs:
-  promote-main-to-stable:
-    name: Promote main to stable with minor release
+  prepare-release-pr:
+    name: Prepare minor release PR
     runs-on: ubuntu-latest
 
     steps:
@@ -22,7 +22,6 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
 
       - name: Bump minor version
         id: version
@@ -43,67 +42,80 @@ jobs:
 
           echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Commit release version
+      - name: Generate release note proposal
         shell: bash
         run: |
           set -euo pipefail
 
-          if git diff --quiet -- vscode-extension/package.json; then
-            echo "No version change to release."
+          VERSION="${{ steps.version.outputs.version }}"
+          NOTE_PATH="documentation/releases/v${VERSION}.md"
+          PREVIOUS_TAG="$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || true)"
+
+          mkdir -p documentation/releases
+
+          {
+            if [ -n "$PREVIOUS_TAG" ]; then
+              git log --first-parent --reverse --pretty=format:'- %s (%h)' "${PREVIOUS_TAG}..HEAD" || true
+            else
+              git log --first-parent --reverse --pretty=format:'- %s (%h)' || true
+            fi
+            echo
+          } > "$NOTE_PATH"
+
+      - name: Commit release proposal
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.version.outputs.version }}"
+          BRANCH="release/v${VERSION}"
+
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            echo "Release branch $BRANCH already exists; reusing it."
+            git reset --hard HEAD
+            git clean -f "documentation/releases/v${VERSION}.md"
+            git fetch origin "$BRANCH"
+            git switch -C "$BRANCH" "origin/$BRANCH"
+          else
+            git switch -c "$BRANCH"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add vscode-extension/package.json "documentation/releases/v${VERSION}.md"
+            git commit -m "chore(release): prepare v${VERSION}"
+            git push origin "$BRANCH"
+          fi
+
+      - name: Open draft release PR
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "RELEASE_PR_TOKEN is required because GitHub Actions GITHUB_TOKEN cannot create release pull requests in this repository."
+            exit 1
+          fi
+
+          VERSION="${{ steps.version.outputs.version }}"
+          EXISTING_PR="$(gh pr list --base main --head "release/v${VERSION}" --state open --json url --jq '.[0].url // ""')"
+          if [ -n "$EXISTING_PR" ]; then
+            echo "Release PR already exists: $EXISTING_PR"
             exit 0
           fi
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add vscode-extension/package.json
-          git commit -m "chore(release): bump minor version to v${{ steps.version.outputs.version }}"
+          BODY_FILE="$(mktemp)"
+          cat > "$BODY_FILE" <<EOF
+          This draft PR prepares the stable minor release v${VERSION}.
 
-      - name: Package VSIX assets
-        shell: bash
-        run: |
-          set -euo pipefail
+          Review and edit documentation/releases/v${VERSION}.md before marking the PR ready for review.
 
-          mkdir -p dist
-          (cd vscode-extension && npm run package -- --out "../dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix")
+          The stable release will be published only after this PR is approved and merged into main.
+          EOF
 
-      - name: Promote branches and tag release
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          git tag "v${{ steps.version.outputs.version }}"
-          git remote set-url origin "git@github.com:${{ github.repository }}.git"
-          git push --atomic origin HEAD:main HEAD:stable "v${{ steps.version.outputs.version }}"
-
-      - name: Create GitHub release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          gh release create "v${{ steps.version.outputs.version }}" \
-            dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix \
-            --title "BC Dev Toolset v${{ steps.version.outputs.version }}" \
-            --notes "Stable VSIX package for BC Dev Toolset v${{ steps.version.outputs.version }}."
-
-      - name: Publish stable VSIX to VS Code Marketplace
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          bash ./.github/scripts/publish-vsix-with-retry.sh \
-            "dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix"
-
-      - name: Trigger latest workflow to bump next pre-release version
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          gh workflow run latest-extension.yml \
-            --ref main \
-            -f release_version="${{ steps.version.outputs.version }}"
+          gh pr create \
+            --base main \
+            --head "release/v${VERSION}" \
+            --title "Release v${VERSION}" \
+            --body-file "$BODY_FILE" \
+            --draft

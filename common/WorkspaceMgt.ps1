@@ -36,10 +36,25 @@ function Get-ShortcutMode {
     return $defaultMode
 }
 
-function Get-WorkspaceRootPath {
+function Get-BcConfigurationCredential {
     param(
         [Parameter(Mandatory=$true)]
-        [string] $scriptPath,
+        [PSObject] $configuration
+    )
+
+    if ($configuration.PSObject.Properties['bcUser'] -and $configuration.PSObject.Properties['bcPassword']) {
+        $securePassword = ConvertTo-SecureString -String $configuration.bcPassword -AsPlainText -Force
+        return New-Object pscredential $configuration.bcUser, $securePassword
+    }
+
+    $securePassword = ConvertTo-SecureString -String $configuration.password -AsPlainText -Force
+    return New-Object pscredential $configuration.admin, $securePassword
+}
+
+function Get-WorkspaceRootPath {
+    param(
+        [Parameter(Mandatory=$false)]
+        [string] $scriptPath = '',
         [Parameter(Mandatory=$false)]
         [string] $WorkspacePath = ''
     )
@@ -52,7 +67,7 @@ function Get-WorkspaceRootPath {
         return Get-Item -LiteralPath $Script:bcDevToolsetWorkspaceRootPath
     }
 
-    return (Get-Item -LiteralPath $scriptPath).Parent
+    return Get-Item -LiteralPath (Get-Location).Path
 }
 
 function Get-OperationDefinitions {
@@ -184,6 +199,112 @@ function Test-DockerContainerExists {
     }
 
     return $true
+}
+
+function Get-DockerNetworkPresetDriver {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $network
+    )
+
+    $driversByPreset = @{
+        nat = 'nat'
+        transparent = 'transparent'
+        l2bridge = 'l2bridge'
+        l2tunnel = 'l2tunnel'
+        overlay = 'overlay'
+        none = 'null'
+    }
+
+    $networkKey = $network.ToLowerInvariant()
+    if ($driversByPreset.ContainsKey($networkKey)) {
+        return $driversByPreset[$networkKey]
+    }
+
+    return $null
+}
+
+function Get-DockerNetworkInfo {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $network
+    )
+
+    $networkJson = docker network inspect $network 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($networkJson)) {
+        return $null
+    }
+
+    return ($networkJson | ConvertFrom-Json | Select-Object -First 1)
+}
+
+function Get-DockerNetworkInfoByPreset {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $network
+    )
+
+    $networkInfo = Get-DockerNetworkInfo -network $network
+    if ($null -ne $networkInfo) {
+        return $networkInfo
+    }
+
+    $networkKey = $network.ToLowerInvariant()
+    $networkList = docker network ls --format '{{.Name}}' 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to list Docker networks. Verify that Docker is running and accessible."
+    }
+
+    $matchingNetworkName = @($networkList | Where-Object { $_.ToLowerInvariant() -eq $networkKey } | Select-Object -First 1)
+    if ($matchingNetworkName.Count -eq 0) {
+        return $null
+    }
+
+    return Get-DockerNetworkInfo -network $matchingNetworkName[0]
+}
+
+function Ensure-DockerNetwork {
+    param(
+        [Parameter(Mandatory=$true)]
+        [AllowEmptyString()]
+        [string] $network
+    )
+
+    if ([string]::IsNullOrWhiteSpace($network)) {
+        return ''
+    }
+
+    $expectedDriver = Get-DockerNetworkPresetDriver -network $network
+    if ($null -eq $expectedDriver) {
+        Write-Host "Docker network '$network' is a custom network. Skipping automatic network verification." -ForegroundColor Gray
+        return $network
+    }
+
+    $networkInfo = Get-DockerNetworkInfoByPreset -network $network
+    if ($null -eq $networkInfo) {
+        if ($expectedDriver -eq 'null') {
+            throw "Docker network '$network' was requested, but no built-in '$network' network exists on this Docker host."
+        }
+
+        Write-Host "Docker network '$network' was not found. Creating it with driver '$expectedDriver'." -ForegroundColor Yellow
+        docker network create -d $expectedDriver $network | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create Docker network '$network' with driver '$expectedDriver'. Create or repair the network manually and retry."
+        }
+
+        $networkInfo = Get-DockerNetworkInfo -network $network
+    }
+
+    if ($null -eq $networkInfo) {
+        throw "Docker network '$network' could not be inspected after verification."
+    }
+
+    if ($networkInfo.Driver -ne $expectedDriver) {
+        throw "Docker network '$($networkInfo.Name)' uses driver '$($networkInfo.Driver)', but preset '$network' requires driver '$expectedDriver'. Remove or recreate the network before creating the container."
+    }
+
+    Write-Host "Docker network '$($networkInfo.Name)' verified with driver '$($networkInfo.Driver)'." -ForegroundColor Gray
+    return $networkInfo.Name
 }
 
 function Write-LaunchJSON {
@@ -358,9 +479,14 @@ function Write-LaunchJSON {
                 }
             }
 			if ($setupFound -eq $false) {
+                [Version] $appRuntime = $null
+                $breakOnError = "All"
+                if ($appJSON.PSObject.Properties['runtime'] -and [Version]::TryParse([string]$appJSON.runtime, [ref]$appRuntime) -and $appRuntime -ge [Version]"10.0") {
+                    $breakOnError = "ExcludeTry"
+                }
 				$configuration | Add-Member -MemberType NoteProperty -Name startupObjectId -Value 22
 				$configuration | Add-Member -MemberType NoteProperty -Name startupObjectType -Value "Page"
-				$configuration | Add-Member -MemberType NoteProperty -Name breakOnError -Value "All"
+				$configuration | Add-Member -MemberType NoteProperty -Name breakOnError -Value $breakOnError
 				$configuration | Add-Member -MemberType NoteProperty -Name launchBrowser -Value $true
 				$configuration | Add-Member -MemberType NoteProperty -Name enableLongRunningSqlStatements -Value $true
 				$configuration | Add-Member -MemberType NoteProperty -Name enableSqlInformationDebugger -Value $true
@@ -376,6 +502,10 @@ function Write-LaunchJSON {
     
     # Write launch.json
     Write-Host "Writing $launchFilename..." -ForegroundColor Blue
+    $launchFolder = Split-Path -Path $launchFilename -Parent
+    if (-not (Test-Path -Path $launchFolder)) {
+        New-Item -Path $launchFolder -ItemType Directory -Force | Out-Null
+    }
     $launchJSON | ConvertTo-Json -Depth 10 | Format-Json | Set-Content -Path $launchFilename -Force
 }
 
@@ -388,7 +518,17 @@ function Confirm-Option {
         [Parameter(Mandatory=$false)]
         [string] $answerNo = 'n',
         [Parameter(Mandatory=$false)]
-        [string] $defaultYes = $false
+        [bool] $defaultYes = $false,
+        [Parameter(Mandatory=$false)]
+        [string] $PromptId = '',
+        [Parameter(Mandatory=$false)]
+        [string] $Risk = '',
+        [Parameter(Mandatory=$false)]
+        [bool] $AgentAllowed = $true,
+        [Parameter(Mandatory=$false)]
+        [bool] $Destructive = $false,
+        [Parameter(Mandatory=$false)]
+        [bool] $Sensitive = $false
     )
 
     if ($defaultYes -eq $true) {
@@ -400,6 +540,11 @@ function Confirm-Option {
     }
 
     $Confirm = $answerNo
+    $mcpAnswer = Request-BcDevToolsetMcpConfirm -Question $question -DefaultYes:($defaultYes -eq $true) -PromptId $PromptId -Risk $Risk -AgentAllowed $AgentAllowed -Destructive $Destructive -Sensitive $Sensitive
+    if ($null -ne $mcpAnswer) {
+        return $mcpAnswer
+    }
+
     Write-Host "$question [$answerYes/$answerNo]: " -NoNewline -ForegroundColor Green
     $Confirm = Read-Host
     if ([string]::IsNullOrWhiteSpace($Confirm)) {
@@ -407,6 +552,127 @@ function Confirm-Option {
     }
         
     return($Confirm.ToUpper() -eq $answerYes.ToUpper())
+}
+
+function Request-BcDevToolsetMcpConfirm {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $Question,
+        [Parameter(Mandatory=$false)]
+        [bool] $DefaultYes = $false,
+        [Parameter(Mandatory=$false)]
+        [string] $PromptId = '',
+        [Parameter(Mandatory=$false)]
+        [string] $Risk = '',
+        [Parameter(Mandatory=$false)]
+        [bool] $AgentAllowed = $true,
+        [Parameter(Mandatory=$false)]
+        [bool] $Destructive = $false,
+        [Parameter(Mandatory=$false)]
+        [bool] $Sensitive = $false
+    )
+
+    $answer = Request-BcDevToolsetMcpPrompt `
+        -PromptId $PromptId `
+        -Type 'confirm' `
+        -Question $Question `
+        -DefaultValue $(if ($DefaultYes) { 'yes' } else { 'no' }) `
+        -Choices @('yes', 'no') `
+        -Risk $Risk `
+        -AgentAllowed $AgentAllowed `
+        -Destructive $Destructive `
+        -Sensitive $Sensitive
+
+    if ($null -eq $answer) {
+        return $null
+    }
+
+    try {
+        $normalizedAnswer = $answer.Trim().ToLowerInvariant()
+        if ($normalizedAnswer -in @('true', 'yes', 'y', '1')) {
+            Write-Host "Answer received through MCP: Yes" -ForegroundColor Green
+            return $true
+        }
+        if ($normalizedAnswer -in @('false', 'no', 'n', '0')) {
+            Write-Host "Answer received through MCP: No" -ForegroundColor Green
+            return $false
+        }
+
+        throw "Unsupported MCP answer '$answer'. Expected yes or no."
+    } catch {
+        Write-Host "MCP prompt handling failed: $($_.Exception.Message)" -ForegroundColor Red
+        throw
+    }
+}
+
+function Request-BcDevToolsetMcpPrompt {
+    Param (
+        [Parameter(Mandatory=$false)]
+        [string] $PromptId = '',
+        [Parameter(Mandatory=$true)]
+        [string] $Type,
+        [Parameter(Mandatory=$true)]
+        [string] $Question,
+        [Parameter(Mandatory=$false)]
+        [string] $DefaultValue = '',
+        [Parameter(Mandatory=$false)]
+        [array] $Choices = @(),
+        [Parameter(Mandatory=$false)]
+        [string] $Risk = '',
+        [Parameter(Mandatory=$false)]
+        [bool] $AgentAllowed = $true,
+        [Parameter(Mandatory=$false)]
+        [bool] $Destructive = $false,
+        [Parameter(Mandatory=$false)]
+        [bool] $Sensitive = $false
+    )
+
+    $promptUrl = $env:BCDEVTOOLSET_MCP_PROMPT_URL
+    $promptToken = $env:BCDEVTOOLSET_MCP_PROMPT_TOKEN
+    $sessionId = $env:BCDEVTOOLSET_MCP_SESSION_ID
+    if ([string]::IsNullOrWhiteSpace($promptUrl) -or [string]::IsNullOrWhiteSpace($promptToken) -or [string]::IsNullOrWhiteSpace($sessionId)) {
+        return $null
+    }
+
+    $effectivePromptId = $PromptId
+    if ([string]::IsNullOrWhiteSpace($effectivePromptId)) {
+        $hashBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Question))
+        $effectivePromptId = -join ($hashBytes[0..5] | ForEach-Object { $_.ToString('x2') })
+    }
+
+    $body = @{
+        sessionId = $sessionId
+        prompt = @{
+            id = $effectivePromptId
+            type = $Type
+            question = $Question
+            default = $DefaultValue
+            choices = $Choices
+            agentAllowed = $AgentAllowed
+            destructive = $Destructive
+            sensitive = $Sensitive
+            risk = $Risk
+        }
+    } | ConvertTo-Json -Depth 8
+
+    Write-Host "Waiting for MCP agent/user answer..." -ForegroundColor Yellow
+
+    try {
+        $headers = @{ Authorization = "Bearer $promptToken" }
+        $response = Invoke-RestMethod -Method Post -Uri $promptUrl -Headers $headers -Body $body -ContentType 'application/json'
+        $answer = [string]$response.answer
+        if ([string]::IsNullOrWhiteSpace($answer)) {
+            $answer = [string]$response.value
+        }
+        if ([string]::IsNullOrWhiteSpace($answer)) {
+            $answer = $DefaultValue
+        }
+
+        return $answer
+    } catch {
+        Write-Host "MCP prompt handling failed, falling back to terminal input: $($_.Exception.Message)" -ForegroundColor Yellow
+        return $null
+    }
 }
 
 # Formats JSON in a nicer format than the built-in ConvertTo-Json does.
@@ -453,11 +719,10 @@ function Build-Settings {
         $defaultSettings | Add-Member -MemberType NoteProperty -Name licenseFile -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name certificateFile -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name packageOutputPath -Value ""
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name dependenciesPath -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name dependenciesPaths -Value @()
         $defaultSettings | Add-Member -MemberType NoteProperty -Name recordingsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestResultsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestHeaded -Value "false"
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
 
         # add container configuration
@@ -470,8 +735,12 @@ function Build-Settings {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name includeTestToolkit -Value "false"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value "UserPassword"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name admin -Value "admin"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name password -Value "P@ssw0rd"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name bcUser -Value "admin"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name bcPassword -Value "P@ssw0rd"
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name network -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name hostIP -Value ""
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name updateHosts -Value $true
         $defaultSettings.configurations += $remoteConfiguration
 
         $defaultSettings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
@@ -504,11 +773,16 @@ function Select-IndexFromList {
 
     while ($true) {
         $prompt = "Select an option [1..{0}] (Enter={1}): " -f $Options.Count, ($DefaultIndex+1)
-        $input = Read-Host -Prompt $prompt
-        if ([string]::IsNullOrWhiteSpace($input)) { return $DefaultIndex }
+        $selection = Request-BcDevToolsetMcpPrompt -PromptId "selectIndex.$($Title -replace '[^A-Za-z0-9]+', '.')" -Type 'choice' -Question $prompt -DefaultValue "$($DefaultIndex + 1)" -Choices @(1..$Options.Count | ForEach-Object { "$_" }) -Risk "Selects one of the displayed options."
+        if ($null -eq $selection) {
+            $selection = Read-Host -Prompt $prompt
+        } else {
+            Write-Host "Answer received through MCP: $selection" -ForegroundColor Green
+        }
+        if ([string]::IsNullOrWhiteSpace($selection)) { return $DefaultIndex }
 
         $n = 0
-        if ([int]::TryParse($input, [ref]$n)) {
+        if ([int]::TryParse($selection, [ref]$n)) {
             if ($n -ge 1 -and $n -le $Options.Count) {
                 return ($n - 1)
             }
@@ -539,32 +813,10 @@ function Initialize-Context {
     # Workspace
     $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath -WorkspacePath $WorkspacePath
     $Script:bcDevToolsetWorkspaceRootPath = $workspaceRootPath.FullName
-    $filterExtension = ".code-workspace"  # Replace with the file extension you want to filter by
-    
-    # List all files in the folder and filter by extension
-    if (-not [string]::IsNullOrWhiteSpace($WorkspaceFile)) {
-        if ([System.IO.Path]::IsPathRooted($WorkspaceFile)) {
-            $filteredFiles = @(Get-Item -LiteralPath $WorkspaceFile)
-        } else {
-            $filteredFiles = @(Get-Item -LiteralPath (Join-Path $workspaceRootPath.FullName $WorkspaceFile))
-        }
-    } else {
-        $filteredFiles = @(Get-ChildItem -Path $workspaceRootPath.FullName | Where-Object { $_.Extension -eq $filterExtension })
-    }
-    
-    # Check if there are any matching files
-    if ($filteredFiles.Count -gt 0) {
-        # If multiple workspace files exist, let the user pick which one to use
-        $selectedFile = $null
-        if ($filteredFiles.Count -eq 1) {
-            $selectedFile = $filteredFiles[0]
-        } else {
-            $options = @()
-            foreach ($f in $filteredFiles) { $options += $f.Name }
-            $idx = Select-IndexFromList -Title "Multiple workspace files found. Please select one:" -Options $options -DefaultIndex 0
-            $selectedFile = $filteredFiles[$idx]
-        }
 
+    $selectedFile = Resolve-BcDevToolsetWorkspaceFile -WorkspaceRootPath $workspaceRootPath.FullName -WorkspaceFile $WorkspaceFile
+
+    if ($null -ne $selectedFile) {
         # Read selected *.code-workspace
         $workspaceJSON.Value = Get-Content -Path $selectedFile.FullName | ConvertFrom-Json
         $workspaceName = $selectedFile.Name
@@ -582,21 +834,22 @@ function Initialize-Context {
         $workspaceName = $workspaceRootPath.Name
     }
 
-    Write-Host "Running from: $scriptPath" -ForegroundColor Gray
+    Write-Host "Toolset root is: $scriptPath" -ForegroundColor Gray
     Write-Host "Root folder is: $workspaceRootPath" -ForegroundColor Gray
     Write-Host "Workspace Name is: $workspaceName" -ForegroundColor Gray
     
     # Set the path for settings.json
     $localSettingsMergedAsBase = $false
-    if ([string]::IsNullOrWhiteSpace($SettingsPath) -and [string]::IsNullOrWhiteSpace($LocalSettingsPath) -and $null -ne $selectedFile) {
-        $LocalSettingsPath = Join-Path $selectedFile.DirectoryName '.bcdevtoolset' 'settings.json'
+    if ([string]::IsNullOrWhiteSpace($SettingsPath) -and [string]::IsNullOrWhiteSpace($LocalSettingsPath)) {
+        $LocalSettingsPath = Join-Path $workspaceRootPath.FullName '.bcdevtoolset' 'settings.json'
     }
 
     if ([string]::IsNullOrWhiteSpace($SettingsPath) -and -not [string]::IsNullOrWhiteSpace($LocalSettingsPath)) {
         $settingsPath = Resolve-SettingsPath -workspaceRootPath $workspaceRootPath.FullName -settingsPath $LocalSettingsPath
         $localSettingsMergedAsBase = $true
     } elseif ([string]::IsNullOrWhiteSpace($SettingsPath)) {
-        $settingsPath = "$scriptPath\settings.json"
+        $settingsPath = Join-Path $workspaceRootPath.FullName '.bcdevtoolset\settings.json'
+        $localSettingsMergedAsBase = $true
     } elseif ([System.IO.Path]::IsPathRooted($SettingsPath)) {
         $settingsPath = $SettingsPath
     } else {
@@ -635,16 +888,64 @@ function Initialize-Context {
     } else {
         $settingsJSONvalue.shortcuts = Get-ShortcutMode $settingsJSONvalue
     }
-    if ($null -eq $settingsJSONvalue.sqlBackupPath) {
-        $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
-    }
-    
     # Add configurations from code-workspace
     foreach ($remote in $workspaceJSON.value.settings."dam-pav.bcdevtoolset".configurations) {
         $settingsJSONvalue.configurations = $settingsJSONvalue.configurations + $remote
     }
+
+    foreach ($configuration in $settingsJSONvalue.configurations) {
+        if ($configuration.serverType -eq "Container") {
+            if ($null -eq $configuration.sqlBackupPath) {
+                $configuration | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
+            }
+        }
+    }
     # finally, pass the object
     $settingsJSON.Value = $settingsJSONvalue
+}
+
+function Resolve-BcDevToolsetWorkspaceFile {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $WorkspaceRootPath,
+        [Parameter(Mandatory=$false)]
+        [string] $WorkspaceFile
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($WorkspaceFile)) {
+        $workspaceFilePath = if ([System.IO.Path]::IsPathRooted($WorkspaceFile)) {
+            $WorkspaceFile
+        } else {
+            Join-Path $WorkspaceRootPath $WorkspaceFile
+        }
+
+        if (-not (Test-Path -LiteralPath $workspaceFilePath -PathType Leaf)) {
+            throw "Workspace file not found: $workspaceFilePath"
+        }
+
+        return Get-Item -LiteralPath $workspaceFilePath
+    }
+
+    if ($env:BCDEVTOOLSET_ALLOW_WORKSPACE_FILE_DISCOVERY -ne 'true') {
+        return $null
+    }
+
+    $workspaceFiles = @(Get-ChildItem -Path $WorkspaceRootPath -Filter '*.code-workspace' -File)
+    if ($workspaceFiles.Count -eq 0) {
+        return $null
+    }
+
+    if ($workspaceFiles.Count -eq 1) {
+        return $workspaceFiles[0]
+    }
+
+    $options = @()
+    foreach ($workspaceFileCandidate in $workspaceFiles) {
+        $options += $workspaceFileCandidate.Name
+    }
+
+    $idx = Select-IndexFromList -Title "Multiple workspace files found. Please select one:" -Options $options -DefaultIndex 0
+    return $workspaceFiles[$idx]
 }
 
 function Get-AppJSON {
@@ -678,6 +979,8 @@ function Get-AppJSON {
 
 function Get-PackageParams {
     Param (
+        [Parameter(Mandatory=$false)]
+        [string] $scriptPath = "",
         [Parameter(Mandatory=$true)]
         [PSObject] $settingsJSON,
         [Parameter(Mandatory=$true)]
@@ -695,7 +998,7 @@ function Get-PackageParams {
         if ("$($settingsJSON.packageOutputPath)" -eq "") {
             throw "For deployment of Runtime packages please specify a valid path in 'packageOutputPath' of settings.json"
         } else {
-            $packagePath.Value = $($settingsJSON.packageOutputPath)
+            $packagePath.Value = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $($settingsJSON.packageOutputPath)
         }
         $packageName.Value = $packName + "_runtime.app"
     } else {
@@ -885,7 +1188,7 @@ function Clear-Artifacts {
     )
     $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
 
-    if (Confirm-Option -question "Do you want to clear the translation files?") {
+    if (Confirm-Option -question "Do you want to clear the translation files?" -PromptId "clearArtifacts.translationFiles" -Risk "Deletes generated translation files from the workspace.") {
         foreach ($appPath in $workspaceJSON.folders.path) {
             # Read app.json
             $appPath = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $appPath
@@ -898,7 +1201,7 @@ function Clear-Artifacts {
         Write-Host "Translation files cleared." -ForegroundColor Blue
     }
     
-    if (Confirm-Option -question "Do you want to clear all APP files? You will need to download symbols for all projects.") {
+    if (Confirm-Option -question "Do you want to clear all APP files? You will need to download symbols for all projects." -PromptId "clearArtifacts.appFiles" -Risk "Deletes APP files and requires downloading symbols again.") {
         foreach ($appPath in $workspaceJSON.folders.path) {
             # Read app.json
             $appPath = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $appPath
@@ -935,6 +1238,85 @@ function Repair-HostsFilePermissions {
     return (Test-HostsFileWritable)
 }
 
+function Get-QualifiedDockerContainerConfigurations {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON
+    )
+
+    return @($settingsJSON.configurations | Where-Object {
+        $_.serverType -eq "Container" -and -not [string]::IsNullOrWhiteSpace($_.container)
+    })
+}
+
+function Test-UniqueDockerContainerConfigurationNames {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [array] $configurations
+    )
+
+    $duplicates = @($configurations |
+        Group-Object -Property { ([string]$_.container).Trim().ToLowerInvariant() } |
+        Where-Object { $_.Count -gt 1 })
+
+    if ($duplicates.Count -eq 0) {
+        return $true
+    }
+
+    Write-Host "Create container operation stopped." -ForegroundColor Red
+    Write-Host "Each Container configuration must specify a unique 'container' value." -ForegroundColor Red
+    Write-Host "Duplicate container values found:" -ForegroundColor Red
+
+    foreach ($duplicate in $duplicates) {
+        $containerName = $duplicate.Group[0].container
+        $configurationNames = @($duplicate.Group | ForEach-Object { $_.name }) -join "', '"
+        Write-Host " - '$containerName' is used by configurations '$configurationNames'." -ForegroundColor Red
+    }
+
+    Write-Host "Update the duplicate configuration entries and run the operation again." -ForegroundColor Yellow
+    return $false
+}
+
+function Select-DockerContainerConfigurations {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)]
+        [string] $operationName
+    )
+
+    $qualifiedConfigurations = @(Get-QualifiedDockerContainerConfigurations -settingsJSON $settingsJSON)
+    if ($qualifiedConfigurations.Count -eq 0) {
+        Write-Host "No Container configurations with a non-empty container value found." -ForegroundColor Red
+        return @()
+    }
+
+    if (-not (Test-UniqueDockerContainerConfigurationNames -configurations $qualifiedConfigurations)) {
+        return @()
+    }
+
+    if ($qualifiedConfigurations.Count -eq 1) {
+        return @($qualifiedConfigurations[0])
+    }
+
+    $options = @()
+    foreach ($configuration in $qualifiedConfigurations) {
+        $options += "$($configuration.name) ($($configuration.container))"
+    }
+    $options += "All qualified containers"
+
+    $selectedIndex = Select-IndexFromList `
+        -Title "Select container configuration for $($operationName):" `
+        -Options $options `
+        -DefaultIndex 0
+
+    if ($selectedIndex -eq ($options.Count - 1)) {
+        return $qualifiedConfigurations
+    }
+
+    return @($qualifiedConfigurations[$selectedIndex])
+}
+
 function New-DockerContainer {
     Param (
         [bool] $testMode = $false,
@@ -950,13 +1332,19 @@ function New-DockerContainer {
         [bool] $pullFullArtifact
     )
     
-    $configurationFound = $false
-    foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "Container")) {
-        $configurationFound = $true
+    $selectedConfigurations = @(Select-DockerContainerConfigurations `
+        -settingsJSON $settingsJSON `
+        -operationName "container creation")
+
+    if ($selectedConfigurations.Count -eq 0) {
+        $false
+        return
+    }
+
+    foreach ($configuration in $selectedConfigurations) {
 
         # No mutex for the time being, we do it manually
-        $securePassword = ConvertTo-SecureString -String $configuration.password -AsPlainText -Force
-        $credential = New-Object pscredential $configuration.admin, $securePassword
+        $credential = Get-BcConfigurationCredential -configuration $configuration
         $auth = $configuration.authentication
 
         if ($appJSON.application -eq "") {
@@ -1101,10 +1489,13 @@ function New-DockerContainer {
             shortcuts = $settingsJSON.shortcuts
             }
 
-        if (Repair-HostsFilePermissions) {
-            $Parameters.updateHosts = $true
-        } else {
-            throw "Hosts file is not writable after running Check-BcContainerHelperPermissions -Fix. Container hostname resolution is required, so create-container processing cannot continue."
+        $updateHosts = -not ($configuration.PSObject.Properties['updateHosts'] -and ([string]$configuration.updateHosts).Trim().ToLowerInvariant() -eq 'false')
+        if ($updateHosts) {
+            if (Repair-HostsFilePermissions) {
+                $Parameters.updateHosts = $true
+            } else {
+                throw "Hosts file is not writable after running Check-BcContainerHelperPermissions -Fix. Container hostname resolution is required, so create-container processing cannot continue."
+            }
         }
 
         if ($configuration.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") {
@@ -1115,23 +1506,35 @@ function New-DockerContainer {
             $Parameters.alwaysPull = $true
         }
 
+        $licenseFile = ""
         if ($settingsJSON.licenseFile -ne "") {
             if (-not (Test-Path -Path $settingsJSON.licenseFile)) {
                 Write-Host "WARNING: The license file '$($settingsJSON.licenseFile)' could not be found. Verify and install the license as a separate step." -ForegroundColor Red
             }
             else {
-                $Parameters.licenseFile = $settingsJSON.licenseFile
+                $licenseFile = (Resolve-Path -Path $settingsJSON.licenseFile).Path
+                $Parameters.licenseFile = $licenseFile
             }
         }
 
         if ($configuration.includeTestToolkit -eq 'true') {
             $Parameters.includeTestToolkit = $true
         }
+
+        foreach ($parameterName in @('network', 'hostIP', 'macAddress', 'IP', 'dns')) {
+            if ($configuration.PSObject.Properties[$parameterName] -and -not [string]::IsNullOrWhiteSpace($configuration.$parameterName)) {
+                if ($parameterName -eq 'network' -and -not $testmode) {
+                    $Parameters[$parameterName] = Ensure-DockerNetwork -network ([string]$configuration.$parameterName)
+                } else {
+                    $Parameters[$parameterName] = [string]$configuration.$parameterName
+                }
+            }
+        }
             
         if (-not $testmode) {
             $backupRootPath = Get-SqlBackupRootPath `
                 -scriptPath $scriptPath `
-                -sqlBackupPath $settingsJSON.sqlBackupPath
+                -sqlBackupPath $configuration.sqlBackupPath
 
             if (-not [string]::IsNullOrWhiteSpace($backupRootPath) -and (Test-Path -Path $backupRootPath -PathType Container)) {
                 $backupEntries = @(Get-SqlBackupSetEntries -backupRootPath $backupRootPath)
@@ -1161,17 +1564,28 @@ function New-DockerContainer {
                 Write-Host "No SQL backup set found. Container will use a fresh database." -ForegroundColor Gray
             }
 
+            if ($Parameters.ContainsKey('bakFolder') -and -not [string]::IsNullOrWhiteSpace($licenseFile)) {
+                $licenseFileName = Split-Path -Path $licenseFile -Leaf
+                $containerLicenseFile = "c:\run\my\$licenseFileName"
+                $escapedContainerLicenseFile = $containerLicenseFile.Replace("'", "''")
+                $Parameters.myScripts = @(
+                    $licenseFile
+                    @{
+                        "SetupNavUsers.ps1" = @"
+Write-Host "Importing License $escapedContainerLicenseFile before creating users"
+Import-NAVServerLicense -LicenseFile '$escapedContainerLicenseFile' -ServerInstance `$ServerInstance -Database NavDatabase -WarningAction SilentlyContinue
+. "c:\run\SetupNavUsers.ps1"
+"@
+                    }
+                )
+                Write-Host "SQL backup restore detected. The license will be imported before NAV user setup because BcContainerHelper skips -licenseFile for restored bakFolder databases." -ForegroundColor Yellow
+            }
+
             New-BcContainer @Parameters
         }
 
         Write-Host "The docker instance $($configuration.container) should be ready." -ForegroundColor Green
         Write-Host ""
-    }
-
-    if (-not $configurationFound) {
-        Write-Host "No Docker configurations found." -ForegroundColor Red
-        $false
-        return
     }
 
     $true
@@ -1246,6 +1660,43 @@ function Update-BcLicense {
 
         Write-Host "The docker instance $($configuration.container) should have the new license installed." -ForegroundColor Green
         Write-Host ""
+    }
+
+    if (-not $configurationFound) {
+        Write-Host "No Docker configurations found." -ForegroundColor Red
+        $false
+        return
+    }
+
+    $true
+}
+
+function Show-ActiveBcContainerLicenses {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON
+    )
+
+    $configurationFound = $false
+    foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "Container")) {
+        $configurationFound = $true
+        if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
+            continue
+        }
+
+        Write-Host ""
+        Write-Host "Active license information for container '$($configuration.container)':" -ForegroundColor Green
+        try {
+            $licenseInformation = Get-BcContainerLicenseInformation -ContainerName $configuration.container -ErrorAction Stop
+            if ($null -eq $licenseInformation) {
+                Write-Host "No license information returned." -ForegroundColor Yellow
+            } else {
+                $licenseInformation | Out-Host
+            }
+        } catch {
+            Write-Host "Failed to get license information for container '$($configuration.container)'." -ForegroundColor Red
+            Write-Host $_.Exception.Message -ForegroundColor Red
+        }
     }
 
     if (-not $configurationFound) {

@@ -1,4 +1,4 @@
-name: Latest extension package
+name: Auto - Latest extension package
 
 on:
   push:
@@ -128,7 +128,11 @@ jobs:
           fi
 
       - name: Publish pre-release VSIX to VS Code Marketplace
+<<<<<<< HEAD
         if: "${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message || '', 'chore(release): bump ') }}"
+=======
+        if: "${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message || '', 'chore(release):') && !contains(github.event.head_commit.message || '', 'Release v') }}"
+>>>>>>> 18c76bc36066f6f80f893bf0d76949ce9beb9f54
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         shell: bash

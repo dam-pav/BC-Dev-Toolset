@@ -91,6 +91,51 @@ function Get-DockerInstalledVersion {
     return $null
 }
 
+function Get-DockerDesktopInstallation {
+    $programFiles = [Environment]::GetFolderPath("ProgramFiles")
+    $candidatePaths = @(
+        Join-Path $programFiles "Docker\Docker\Docker Desktop.exe",
+        Join-Path $programFiles "Docker\Docker\DockerCli.exe"
+    )
+
+    foreach ($candidatePath in $candidatePaths) {
+        if (Test-Path $candidatePath) {
+            return [PSCustomObject]@{
+                Source      = "file"
+                Description = $candidatePath
+            }
+        }
+    }
+
+    $dockerDesktopService = Get-Service -Name "com.docker.service" -ErrorAction SilentlyContinue
+    if ($dockerDesktopService) {
+        return [PSCustomObject]@{
+            Source      = "service"
+            Description = $dockerDesktopService.DisplayName
+        }
+    }
+
+    $uninstallRegistryPaths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+
+    foreach ($uninstallRegistryPath in $uninstallRegistryPaths) {
+        $dockerDesktopRegistryEntry = Get-ItemProperty -Path $uninstallRegistryPath -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -eq "Docker Desktop" } |
+            Select-Object -First 1
+
+        if ($dockerDesktopRegistryEntry) {
+            return [PSCustomObject]@{
+                Source      = "registry"
+                Description = $dockerDesktopRegistryEntry.DisplayName
+            }
+        }
+    }
+
+    return $null
+}
+
 function Get-LatestDockerRelease {
     Write-Host "Fetching latest Docker Engine release..."
     $releasesUrl = "https://download.docker.com/win/static/stable/x86_64/"
@@ -118,6 +163,66 @@ function Get-LatestDockerRelease {
     $latestRelease = $downloads | Sort-Object -Property Version -Descending | Select-Object -First 1
     $latestRelease | Add-Member -MemberType NoteProperty -Name Url -Value ($releasesUrl + $latestRelease.Href)
     return $latestRelease
+}
+
+function Get-ProcessesUsingPath {
+    param([string]$Path)
+
+    $resolvedPath = [System.IO.Path]::GetFullPath($Path).TrimEnd('\') + '\'
+
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.ExecutablePath -and
+            [System.IO.Path]::GetFullPath($_.ExecutablePath).StartsWith($resolvedPath, [System.StringComparison]::OrdinalIgnoreCase)
+        }
+}
+
+function Stop-ProcessesUsingPath {
+    param([string]$Path)
+
+    $processes = @(Get-ProcessesUsingPath -Path $Path)
+    foreach ($process in $processes) {
+        Write-Host "Stopping process using Docker Engine files: $($process.Name) (PID $($process.ProcessId))"
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+
+    $timeoutAt = (Get-Date).AddSeconds(30)
+    do {
+        $remainingProcesses = @(Get-ProcessesUsingPath -Path $Path)
+        if ($remainingProcesses.Count -eq 0) {
+            return
+        }
+
+        Start-Sleep -Seconds 1
+    } while ((Get-Date) -lt $timeoutAt)
+
+    $processList = ($remainingProcesses | ForEach-Object { "$($_.Name) (PID $($_.ProcessId))" }) -join ", "
+    throw "Timed out waiting for processes to release Docker Engine files: $processList"
+}
+
+function Copy-DockerEngineFiles {
+    param(
+        [string]$SourcePath,
+        [string]$DockerPath
+    )
+
+    $timeoutAt = (Get-Date).AddSeconds(90)
+    $lastError = $null
+
+    do {
+        try {
+            Copy-Item -Path (Join-Path $SourcePath "*") -Destination $DockerPath -Recurse -Force -ErrorAction Stop
+            return
+        }
+        catch {
+            $lastError = $_
+            Write-Warning "Docker Engine files are still locked; retrying..."
+            Stop-ProcessesUsingPath -Path $DockerPath
+            Start-Sleep -Seconds 2
+        }
+    } while ((Get-Date) -lt $timeoutAt)
+
+    throw "Failed to replace Docker Engine files in '$DockerPath'. Close Docker CLI sessions and any process using files in that folder, then run the prerequisites operation again. Original error: $($lastError.Exception.Message)"
 }
 
 function Install-DockerEngine {
@@ -156,6 +261,8 @@ function Install-DockerEngine {
     $tempExtractPath = Join-Path $env:TEMP "docker-extract-$([System.IO.Path]::GetRandomFileName())"
     New-Item -ItemType Directory -Path $tempExtractPath -Force | Out-Null
 
+    $serviceWasRunning = $false
+
     try {
         Expand-Archive -Path $downloadPath -DestinationPath $tempExtractPath -Force
         $sourcePath = Join-Path $tempExtractPath "docker"
@@ -163,24 +270,39 @@ function Install-DockerEngine {
             $sourcePath = $tempExtractPath
         }
 
-        $serviceWasRunning = $false
         $existingService = Get-Service -Name "Docker" -ErrorAction SilentlyContinue
         if ($existingService -and $existingService.Status -eq "Running") {
             $serviceWasRunning = $true
             Write-Host "Stopping Docker service before replacing binaries..."
             Stop-Service -Name "Docker" -Force -ErrorAction Stop
+            $existingService.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(60))
+            $existingService.Refresh()
+
+            if ($existingService.Status -ne "Stopped") {
+                throw "Docker service did not stop within 60 seconds"
+            }
+
+            Stop-ProcessesUsingPath -Path $DockerPath
         }
 
-        Copy-Item -Path (Join-Path $sourcePath "*") -Destination $DockerPath -Recurse -Force
+        Copy-DockerEngineFiles -SourcePath $sourcePath -DockerPath $DockerPath
         Write-Success "Docker Engine extracted to: $DockerPath"
-
-        if ($serviceWasRunning) {
-            Write-Host "Restarting Docker service..."
-            Start-Service -Name "Docker"
-            Write-Success "Docker service restarted"
-        }
     }
     finally {
+        if ($serviceWasRunning) {
+            try {
+                $dockerService = Get-Service -Name "Docker" -ErrorAction SilentlyContinue
+                if ($dockerService -and $dockerService.Status -ne "Running") {
+                    Write-Host "Restarting Docker service..."
+                    Start-Service -Name "Docker" -ErrorAction Stop
+                    Write-Success "Docker service restarted"
+                }
+            }
+            catch {
+                Write-Warning "Failed to restart Docker service: $($_.Exception.Message)"
+            }
+        }
+
         if (Test-Path $tempExtractPath) {
             Remove-Item $tempExtractPath -Force -Recurse
         }
@@ -247,10 +369,13 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 
 Write-Header "BC Dev Toolset Prerequisites Installation"
 
+$dockerDesktopInstallation = Get-DockerDesktopInstallation
+$skipDockerEngineSteps = $null -ne $dockerDesktopInstallation
+
 # ============================================================================
 # 1. DOCKER ENGINE INSTALLATION
 # ============================================================================
-if (-not $SkipDockerInstall) {
+if (-not $SkipDockerInstall -and -not $skipDockerEngineSteps) {
     Write-Header "1. Installing or Updating Docker Engine"
     
     try {
@@ -282,6 +407,9 @@ if (-not $SkipDockerInstall) {
         Write-Error "Docker installation failed: $_"
         Write-Host "You can manually download from: https://download.docker.com/win/static/stable/x86_64/"
     }
+}
+elseif ($skipDockerEngineSteps) {
+    Write-Host "Skipping Docker Engine installation (Docker Desktop detected)"
 }
 else {
     Write-Host "Skipping Docker Engine installation (--SkipDockerInstall flag set)"
@@ -368,37 +496,42 @@ else {
 # ============================================================================
 # 3. ADD DOCKER TO PATH
 # ============================================================================
-Write-Header "3. Adding Docker to PATH"
+if (-not $skipDockerEngineSteps) {
+    Write-Header "3. Adding Docker to PATH"
 
-try {
-    $currentPath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
-    
-    # Check if Docker path already in PATH
-    if ($currentPath -like "*$DockerPath*") {
-        Write-Warning "Docker path already in system PATH"
-    }
-    else {
-        # Add to PATH
-        $newPath = "$currentPath;$DockerPath"
+    try {
+        $currentPath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
         
-        # Check if PATH will exceed typical limits
-        if ($newPath.Length -gt 2048) {
-            Write-Warning "System PATH is approaching or exceeds recommended length (2048 chars)"
-            Write-Warning "Current: $($newPath.Length) chars"
+        # Check if Docker path already in PATH
+        if ($currentPath -like "*$DockerPath*") {
+            Write-Warning "Docker path already in system PATH"
         }
-        
-        [Environment]::SetEnvironmentVariable("PATH", $newPath, "Machine")
-        Write-Success "Docker path added to system PATH"
+        else {
+            # Add to PATH
+            $newPath = "$currentPath;$DockerPath"
+            
+            # Check if PATH will exceed typical limits
+            if ($newPath.Length -gt 2048) {
+                Write-Warning "System PATH is approaching or exceeds recommended length (2048 chars)"
+                Write-Warning "Current: $($newPath.Length) chars"
+            }
+            
+            [Environment]::SetEnvironmentVariable("PATH", $newPath, "Machine")
+            Write-Success "Docker path added to system PATH"
+        }
+    }
+    catch {
+        Write-Error "Failed to add Docker to PATH: $_"
     }
 }
-catch {
-    Write-Error "Failed to add Docker to PATH: $_"
+else {
+    Write-Host "Skipping Docker Engine PATH update (Docker Desktop detected)"
 }
 
 # ============================================================================
 # 4. INSTALL DOCKER SERVICE
 # ============================================================================
-if (-not $SkipDockerInstall) {
+if (-not $SkipDockerInstall -and -not $skipDockerEngineSteps) {
     Write-Header "4. Installing Docker as Windows Service"
     
     try {
@@ -435,6 +568,9 @@ if (-not $SkipDockerInstall) {
         Write-Error "Failed to install Docker service: $_"
         Write-Host "You may need to create the service manually"
     }
+}
+elseif ($skipDockerEngineSteps) {
+    Write-Host "Skipping Docker Engine service installation (Docker Desktop detected)"
 }
 
 # ============================================================================

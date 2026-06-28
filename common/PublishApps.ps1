@@ -123,15 +123,12 @@ function Publish-Dependencies {
                         $params.appFile = $appList
                         Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
                         Write-Host ":" -ForegroundColor green
-                        Publish-BcContainerApp -ErrorAction SilentlyContinue -ErrorVariable ex @params
+                        Publish-BcContainerApp -ErrorAction SilentlyContinue @params
                     } else {
                         $params.appFiles = $appList
                         Write-Host "Publish-PerTenantExtensionApps" -ForegroundColor Blue -NoNewline
                         Write-Host ":" -ForegroundColor green
-                        Publish-PerTenantExtensionApps -ErrorAction SilentlyContinue -ErrorVariable ex @params
-                    }
-                    if ($ex.length -gt 0) {
-                        Write-Host "There was an error." -ForegroundColor Red
+                        Publish-PerTenantExtensionApps -ErrorAction SilentlyContinue @params
                     }
                 }
                 'Container' {
@@ -161,7 +158,7 @@ function Publish-Dependencies {
                     Write-Host "Running " -ForegroundColor green -NoNewline
                     Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
                     Write-Host ":" -ForegroundColor green
-                    Publish-BcContainerApp -ErrorAction SilentlyContinue -ErrorVariable ex @params
+                    Publish-BcContainerApp -ErrorAction SilentlyContinue @params
                     }
                 'OnPrem' {
                     #Import-Module $settingsJSON.loadOnPremMgtModule
@@ -196,15 +193,19 @@ function Publish-Apps {
         [Parameter(Mandatory=$true)]
         [ValidateSet("Dev", "Test", "Production")]
         [string] $targetType,
+        [Parameter(Mandatory=$true)]
+        [bool] $publishAsDev,
         [bool] $runtime = $false,
         [switch] $skipMissing,
         [ref] $authContext
     )
 
     $sortedApps = (Get-SortedApps -workspaceJSON $workspaceJSON)
-    $rootFolder = (Get-Item $scriptPath).Parent
     $appList = @()
-    $ex = @()
+
+    if (($targetType -eq 'Production') -and ($publishAsDev -eq $true)) {
+        throw "Publishing as Dev is not supported for Production targets."
+    }
 
     foreach ($configuration in $($settingsJSON.configurations | Where-Object  { $_.targetType -eq $targetType })) {
         Write-Host "Deploying apps to '$($configuration.name)'." -ForegroundColor Blue
@@ -213,6 +214,7 @@ function Publish-Apps {
             $packageName = ""
             $packagePath = ""
             Get-PackageParams `
+                -scriptPath $scriptPath `
                 -settingsJSON $settingsJSON  `
                 -appJSON $App `
                 -runtime $runtime `
@@ -220,10 +222,7 @@ function Publish-Apps {
                 -packagePath ([ref]$packagePath)
 
             if ($packagePath -eq "") {
-                $packagePath = $App.Path
-                if (-not $packagePath.Contains('\')) {
-                    $packagePath = (Join-Path $rootFolder.Fullname $packagePath)
-                }
+                $packagePath = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $App.Path
             }
             $appFile = (Join-Path $packagePath $packageName)
 
@@ -270,19 +269,18 @@ function Publish-Apps {
 
                     Write-Host ""
                     Write-Host "Running " -ForegroundColor green -NoNewline
-                    if ($targetType -eq 'Dev') {
+                    if ($publishAsDev -eq $true) {
                         $params.appFile = $appList
+                        $params.useDevEndpoint = $true
+                        $params.replacePackageId = $true
                         Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
                         Write-Host ":" -ForegroundColor green
-                        Publish-BcContainerApp -ErrorAction SilentlyContinue -ErrorVariable ex @params
+                        Publish-BcContainerApp -ErrorAction SilentlyContinue @params
                     } else {
                         $params.appFiles = $appList
                         Write-Host "Publish-PerTenantExtensionApps" -ForegroundColor Blue -NoNewline
                         Write-Host ":" -ForegroundColor green
-                        Publish-PerTenantExtensionApps -ErrorAction SilentlyContinue -ErrorVariable ex @params
-                    }
-                    if ($ex.length -gt 0) {
-                        Write-Host "There was an error." -ForegroundColor Red
+                        Publish-PerTenantExtensionApps -ErrorAction SilentlyContinue @params
                     }
                 }
                 'Container' {
@@ -305,16 +303,20 @@ function Publish-Apps {
                         scope = 'Tenant'
                         sync = $true
                     }
+
+                    if ($publishAsDev -eq $true) {
+                        $params.useDevEndpoint = $true
+                        $params.replacePackageId = $true
+                        if ($configuration.authentication -ne "Windows") {
+                            $params.credential = Get-BcConfigurationCredential -configuration $configuration
+                        }
+                    }
                     
                     Write-Host ""
                     Write-Host "Running " -ForegroundColor green -NoNewline
                     Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
                     Write-Host ":" -ForegroundColor green
-                    Publish-BcContainerApp -ErrorAction SilentlyContinue -ErrorVariable ex @params
-                    if ($ex.length -gt 0) {
-                        Write-Host "There was an error." -ForegroundColor Red
-                        #Write-Host $ex.Exception -ForegroundColor Red
-                    }
+                    Publish-BcContainerApp -ErrorAction SilentlyContinue @params
                 }
                 'OnPrem' {
                     #Import-Module $settingsJSON.loadOnPremMgtModule
@@ -384,7 +386,7 @@ function Unpublish-Apps {
                     }
 
                     $installedApps = (Get-BcContainerAppInfo -containerName $configuration.container)
-                    $removeAppData = (Confirm-Option -question "Do you want to REMOVE ALL EXTENSIONS' DATA AND SCHEMA from '$($configuration.name)'?")
+                    $removeAppData = (Confirm-Option -question "Do you want to REMOVE ALL EXTENSIONS' DATA AND SCHEMA from '$($configuration.name)'?" -PromptId "publishApps.removeExtensionData" -Risk "Removes extension data and schema from the target environment." -AgentAllowed $false -Destructive $true)
                     ForEach ($App in ($sortedApps|Sort-Object -Property ProcessOrder -Descending)) {
                         Write-Host "Try removing $($App.Name) (Order: $($App.ProcessOrder))"
                         $installedApps | Where-Object { $_.Name -eq $App.Name -and $_.AppId -eq $App.AppId } | ForEach-Object{
