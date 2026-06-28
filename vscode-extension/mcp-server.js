@@ -128,16 +128,10 @@ function tryReadRawJsonMessage() {
   }
 
   // Preserve compatibility with clients that send one JSON message without a delimiter.
-  let jsonStart = 0;
-  while (jsonStart < inputBuffer.length) {
-    const byte = inputBuffer[jsonStart];
-    if (byte !== 0x20 && byte !== 0x09 && byte !== 0x0d) {
-      break;
-    }
-    jsonStart += 1;
-  }
-
-  if (jsonStart >= inputBuffer.length || inputBuffer[jsonStart] !== 0x7b) {
+  const firstNonWhitespaceByte = inputBuffer.find(
+    (byte) => byte !== 0x20 && byte !== 0x09 && byte !== 0x0d
+  );
+  if (firstNonWhitespaceByte !== 0x7b) {
     return false;
   }
 
