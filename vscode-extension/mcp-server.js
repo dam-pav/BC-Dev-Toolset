@@ -108,7 +108,6 @@ function tryReadRawJsonMessage() {
     const text = inputBuffer
       .slice(0, newlineIndex)
       .toString('utf8')
-      .replace(/\r$/, '')
       .trim();
 
     if (!text) {
@@ -118,7 +117,7 @@ function tryReadRawJsonMessage() {
 
     if (!text.startsWith('{')) {
       inputBuffer = inputBuffer.slice(newlineIndex + 1);
-      return false;
+      return transportMode === 'raw-json';
     }
 
     inputBuffer = inputBuffer.slice(newlineIndex + 1);
