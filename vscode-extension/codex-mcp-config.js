@@ -156,11 +156,41 @@ function resolveCodexMcpIntegrationState(options) {
   };
 }
 
+async function runCodexMcpIntegrationTransition(state, actions) {
+  let configurationResult = { enabled: state.enabled, changed: false };
+  if (state.enabled) {
+    configurationResult = await actions.applyConfiguration();
+  }
+
+  let settingPersisted = !state.persistSetting;
+  let settingError;
+  if (state.persistSetting) {
+    try {
+      await actions.persistSetting(state.enabled);
+      settingPersisted = true;
+    } catch (error) {
+      settingError = error;
+    }
+  }
+
+  if (state.completeMigration && settingPersisted) {
+    await actions.completeMigration();
+  }
+
+  return {
+    ...configurationResult,
+    enabled: state.enabled,
+    settingPersisted,
+    settingError
+  };
+}
+
 module.exports = {
   classifyCodexMcpConfiguration,
   getCodexMcpConfiguredServerPath,
   isRecognizedVersionedServerPath,
   removeCodexMcpConfigContent,
   resolveCodexMcpIntegrationState,
+  runCodexMcpIntegrationTransition,
   updateCodexMcpConfigContent
 };
