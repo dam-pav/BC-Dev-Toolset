@@ -25,16 +25,18 @@ let inputBuffer = Buffer.alloc(0);
 let waitingForMessageLogged = false;
 let transportMode = 'unknown';
 
-log(`started pid=${process.pid} node=${process.execPath}`);
-log(`toolsetPath=${toolsetPath}`);
-log(`bridgeUrl=${bridgeUrl || '(none)'}`);
-log(`bridgeStatePath=${bridgeStatePath || '(none)'}`);
+function startServer() {
+  log(`started pid=${process.pid} node=${process.execPath}`);
+  log(`toolsetPath=${toolsetPath}`);
+  log(`bridgeUrl=${bridgeUrl || '(none)'}`);
+  log(`bridgeStatePath=${bridgeStatePath || '(none)'}`);
 
-process.stdin.on('data', (chunk) => {
-  log(`stdin ${chunk.length} bytes`);
-  inputBuffer = Buffer.concat([inputBuffer, chunk]);
-  readBufferedMessages();
-});
+  process.stdin.on('data', (chunk) => {
+    log(`stdin ${chunk.length} bytes`);
+    inputBuffer = Buffer.concat([inputBuffer, chunk]);
+    readBufferedMessages();
+  });
+}
 
 function send(message) {
   const body = JSON.stringify(message);
@@ -101,10 +103,39 @@ function readBufferedMessages() {
 }
 
 function tryReadRawJsonMessage() {
-  const text = inputBuffer.toString('utf8').trim();
-  if (!text.startsWith('{')) {
+  const newlineIndex = inputBuffer.indexOf('\n');
+  if (newlineIndex >= 0) {
+    const text = inputBuffer
+      .slice(0, newlineIndex)
+      .toString('utf8')
+      .trim();
+
+    if (!text) {
+      inputBuffer = inputBuffer.slice(newlineIndex + 1);
+      return true;
+    }
+
+    if (!text.startsWith('{')) {
+      inputBuffer = inputBuffer.slice(newlineIndex + 1);
+      return transportMode === 'raw-json';
+    }
+
+    inputBuffer = inputBuffer.slice(newlineIndex + 1);
+    transportMode = 'raw-json';
+    waitingForMessageLogged = false;
+    void handleMessage(text);
+    return true;
+  }
+
+  // Preserve compatibility with clients that send one JSON message without a delimiter.
+  const firstNonWhitespaceByte = inputBuffer.find(
+    (byte) => byte !== 0x20 && byte !== 0x09 && byte !== 0x0d
+  );
+  if (firstNonWhitespaceByte !== 0x7b) {
     return false;
   }
+
+  const text = inputBuffer.toString('utf8').trim();
 
   try {
     JSON.parse(text);
@@ -1066,3 +1097,22 @@ function logWaitingForMessage(reason) {
 function formatPreview(value) {
   return JSON.stringify(String(value).replace(/\r/g, '\\r').replace(/\n/g, '\\n'));
 }
+
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = {
+  __test: {
+    getInputBuffer: () => inputBuffer,
+    resetState: () => {
+      inputBuffer = Buffer.alloc(0);
+      waitingForMessageLogged = false;
+      transportMode = 'unknown';
+    },
+    setInputBuffer: (value) => {
+      inputBuffer = Buffer.from(value, 'utf8');
+    },
+    tryReadRawJsonMessage
+  }
+};

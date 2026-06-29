@@ -127,7 +127,7 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 
 ### Runtime
 
-- `Create runtime packages for all apps in the workspace`: Builds runtime packages for all workspace apps.
+- `Create deployment runtime packages for all apps in the workspace (not compile/build validation)`: Builds deployment runtime packages for all workspace apps. This is not a substitute for ordinary AL compile/build validation.
 - `Publish runtime packages (stored) to the existing container`: Publishes stored runtime packages to a configured container target.
 - `Publish runtime packages (stored) to production environments`: Publishes stored runtime packages to configured production targets.
 - `Publish runtime packages (stored) to test environments`: Publishes stored runtime packages to configured test targets.

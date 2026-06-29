@@ -387,11 +387,11 @@ These settings are stored in `.bcdevtoolset/settings.json`:
 - `loadOnPremMgtModule`: Path to `NavAdminTool.ps1` when OnPrem deployments need the management module on the server host.
 - `configurations`: Developer-local additional list of deployment targets. It uses the same structure as workspace `configurations`, and both lists are used together.
 
-> Note: BC 21.1 (BC 2022 release wave 2) introduced global and workspace launch configuration. This is interesting but not in the same scope and purpose as the ***configurations*** in BC Dev Toolset which can also be set in the workspace. Launch setup is used directly by VS Code to deploy and start apps. Configurations is used by BC Dev Tools to initialize launch setup at app level, where a workspace can contain tens of apps. After that, you are free to use and modify the initialized setup. Sure, instead of using launch setup at app level you can use a single setup at the workspace level and if that fits your requirements, by all means do that. However, if you need any kind of granularity, for instance, having different pages loading when running different apps, you may want to stick with app level setup.
+> Note: BC 21.1 (BC 2022 release wave 2) introduced global and workspace launch configuration. This is interesting but not in the same scope and purpose as the ***configurations*** in BC Dev Toolset which can also be set in the workspace. Launch setup is used directly by VS Code to deploy and start apps. Configurations is used by BC Dev Toolset to initialize launch setup at app level, where a workspace can contain tens of apps. After that, you are free to use and modify the initialized setup. Sure, instead of using launch setup at app level you can use a single setup at the workspace level and if that fits your requirements, by all means do that. However, if you need any kind of granularity, for instance, having different pages loading when running different apps, you may want to stick with app level setup.
 >
 > Point is, using ***configurations*** in BC Dev Toolset supplements and does not collide with standard launch setup.
 >
-> BC Dev Tools doesn't initialize launch setup at workspace level at this time.
+> BC Dev Toolset doesn't initialize launch setup at workspace level at this time.
 
 ## Additional Notes
 
