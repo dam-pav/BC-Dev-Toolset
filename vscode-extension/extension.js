@@ -5,9 +5,17 @@ const childProcess = require('child_process');
 const http = require('http');
 const os = require('os');
 const vscode = require('vscode');
+const {
+  classifyCodexMcpConfiguration,
+  removeCodexMcpConfigContent,
+  resolveCodexMcpIntegrationState,
+  updateCodexMcpConfigContent
+} = require('./codex-mcp-config');
 
 let extensionContext;
 let runtimeSyncPromise;
+let codexMcpSyncPromise = Promise.resolve();
+let codexMcpSettingUpdateInProgress = false;
 let outputChannel;
 let operationTerminal;
 let operationTerminalName;
@@ -27,6 +35,7 @@ const directOperationIds = [
   'initPrerequisites',
   'updatePowerShell',
   'configureCodexMcp',
+  'disableCodexMcp',
   'clearAppArtifacts',
   'newDockerContainer',
   'updateLaunchJson',
@@ -109,7 +118,13 @@ function activate(context) {
     vscode.commands.registerCommand('bcDevToolset.showObjectIdRangeVisualizationData', showObjectIdRangeVisualizationData),
     vscode.commands.registerCommand('bcDevToolset.showMcpStatus', showMcpStatus),
     vscode.commands.registerCommand('bcDevToolset.configureCodexMcp', configureCodexMcp),
+    vscode.commands.registerCommand('bcDevToolset.disableCodexMcp', disableCodexMcp),
     vscode.commands.registerCommand('bcDevToolset.runOperation', runOperation),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (!codexMcpSettingUpdateInProgress && event.affectsConfiguration('bcDevToolset.codexMcpIntegration.enabled')) {
+        queueCodexMcpReconciliation(context, { notifyWhenChanged: true });
+      }
+    }),
     startMcpBridgeServer(context),
     startMcpPromptSessionCleanup(),
     registerMcpServerDefinitionProvider(context),
@@ -134,6 +149,7 @@ function activate(context) {
   }
 
   runtimeSyncPromise = syncRuntimeToolsetAfterExtensionUpdate(context);
+  queueCodexMcpReconciliation(context, { migrateLegacySetting: true, notifyWhenChanged: true });
 }
 
 function deactivate() {}
@@ -584,6 +600,11 @@ async function showMcpStatus() {
   const hasMcpApi = Boolean(vscode.lm && vscode.lm.registerMcpServerDefinitionProvider && vscode.McpStdioServerDefinition);
   const serverPath = extensionContext ? path.join(extensionContext.extensionPath, 'mcp-server.js') : '';
   const nodeExecutable = getMcpNodeExecutable();
+  const integrationSetting = getCodexMcpIntegrationSetting();
+  const configPath = getCodexConfigPath();
+  const configContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
+  const codexConfiguration = classifyCodexMcpConfiguration(configContent, serverPath);
+  const configuredServerExists = Boolean(codexConfiguration.configuredServerPath && fs.existsSync(codexConfiguration.configuredServerPath));
   const message = [
     `Extension path: ${extensionContext ? extensionContext.extensionPath : '(not set)'}`,
     `MCP API available: ${hasMcpApi}`,
@@ -591,7 +612,12 @@ async function showMcpStatus() {
     `MCP Node executable: ${nodeExecutable}`,
     `MCP terminal bridge: ${mcpBridgeUrl || '(not ready)'}`,
     `MCP bridge state: ${mcpBridgeStatePath || (extensionContext ? getMcpBridgeStatePath(extensionContext) : '(not ready)')}`,
-    `Toolset path: ${getToolsetPath()}`
+    `Toolset path: ${getToolsetPath()}`,
+    `Codex integration setting: ${formatCodexMcpIntegrationSetting(integrationSetting)}`,
+    `Codex configuration: ${configPath}`,
+    `Codex MCP configuration status: ${codexConfiguration.status}`,
+    `Codex configured MCP server: ${codexConfiguration.configuredServerPath || '(not configured)'}`,
+    `Codex configured MCP server exists: ${configuredServerExists}`
   ].join('\n');
 
   writeOutput(message);
@@ -599,38 +625,143 @@ async function showMcpStatus() {
 }
 
 async function configureCodexMcp() {
+  await setCodexMcpIntegrationSetting(true);
+  await extensionContext.globalState.update('codexMcpIntegrationLegacyMigrationCompleted', true);
+  const result = await queueCodexMcpReconciliation(extensionContext, { force: true });
+  if (!result || !result.enabled || result.error) {
+    return;
+  }
+
+  const message = `Codex MCP configuration is enabled and current at ${result.configPath}. Codex global instructions are current at ${result.agentsPath}. Restart Codex to load the BC Dev Toolset MCP server.`;
+  writeOutput(message);
+  await vscode.window.showInformationMessage(message);
+}
+
+async function disableCodexMcp() {
+  const answer = await vscode.window.showWarningMessage(
+    'Disable BC Dev Toolset Codex MCP integration and remove its managed Codex configuration and global instructions?',
+    { modal: true },
+    'Disable'
+  );
+  if (answer !== 'Disable') {
+    return;
+  }
+
+  await setCodexMcpIntegrationSetting(false);
+  await extensionContext.globalState.update('codexMcpIntegrationLegacyMigrationCompleted', true);
+  const configPath = getCodexConfigPath();
+  const existingContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
+  const expectedServerPath = path.join(extensionContext.extensionPath, 'mcp-server.js');
+  const configuration = classifyCodexMcpConfiguration(existingContent, expectedServerPath);
+  const canRemoveConfiguration = configuration.status === 'current' || configuration.status === 'stale';
+  const updatedContent = canRemoveConfiguration ? removeCodexMcpConfigContent(existingContent).trimEnd() : existingContent;
+  const normalizedContent = canRemoveConfiguration && updatedContent ? `${updatedContent}\n` : updatedContent;
+  const configChanged = writeFileWithBackupIfChanged(configPath, normalizedContent);
+  const agentsResult = removeCodexGlobalAgentsInstructions();
+  const message = configChanged || agentsResult.changed
+    ? 'BC Dev Toolset Codex MCP integration was disabled. Restart Codex to unload the MCP server.'
+    : 'BC Dev Toolset Codex MCP integration is disabled.';
+  writeOutput(message);
+  await vscode.window.showInformationMessage(message);
+}
+
+function queueCodexMcpReconciliation(context, options = {}) {
+  codexMcpSyncPromise = codexMcpSyncPromise
+    .catch((error) => writeOutput(`Previous Codex MCP configuration update failed: ${error.message}`))
+    .then(() => reconcileCodexMcpConfiguration(context, options));
+  return codexMcpSyncPromise;
+}
+
+async function reconcileCodexMcpConfiguration(context, options = {}) {
+  await waitForRuntimeSync();
+
+  if (isExtensionDevelopmentMode() && !options.force) {
+    return { enabled: getCodexMcpIntegrationSetting() === true, changed: false, skipped: 'extension development mode' };
+  }
+
+  const explicitSetting = getCodexMcpIntegrationSetting();
+  const migrationKey = 'codexMcpIntegrationLegacyMigrationCompleted';
+  const migrationCompleted = context.globalState.get(migrationKey) === true;
+  const configPath = getCodexConfigPath();
+  const content = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
+  const expectedServerPath = path.join(context.extensionPath, 'mcp-server.js');
+  const configuration = classifyCodexMcpConfiguration(content, expectedServerPath);
+  const integrationState = resolveCodexMcpIntegrationState({
+    explicitValue: explicitSetting,
+    migrationCompleted,
+    allowLegacyMigration: options.migrateLegacySetting === true,
+    configurationStatus: configuration.status
+  });
+
+  if (integrationState.persistSetting) {
+    await setCodexMcpIntegrationSetting(integrationState.enabled);
+  }
+  if (integrationState.completeMigration) {
+    await context.globalState.update(migrationKey, true);
+  }
+
+  if (!integrationState.enabled) {
+    return { enabled: false };
+  }
+
+  try {
+    const result = await applyCodexMcpConfiguration(context);
+    if (result.changed && options.notifyWhenChanged) {
+      const message = 'BC Dev Toolset updated the Codex MCP configuration. Restart Codex to load the current extension version.';
+      writeOutput(message);
+      await vscode.window.showInformationMessage(message);
+    }
+    return result;
+  } catch (error) {
+    writeOutput(`Automatic Codex MCP configuration update failed: ${error.message}`);
+    await vscode.window.showWarningMessage(`BC Dev Toolset could not update the Codex MCP configuration: ${error.message}`);
+    return { enabled: true, changed: false, error };
+  }
+}
+
+async function applyCodexMcpConfiguration(context) {
   const toolsetPath = await resolveToolsetRuntimePath();
   if (!toolsetPath) {
-    return;
+    throw new Error('BC Dev Toolset runtime could not be resolved.');
+  }
+
+  const mcpServerPath = path.join(context.extensionPath, 'mcp-server.js');
+  if (!fs.existsSync(mcpServerPath)) {
+    throw new Error(`BC Dev Toolset MCP server was not found at ${mcpServerPath}.`);
   }
 
   const configPath = getCodexConfigPath();
-  const configDirectory = path.dirname(configPath);
-  const mcpServerPath = path.join(extensionContext.extensionPath, 'mcp-server.js');
-
-  if (!fs.existsSync(mcpServerPath)) {
-    await vscode.window.showErrorMessage(`BC Dev Toolset MCP server was not found at ${mcpServerPath}.`);
-    return;
-  }
-
-  fs.mkdirSync(configDirectory, { recursive: true });
-
   const existingContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
-  if (existingContent) {
-    const backupPath = `${configPath}.${getTimestampForFileName()}.bak`;
-    fs.writeFileSync(backupPath, existingContent, 'utf8');
+  const updatedContent = updateCodexMcpConfigContent(existingContent, { mcpServerPath, toolsetPath });
+  const configChanged = writeFileWithBackupIfChanged(configPath, updatedContent);
+  const agentsResult = ensureCodexGlobalAgentsInstructions();
+  return {
+    enabled: true,
+    changed: configChanged || agentsResult.changed,
+    configPath,
+    agentsPath: agentsResult.path
+  };
+}
+
+function getCodexMcpIntegrationSetting() {
+  const inspected = getConfiguration().inspect('codexMcpIntegration.enabled');
+  return inspected ? inspected.globalValue : undefined;
+}
+
+async function setCodexMcpIntegrationSetting(value) {
+  codexMcpSettingUpdateInProgress = true;
+  try {
+    await getConfiguration().update('codexMcpIntegration.enabled', value, vscode.ConfigurationTarget.Global);
+  } finally {
+    codexMcpSettingUpdateInProgress = false;
   }
+}
 
-  const updatedContent = updateCodexMcpConfigContent(existingContent, {
-    mcpServerPath,
-    toolsetPath
-  });
-  fs.writeFileSync(configPath, updatedContent, 'utf8');
-  const agentsPath = ensureCodexGlobalAgentsInstructions();
-
-  const message = `Codex MCP configuration was updated at ${configPath}. Codex global instructions were updated at ${agentsPath}. Restart Codex to load the BC Dev Toolset MCP server.`;
-  writeOutput(message);
-  await vscode.window.showInformationMessage(message);
+function formatCodexMcpIntegrationSetting(value) {
+  if (value === undefined) {
+    return 'undefined (not explicitly configured)';
+  }
+  return value ? 'enabled' : 'disabled';
 }
 
 function getCodexHomePath() {
@@ -650,59 +781,33 @@ function getCodexConfigPath() {
   return path.join(getCodexHomePath(), 'config.toml');
 }
 
-function updateCodexMcpConfigContent(content, values) {
-  const normalizedContent = content || '';
-  const withoutExistingSection = removeTomlTableSection(
-    removeTomlTableSection(normalizedContent, 'mcp_servers.bc-dev-toolset.env'),
-    'mcp_servers.bc-dev-toolset'
-  ).trimEnd();
-
-  const section = [
-    '[mcp_servers.bc-dev-toolset]',
-    'command = "node"',
-    `args = [${quoteTomlString(values.mcpServerPath)}]`,
-    'startup_timeout_sec = 20',
-    'tool_timeout_sec = 7200',
-    '',
-    '[mcp_servers.bc-dev-toolset.env]',
-    `BCDEVTOOLSET_MCP_TOOLSET_PATH = ${quoteTomlString(values.toolsetPath)}`,
-    ''
-  ].join('\n');
-
-  return `${withoutExistingSection}${withoutExistingSection ? '\n\n' : ''}${section}`;
-}
-
-function removeTomlTableSection(content, tableName) {
-  const lines = String(content || '').split(/\r?\n/);
-  const result = [];
-  const tableHeader = `[${tableName}]`;
-  let skipping = false;
-
-  for (const line of lines) {
-    const trimmedLine = line.trim();
-    if (trimmedLine.startsWith('[') && trimmedLine.endsWith(']')) {
-      if (trimmedLine === tableHeader) {
-        skipping = true;
-        continue;
-      }
-
-      skipping = false;
-    }
-
-    if (!skipping) {
-      result.push(line);
-    }
-  }
-
-  return result.join('\n');
-}
-
-function quoteTomlString(value) {
-  return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-}
-
 function getTimestampForFileName() {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-');
+}
+
+function writeFileWithBackupIfChanged(filePath, content) {
+  const currentContent = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
+  if (currentContent === content) {
+    return false;
+  }
+
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  if (currentContent) {
+    fs.writeFileSync(`${filePath}.${getTimestampForFileName()}.bak`, currentContent, 'utf8');
+  }
+
+  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(temporaryPath, content, 'utf8');
+    fs.renameSync(temporaryPath, filePath);
+  } catch (error) {
+    if (fs.existsSync(temporaryPath)) {
+      fs.unlinkSync(temporaryPath);
+    }
+    throw error;
+  }
+
+  return true;
 }
 
 function ensureCodexGlobalAgentsInstructions() {
@@ -716,15 +821,25 @@ function ensureCodexGlobalAgentsInstructions() {
     section
   );
 
-  if (currentContent !== updatedContent) {
-    fs.mkdirSync(codexHomePath, { recursive: true });
-    if (currentContent) {
-      fs.writeFileSync(`${agentsPath}.${getTimestampForFileName()}.bak`, currentContent, 'utf8');
-    }
-    fs.writeFileSync(agentsPath, updatedContent, 'utf8');
+  return {
+    path: agentsPath,
+    changed: writeFileWithBackupIfChanged(agentsPath, updatedContent)
+  };
+}
+
+function removeCodexGlobalAgentsInstructions() {
+  const codexHomePath = getCodexHomePath();
+  const agentsPath = getCodexGlobalAgentsPath(codexHomePath);
+  if (!fs.existsSync(agentsPath)) {
+    return { path: agentsPath, changed: false };
   }
 
-  return agentsPath;
+  const currentContent = fs.readFileSync(agentsPath, 'utf8');
+  const updatedContent = removeGeneratedMarkdownSection(currentContent, 'bc-dev-toolset-codex-mcp');
+  return {
+    path: agentsPath,
+    changed: writeFileWithBackupIfChanged(agentsPath, updatedContent)
+  };
 }
 
 function getCodexGlobalAgentsPath(codexHomePath) {
@@ -769,6 +884,27 @@ function upsertGeneratedMarkdownSection(content, sectionId, sectionContent) {
 
   const separator = source.trim() ? (source.endsWith('\n') ? '\n' : '\n\n') : '';
   return `${source}${separator}${generatedSection}`;
+}
+
+function removeGeneratedMarkdownSection(content, sectionId) {
+  const startMarker = `<!-- BEGIN ${sectionId} -->`;
+  const endMarker = `<!-- END ${sectionId} -->`;
+  const source = content || '';
+  const startIndex = source.indexOf(startMarker);
+  const endIndex = source.indexOf(endMarker);
+  if (startIndex < 0 || endIndex <= startIndex) {
+    return source;
+  }
+
+  const before = source.slice(0, startIndex).trimEnd();
+  const after = source.slice(endIndex + endMarker.length).trimStart();
+  if (!before) {
+    return after ? `${after}\n` : '';
+  }
+  if (!after) {
+    return `${before}\n`;
+  }
+  return `${before}\n\n${after}\n`;
 }
 
 function getMcpNodeExecutable() {
@@ -1817,6 +1953,11 @@ async function executeOperation(operation, toolsetPath) {
 
   if (operation.command === 'configureCodexMcp') {
     await configureCodexMcp();
+    return;
+  }
+
+  if (operation.command === 'disableCodexMcp') {
+    await disableCodexMcp();
     return;
   }
 

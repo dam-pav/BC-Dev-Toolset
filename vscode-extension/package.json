@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -12,7 +12,7 @@
     "directory": "vscode-extension"
   },
   "scripts": {
-    "validate": "node --check extension.js",
+    "validate": "node --check extension.js && node --check mcp-server.js && node --check codex-mcp-config.js && node --test",
     "test": "node --test test",
     "prepare:runtime": "node ./build/prepare-runtime-package.js",
     "package": "npm run prepare:runtime && npx @vscode/vsce package --no-dependencies",
@@ -38,6 +38,7 @@
     "onCommand:bcDevToolset.initializeWorkspace",
     "onCommand:bcDevToolset.openLocalSettingsJson",
     "onCommand:bcDevToolset.configureCodexMcp",
+    "onCommand:bcDevToolset.disableCodexMcp",
     "onCommand:bcDevToolset.showObjectIdRangeVisualizationData",
     "onCommand:bcDevToolset.showMcpStatus",
     "onCommand:bcDevToolset.runOperation",
@@ -88,6 +89,12 @@
           "type": "string",
           "default": ".bcdevtoolset/settings.json",
           "description": "Workspace-relative local settings file passed to PowerShell operations when it exists."
+        },
+        "bcDevToolset.codexMcpIntegration.enabled": {
+          "type": "boolean",
+          "scope": "machine",
+          "default": false,
+          "description": "Automatically keep the opted-in BC Dev Toolset entry in the global Codex MCP configuration synchronized with this extension installation. The Configure Codex MCP Integration command enables this setting."
         },
         "bcDevToolset.shortcuts": {
           "type": "string",
@@ -790,6 +797,10 @@
       {
         "command": "bcDevToolset.configureCodexMcp",
         "title": "BC Dev Toolset: Configure Codex MCP Integration"
+      },
+      {
+        "command": "bcDevToolset.disableCodexMcp",
+        "title": "BC Dev Toolset: Disable Codex MCP Integration"
       },
       {
         "command": "bcDevToolset.showObjectIdRangeVisualizationData",

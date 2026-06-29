@@ -61,7 +61,7 @@ You do not need to know the MCP tool names for normal use. Ask the agent for the
 
 #### Codex
 
-Codex does not automatically discover MCP servers contributed through the VS Code extension API. Run `BC Dev Toolset: Configure Codex MCP Integration` to add or update the `bc-dev-toolset` MCP server entry in your Codex configuration. The operation also adds managed global Codex instructions so Codex knows to use BC Dev Toolset MCP operations in your AL workspaces. You do not need to add these instructions to each AL repository.
+Codex does not automatically discover MCP servers contributed through the VS Code extension API. Run `BC Dev Toolset: Configure Codex MCP Integration` to add or update the `bc-dev-toolset` MCP server entry in your Codex configuration. The operation enables automatic configuration maintenance and adds managed global Codex instructions so Codex knows to use BC Dev Toolset MCP operations in your AL workspaces. After an extension upgrade, the extension updates the versioned MCP server path on its first activation; restart Codex afterward to load the new server. Run `BC Dev Toolset: Disable Codex MCP Integration` to opt out and remove the managed configuration. You do not need to add these instructions to each AL repository.
 
 The Codex MCP server uses the same VS Code terminal bridge for PowerShell-backed operations. Keep the BC Dev Toolset extension active in VS Code when you want Codex to run operations in the visible terminal and read the captured results.
 
