@@ -7,6 +7,7 @@ const {
   classifyCodexMcpConfiguration,
   removeCodexMcpConfigContent,
   resolveCodexMcpIntegrationState,
+  runCodexMcpIntegrationTransition,
   updateCodexMcpConfigContent
 } = require('../codex-mcp-config');
 
@@ -112,4 +113,29 @@ test('migrates only undefined legacy settings with recognized configuration', ()
     allowLegacyMigration: true,
     configurationStatus: 'stale'
   }).enabled, false);
+});
+
+test('repairs configuration before persisting migration state and retries failed setting writes', async () => {
+  const calls = [];
+  const settingError = new Error('configuration is not registered');
+  const result = await runCodexMcpIntegrationTransition({
+    enabled: true,
+    persistSetting: true,
+    completeMigration: true
+  }, {
+    applyConfiguration: async () => {
+      calls.push('apply-configuration');
+      return { enabled: true, changed: true, configPath: 'config.toml' };
+    },
+    persistSetting: async () => {
+      calls.push('persist-setting');
+      throw settingError;
+    },
+    completeMigration: async () => calls.push('complete-migration')
+  });
+
+  assert.deepEqual(calls, ['apply-configuration', 'persist-setting']);
+  assert.equal(result.changed, true);
+  assert.equal(result.settingPersisted, false);
+  assert.equal(result.settingError, settingError);
 });

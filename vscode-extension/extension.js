@@ -9,6 +9,7 @@ const {
   classifyCodexMcpConfiguration,
   removeCodexMcpConfigContent,
   resolveCodexMcpIntegrationState,
+  runCodexMcpIntegrationTransition,
   updateCodexMcpConfigContent
 } = require('./codex-mcp-config');
 
@@ -625,16 +626,16 @@ async function showMcpStatus() {
 }
 
 async function configureCodexMcp() {
-  await setCodexMcpIntegrationSetting(true);
-  await extensionContext.globalState.update('codexMcpIntegrationLegacyMigrationCompleted', true);
-  const result = await queueCodexMcpReconciliation(extensionContext, { force: true });
+  const result = await queueCodexMcpReconciliation(extensionContext, { force: true, forceEnabled: true });
   if (!result || !result.enabled || result.error) {
     return;
   }
 
-  const message = `Codex MCP configuration is enabled and current at ${result.configPath}. Codex global instructions are current at ${result.agentsPath}. Restart Codex to load the BC Dev Toolset MCP server.`;
+  const message = result.settingError
+    ? `Codex MCP configuration is current at ${result.configPath}, but VS Code could not save the automatic maintenance setting. Reload the VS Code window so the migration can retry.`
+    : `Codex MCP configuration is enabled and current at ${result.configPath}. Codex global instructions are current at ${result.agentsPath}. Restart Codex to load the BC Dev Toolset MCP server.`;
   writeOutput(message);
-  await vscode.window.showInformationMessage(message);
+  await (result.settingError ? vscode.window.showWarningMessage(message) : vscode.window.showInformationMessage(message));
 }
 
 async function disableCodexMcp() {
@@ -647,8 +648,6 @@ async function disableCodexMcp() {
     return;
   }
 
-  await setCodexMcpIntegrationSetting(false);
-  await extensionContext.globalState.update('codexMcpIntegrationLegacyMigrationCompleted', true);
   const configPath = getCodexConfigPath();
   const existingContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
   const expectedServerPath = path.join(extensionContext.extensionPath, 'mcp-server.js');
@@ -658,11 +657,21 @@ async function disableCodexMcp() {
   const normalizedContent = canRemoveConfiguration && updatedContent ? `${updatedContent}\n` : updatedContent;
   const configChanged = writeFileWithBackupIfChanged(configPath, normalizedContent);
   const agentsResult = removeCodexGlobalAgentsInstructions();
-  const message = configChanged || agentsResult.changed
-    ? 'BC Dev Toolset Codex MCP integration was disabled. Restart Codex to unload the MCP server.'
-    : 'BC Dev Toolset Codex MCP integration is disabled.';
+  let settingError;
+  try {
+    await setCodexMcpIntegrationSetting(false);
+    await extensionContext.globalState.update('codexMcpIntegrationLegacyMigrationCompleted', true);
+  } catch (error) {
+    settingError = error;
+    writeOutput(`Codex MCP integration was removed, but its disabled setting could not be saved: ${error.message}`);
+  }
+  const message = settingError
+    ? 'BC Dev Toolset Codex MCP integration was removed, but VS Code could not save the disabled setting. Reload the VS Code window and run this command again.'
+    : configChanged || agentsResult.changed
+      ? 'BC Dev Toolset Codex MCP integration was disabled. Restart Codex to unload the MCP server.'
+      : 'BC Dev Toolset Codex MCP integration is disabled.';
   writeOutput(message);
-  await vscode.window.showInformationMessage(message);
+  await (settingError ? vscode.window.showWarningMessage(message) : vscode.window.showInformationMessage(message));
 }
 
 function queueCodexMcpReconciliation(context, options = {}) {
@@ -686,28 +695,52 @@ async function reconcileCodexMcpConfiguration(context, options = {}) {
   const content = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
   const expectedServerPath = path.join(context.extensionPath, 'mcp-server.js');
   const configuration = classifyCodexMcpConfiguration(content, expectedServerPath);
-  const integrationState = resolveCodexMcpIntegrationState({
-    explicitValue: explicitSetting,
-    migrationCompleted,
-    allowLegacyMigration: options.migrateLegacySetting === true,
-    configurationStatus: configuration.status
-  });
-
-  if (integrationState.persistSetting) {
-    await setCodexMcpIntegrationSetting(integrationState.enabled);
-  }
-  if (integrationState.completeMigration) {
-    await context.globalState.update(migrationKey, true);
-  }
+  const integrationState = options.forceEnabled
+    ? {
+        enabled: true,
+        persistSetting: explicitSetting !== true,
+        completeMigration: !migrationCompleted
+      }
+    : resolveCodexMcpIntegrationState({
+        explicitValue: explicitSetting,
+        migrationCompleted,
+        allowLegacyMigration: options.migrateLegacySetting === true,
+        configurationStatus: configuration.status
+      });
 
   if (!integrationState.enabled) {
-    return { enabled: false };
+    try {
+      const result = await runCodexMcpIntegrationTransition(integrationState, {
+        applyConfiguration: () => Promise.resolve({ enabled: false, changed: false }),
+        persistSetting: setCodexMcpIntegrationSetting,
+        completeMigration: () => context.globalState.update(migrationKey, true)
+      });
+      if (result.settingError) {
+        writeOutput(`Codex MCP disabled setting could not be saved. The migration will retry after VS Code reloads its configuration registry: ${result.settingError.message}`);
+      }
+      return result;
+    } catch (error) {
+      writeOutput(`Automatic Codex MCP setting migration failed: ${error.message}`);
+      return { enabled: false, changed: false, error };
+    }
   }
 
   try {
-    const result = await applyCodexMcpConfiguration(context);
+    const result = await runCodexMcpIntegrationTransition(integrationState, {
+      applyConfiguration: () => applyCodexMcpConfiguration(context),
+      persistSetting: setCodexMcpIntegrationSetting,
+      completeMigration: () => context.globalState.update(migrationKey, true)
+    });
+    if (result.settingError) {
+      if (options.forceEnabled) {
+        await context.globalState.update(migrationKey, false);
+      }
+      writeOutput(`Codex MCP configuration was repaired, but its automatic maintenance setting could not be saved. The migration will retry after VS Code reloads its configuration registry: ${result.settingError.message}`);
+    }
     if (result.changed && options.notifyWhenChanged) {
-      const message = 'BC Dev Toolset updated the Codex MCP configuration. Restart Codex to load the current extension version.';
+      const message = result.settingError
+        ? 'BC Dev Toolset updated the Codex MCP configuration. Reload the VS Code window so automatic maintenance can finish, then restart Codex.'
+        : 'BC Dev Toolset updated the Codex MCP configuration. Restart Codex to load the current extension version.';
       writeOutput(message);
       await vscode.window.showInformationMessage(message);
     }
