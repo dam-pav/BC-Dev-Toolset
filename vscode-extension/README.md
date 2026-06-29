@@ -77,7 +77,11 @@ You do not need to know the MCP tool names for normal use. Ask the agent for the
 
 ### Codex
 
-Codex does not automatically discover MCP servers contributed through the VS Code extension API. Run `BC Dev Toolset: Configure Codex MCP Integration` to add or update the `bc-dev-toolset` MCP server entry in your Codex configuration. The operation also adds managed global Codex instructions so Codex knows to use BC Dev Toolset MCP operations in your AL workspaces. You do not need to add these instructions to each AL repository.
+Codex does not automatically discover MCP servers contributed through the VS Code extension API. Run `BC Dev Toolset: Configure Codex MCP Integration` to add or update the `bc-dev-toolset` MCP server entry in your Codex configuration. The operation also enables automatic configuration maintenance and adds managed global Codex instructions so Codex knows to use BC Dev Toolset MCP operations in your AL workspaces. After an extension upgrade, the extension updates the versioned MCP server path on its first activation; restart Codex afterward to load the new server. You do not need to add these instructions to each AL repository.
+
+Automatic maintenance is disabled while running an Extension Development Host so development checkouts do not replace the deployed extension path. The configure command can still be run explicitly when testing Codex integration.
+
+Run `BC Dev Toolset: Disable Codex MCP Integration` to opt out and remove the extension-managed MCP entry and global instructions.
 
 The Codex MCP server uses the same VS Code terminal bridge for PowerShell-backed operations. Keep the BC Dev Toolset extension active in VS Code when you want Codex to run operations in the visible terminal and read the captured results.
 
@@ -146,7 +150,8 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 ### MCP Configuration
 
 - `Show MCP status`: Shows the extension MCP API, server, terminal bridge, and runtime status.
-- `Configure Codex MCP integration`: Adds or updates the BC Dev Toolset MCP server entry in Codex configuration and adds managed global Codex instructions.
+- `Configure Codex MCP integration`: Enables automatic maintenance, adds or updates the BC Dev Toolset MCP server entry in Codex configuration, and adds managed global Codex instructions.
+- `Disable Codex MCP integration`: Disables automatic maintenance and removes the extension-managed Codex MCP entry and global instructions.
 
 ## Settings
 
@@ -163,6 +168,7 @@ The extension uses three settings layers:
 - `bcDevToolset.toolsetPath`: Overrides the central BC-Dev-Toolset runtime location. Default: `%LOCALAPPDATA%\BC-Dev-Toolset\toolset` on Windows.
 - `bcDevToolset.powershellExecutable`: PowerShell executable used to run operations. Default: `pwsh`. Operations reuse a dedicated `BC Dev Toolset: <executable>` terminal when it is already open.
 - `bcDevToolset.localSettingsPath`: Workspace-relative path to the local settings file passed to operations. Default: `.bcdevtoolset/settings.json`.
+- `bcDevToolset.codexMcpIntegration.enabled`: Machine-level opt-in for automatically keeping the global Codex MCP configuration synchronized with the installed extension version. The configure and disable commands manage this setting. Default: `false`.
 - `bcDevToolset.shortcuts`: Shortcut mode used for container creation flows. Default: `None`.
 - `bcDevToolset.hostHelperFolder`: BcContainerHelper host helper folder used by runtime operations. Default: `C:\ProgramData\BcContainerHelper`.
 
