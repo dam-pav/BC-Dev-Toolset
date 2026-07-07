@@ -785,6 +785,12 @@
         "label": "BC Dev Toolset Operations"
       }
     ],
+    "chatInstructions": [
+      {
+        "path": "./assets/prompts/bc-dev-toolset-instructions.md",
+        "when": "true"
+      }
+    ],
     "commands": [
       {
         "command": "bcDevToolset.initializeWorkspace",
