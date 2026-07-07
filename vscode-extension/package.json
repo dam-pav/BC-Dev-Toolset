@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -783,6 +783,12 @@
       {
         "id": "bcDevToolset.operations",
         "label": "BC Dev Toolset Operations"
+      }
+    ],
+    "chatInstructions": [
+      {
+        "path": "./assets/prompts/bc-dev-toolset-instructions.md",
+        "when": "true"
       }
     ],
     "commands": [
