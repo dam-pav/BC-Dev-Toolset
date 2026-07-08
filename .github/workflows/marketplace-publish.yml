@@ -43,11 +43,14 @@ jobs:
 
       - name: Verify requested version
         shell: bash
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+          PACKAGE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
 
-          if [ "${{ inputs.expected_version }}" != "${{ steps.version.outputs.version }}" ]; then
-            echo "Requested Marketplace version ${{ inputs.expected_version }} does not match vscode-extension/package.json version ${{ steps.version.outputs.version }}."
+          if [ "$EXPECTED_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "Requested Marketplace version $EXPECTED_VERSION does not match vscode-extension/package.json version $PACKAGE_VERSION."
             exit 1
           fi
 
@@ -61,13 +64,16 @@ jobs:
 
       - name: Package VSIX from repository version
         shell: bash
+        env:
+          RELEASE_KIND: ${{ inputs.release_kind }}
+          PACKAGE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
 
           mkdir -p dist
           cd vscode-extension
-          package_args=(--out "../dist/bc-dev-toolset-${{ inputs.release_kind }}-${{ steps.version.outputs.version }}.vsix")
-          if [ "${{ inputs.release_kind }}" = "prerelease" ]; then
+          package_args=(--out "../dist/bc-dev-toolset-${RELEASE_KIND}-${PACKAGE_VERSION}.vsix")
+          if [ "$RELEASE_KIND" = "prerelease" ]; then
             package_args=(--pre-release "${package_args[@]}")
           fi
 
@@ -76,15 +82,17 @@ jobs:
       - name: Publish VSIX to VS Code Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          RELEASE_KIND: ${{ inputs.release_kind }}
+          PACKAGE_VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
 
           prerelease_flag=""
-          if [ "${{ inputs.release_kind }}" = "prerelease" ]; then
+          if [ "$RELEASE_KIND" = "prerelease" ]; then
             prerelease_flag="--pre-release"
           fi
 
           bash ./.github/scripts/publish-vsix-with-retry.sh \
-            "dist/bc-dev-toolset-${{ inputs.release_kind }}-${{ steps.version.outputs.version }}.vsix" \
+            "dist/bc-dev-toolset-${RELEASE_KIND}-${PACKAGE_VERSION}.vsix" \
             "$prerelease_flag"

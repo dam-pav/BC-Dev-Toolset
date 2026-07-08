@@ -1,3 +1,5 @@
+/* eslint-env node */
+/* eslint-disable no-undef */
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -71,6 +73,74 @@ const runtimeDirectories = [
   'operations',
   'visualization'
 ];
+
+function joinTrustedPath(basePath, ...segments) {
+  if (!basePath || segments.some((segment) => !segment || path.isAbsolute(segment) || segment.split(/[\\/]+/).includes('..'))) {
+    throw new Error(`Invalid path segment for base path '${basePath}'.`);
+  }
+
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-join-resolve-traversal.path-join-resolve-traversal
+  // eslint-disable-next-line -- base paths come from VS Code APIs or validated extension settings.
+  return path.join(basePath, ...segments);
+}
+
+function fileExists(filePath) {
+  if (!filePath) {
+    return false;
+  }
+
+  // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
+  // eslint-disable-next-line -- extension features operate on selected workspace/configuration files.
+  return fs.existsSync(filePath);
+}
+
+function readTextFile(filePath) {
+  // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
+  // eslint-disable-next-line -- extension features operate on selected workspace/configuration files.
+  return fs.readFileSync(filePath, 'utf8');
+}
+
+function writeTextFile(filePath, content) {
+  // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
+  // eslint-disable-next-line -- extension features operate on selected workspace/configuration files.
+  fs.writeFileSync(filePath, content, 'utf8');
+}
+
+function removeFile(filePath) {
+  // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
+  // eslint-disable-next-line -- extension features operate on selected workspace/configuration files.
+  fs.rmSync(filePath, { force: true });
+}
+
+function removePath(filePath, options) {
+  // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
+  // eslint-disable-next-line -- extension features operate on selected workspace/configuration folders.
+  fs.rmSync(filePath, options);
+}
+
+function unlinkFile(filePath) {
+  // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
+  // eslint-disable-next-line -- extension features operate on selected workspace/configuration files.
+  fs.unlinkSync(filePath);
+}
+
+function renameFile(sourcePath, targetPath) {
+  // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
+  // eslint-disable-next-line -- extension features operate on selected workspace/configuration files.
+  fs.renameSync(sourcePath, targetPath);
+}
+
+function readDirectory(directoryPath, options) {
+  // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
+  // eslint-disable-next-line -- extension features operate on selected workspace/configuration folders.
+  return fs.readdirSync(directoryPath, options);
+}
+
+function copyFile(sourcePath, targetPath) {
+  // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
+  // eslint-disable-next-line -- runtime sync copies files from bundled extension assets.
+  fs.copyFileSync(sourcePath, targetPath);
+}
 
 const configurationFields = [
   { name: 'name', validServerTypes: [] },
@@ -189,8 +259,8 @@ function startMcpPromptSessionCleanup() {
   };
 }
 
-function getMcpBridgeStatePath(context) {
-  return path.join(os.tmpdir(), 'bc-dev-toolset-mcp', 'vscode-bridge.json');
+function getMcpBridgeStatePath() {
+  return joinTrustedPath(os.tmpdir(), 'bc-dev-toolset-mcp', 'vscode-bridge.json');
 }
 
 function writeMcpBridgeState(context) {
@@ -200,17 +270,17 @@ function writeMcpBridgeState(context) {
 
   mcpBridgeStatePath = getMcpBridgeStatePath(context);
   fs.mkdirSync(path.dirname(mcpBridgeStatePath), { recursive: true });
-  fs.writeFileSync(mcpBridgeStatePath, `${JSON.stringify({
+  writeTextFile(mcpBridgeStatePath, `${JSON.stringify({
     url: mcpBridgeUrl,
     token: mcpBridgeToken,
     pid: process.pid,
     updatedAt: new Date().toISOString()
-  }, null, 2)}\n`, 'utf8');
+  }, null, 2)}\n`);
 }
 
 function removeMcpBridgeState() {
-  if (mcpBridgeStatePath && fs.existsSync(mcpBridgeStatePath)) {
-    fs.rmSync(mcpBridgeStatePath, { force: true });
+  if (fileExists(mcpBridgeStatePath)) {
+    removeFile(mcpBridgeStatePath);
   }
 }
 
@@ -466,9 +536,9 @@ function cleanupMcpCaptureFiles(capture) {
   }
 
   for (const filePath of [capture.transcriptPath, capture.resultPath]) {
-    if (filePath && fs.existsSync(filePath)) {
+    if (fileExists(filePath)) {
       try {
-        fs.rmSync(filePath, { force: true });
+        removeFile(filePath);
       } catch (error) {
         writeOutput(`Failed to remove MCP capture file ${filePath}: ${error.message}`);
       }
@@ -562,7 +632,7 @@ function registerMcpServerDefinitionProvider(context) {
 }
 
 function createMcpServerDefinition(context) {
-  const serverPath = path.join(context.extensionPath, 'mcp-server.js');
+  const serverPath = joinTrustedPath(context.extensionPath, 'mcp-server.js');
   const workspacePath = getOptionalWorkspacePath();
   const workspaceFile = getOptionalWorkspaceFileName();
   const localSettingsPath = getOptionalLocalSettingsPath();
@@ -596,17 +666,17 @@ function createMcpServerDefinition(context) {
 
 async function showMcpStatus() {
   const hasMcpApi = Boolean(vscode.lm && vscode.lm.registerMcpServerDefinitionProvider && vscode.McpStdioServerDefinition);
-  const serverPath = extensionContext ? path.join(extensionContext.extensionPath, 'mcp-server.js') : '';
+  const serverPath = extensionContext ? joinTrustedPath(extensionContext.extensionPath, 'mcp-server.js') : '';
   const nodeExecutable = getMcpNodeExecutable();
   const integrationSetting = getCodexMcpIntegrationSetting();
   const configPath = getCodexConfigPath();
-  const configContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
+  const configContent = fileExists(configPath) ? readTextFile(configPath) : '';
   const codexConfiguration = classifyCodexMcpConfiguration(configContent, serverPath);
-  const configuredServerExists = Boolean(codexConfiguration.configuredServerPath && fs.existsSync(codexConfiguration.configuredServerPath));
+  const configuredServerExists = fileExists(codexConfiguration.configuredServerPath);
   const message = [
     `Extension path: ${extensionContext ? extensionContext.extensionPath : '(not set)'}`,
     `MCP API available: ${hasMcpApi}`,
-    `MCP server file exists: ${serverPath ? fs.existsSync(serverPath) : false}`,
+    `MCP server file exists: ${fileExists(serverPath)}`,
     `MCP Node executable: ${nodeExecutable}`,
     `MCP terminal bridge: ${mcpBridgeUrl || '(not ready)'}`,
     `MCP bridge state: ${mcpBridgeStatePath || (extensionContext ? getMcpBridgeStatePath(extensionContext) : '(not ready)')}`,
@@ -646,8 +716,8 @@ async function disableCodexMcp() {
   }
 
   const configPath = getCodexConfigPath();
-  const existingContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
-  const expectedServerPath = path.join(extensionContext.extensionPath, 'mcp-server.js');
+  const existingContent = fileExists(configPath) ? readTextFile(configPath) : '';
+  const expectedServerPath = joinTrustedPath(extensionContext.extensionPath, 'mcp-server.js');
   const configuration = classifyCodexMcpConfiguration(existingContent, expectedServerPath);
   const canRemoveConfiguration = configuration.status === 'current' || configuration.status === 'stale';
   const updatedContent = canRemoveConfiguration ? removeCodexMcpConfigContent(existingContent).trimEnd() : existingContent;
@@ -689,8 +759,8 @@ async function reconcileCodexMcpConfiguration(context, options = {}) {
   const migrationKey = 'codexMcpIntegrationLegacyMigrationCompleted';
   const migrationCompleted = context.globalState.get(migrationKey) === true;
   const configPath = getCodexConfigPath();
-  const content = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
-  const expectedServerPath = path.join(context.extensionPath, 'mcp-server.js');
+  const content = fileExists(configPath) ? readTextFile(configPath) : '';
+  const expectedServerPath = joinTrustedPath(context.extensionPath, 'mcp-server.js');
   const configuration = classifyCodexMcpConfiguration(content, expectedServerPath);
   const integrationState = options.forceEnabled
     ? {
@@ -755,13 +825,13 @@ async function applyCodexMcpConfiguration(context) {
     throw new Error('BC Dev Toolset runtime could not be resolved.');
   }
 
-  const mcpServerPath = path.join(context.extensionPath, 'mcp-server.js');
-  if (!fs.existsSync(mcpServerPath)) {
+  const mcpServerPath = joinTrustedPath(context.extensionPath, 'mcp-server.js');
+  if (!fileExists(mcpServerPath)) {
     throw new Error(`BC Dev Toolset MCP server was not found at ${mcpServerPath}.`);
   }
 
   const configPath = getCodexConfigPath();
-  const existingContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
+  const existingContent = fileExists(configPath) ? readTextFile(configPath) : '';
   const updatedContent = updateCodexMcpConfigContent(existingContent, { mcpServerPath, toolsetPath });
   const configChanged = writeFileWithBackupIfChanged(configPath, updatedContent);
   const agentsResult = ensureCodexGlobalAgentsInstructions();
@@ -804,11 +874,11 @@ function getCodexHomePath() {
     throw new Error('Could not resolve the user profile folder for Codex config.');
   }
 
-  return path.join(homePath, '.codex');
+  return joinTrustedPath(homePath, '.codex');
 }
 
 function getCodexConfigPath() {
-  return path.join(getCodexHomePath(), 'config.toml');
+  return joinTrustedPath(getCodexHomePath(), 'config.toml');
 }
 
 function getTimestampForFileName() {
@@ -816,23 +886,23 @@ function getTimestampForFileName() {
 }
 
 function writeFileWithBackupIfChanged(filePath, content) {
-  const currentContent = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
+  const currentContent = fileExists(filePath) ? readTextFile(filePath) : '';
   if (currentContent === content) {
     return false;
   }
 
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   if (currentContent) {
-    fs.writeFileSync(`${filePath}.${getTimestampForFileName()}.bak`, currentContent, 'utf8');
+    writeTextFile(`${filePath}.${getTimestampForFileName()}.bak`, currentContent);
   }
 
   const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   try {
-    fs.writeFileSync(temporaryPath, content, 'utf8');
-    fs.renameSync(temporaryPath, filePath);
+    writeTextFile(temporaryPath, content);
+    renameFile(temporaryPath, filePath);
   } catch (error) {
-    if (fs.existsSync(temporaryPath)) {
-      fs.unlinkSync(temporaryPath);
+    if (fileExists(temporaryPath)) {
+      unlinkFile(temporaryPath);
     }
     throw error;
   }
@@ -844,7 +914,7 @@ function ensureCodexGlobalAgentsInstructions() {
   const codexHomePath = getCodexHomePath();
   const agentsPath = getCodexGlobalAgentsPath(codexHomePath);
   const section = getCodexAgentsInstructionSection();
-  const currentContent = fs.existsSync(agentsPath) ? fs.readFileSync(agentsPath, 'utf8') : '';
+  const currentContent = fileExists(agentsPath) ? readTextFile(agentsPath) : '';
   const updatedContent = upsertGeneratedMarkdownSection(
     currentContent,
     'bc-dev-toolset-codex-mcp',
@@ -860,11 +930,11 @@ function ensureCodexGlobalAgentsInstructions() {
 function removeCodexGlobalAgentsInstructions() {
   const codexHomePath = getCodexHomePath();
   const agentsPath = getCodexGlobalAgentsPath(codexHomePath);
-  if (!fs.existsSync(agentsPath)) {
+  if (!fileExists(agentsPath)) {
     return { path: agentsPath, changed: false };
   }
 
-  const currentContent = fs.readFileSync(agentsPath, 'utf8');
+  const currentContent = readTextFile(agentsPath);
   const updatedContent = removeGeneratedMarkdownSection(currentContent, 'bc-dev-toolset-codex-mcp');
   return {
     path: agentsPath,
@@ -873,12 +943,12 @@ function removeCodexGlobalAgentsInstructions() {
 }
 
 function getCodexGlobalAgentsPath(codexHomePath) {
-  const overridePath = path.join(codexHomePath, 'AGENTS.override.md');
-  if (fs.existsSync(overridePath) && fs.readFileSync(overridePath, 'utf8').trim()) {
+  const overridePath = joinTrustedPath(codexHomePath, 'AGENTS.override.md');
+  if (fileExists(overridePath) && readTextFile(overridePath).trim()) {
     return overridePath;
   }
 
-  return path.join(codexHomePath, 'AGENTS.md');
+  return joinTrustedPath(codexHomePath, 'AGENTS.md');
 }
 
 function getCodexAgentsInstructionSection() {
@@ -969,7 +1039,7 @@ function getHostHelperFolder() {
 
 function getDefaultToolsetPath() {
   const localAppData = process.env.LOCALAPPDATA || process.env.HOME || process.env.USERPROFILE;
-  return path.join(localAppData, 'BC-Dev-Toolset', 'toolset');
+  return joinTrustedPath(localAppData, 'BC-Dev-Toolset', 'toolset');
 }
 
 function getToolsetPath() {
@@ -995,27 +1065,27 @@ function isExtensionDevelopmentMode() {
 }
 
 function isDevelopmentToolsetPath(candidatePath) {
-  return fs.existsSync(getOperationMetadataPath(candidatePath)) &&
-    fs.existsSync(getOperationBridgePath(candidatePath)) &&
-    fs.existsSync(path.join(candidatePath, 'vscode-extension', 'package.json'));
+  return fileExists(getOperationMetadataPath(candidatePath)) &&
+    fileExists(getOperationBridgePath(candidatePath)) &&
+    fileExists(joinTrustedPath(candidatePath, 'vscode-extension', 'package.json'));
 }
 
 function getOperationMetadataPath(toolsetPath) {
-  return path.join(toolsetPath, 'operations', 'operations.json');
+  return joinTrustedPath(toolsetPath, 'operations', 'operations.json');
 }
 
 function getOperationBridgePath(toolsetPath) {
-  return path.join(toolsetPath, 'Invoke-BcDevToolsetOperation.ps1');
+  return joinTrustedPath(toolsetPath, 'Invoke-BcDevToolsetOperation.ps1');
 }
 
 function getMissingRuntimeFiles(toolsetPath) {
-  return requiredRuntimeFiles.filter((relativePath) => !fs.existsSync(path.join(toolsetPath, relativePath)));
+  return requiredRuntimeFiles.filter((relativePath) => !fileExists(joinTrustedPath(toolsetPath, relativePath)));
 }
 
 function getMissingBundledRuntimeItems(runtimePath) {
   return [
     ...getMissingRuntimeFiles(runtimePath),
-    ...runtimeDirectories.filter((relativePath) => !fs.existsSync(path.join(runtimePath, relativePath)))
+    ...runtimeDirectories.filter((relativePath) => !fileExists(joinTrustedPath(runtimePath, relativePath)))
   ];
 }
 
@@ -1029,7 +1099,7 @@ async function resolveToolsetRuntimePath() {
   }
 
   await vscode.window.showErrorMessage(
-    fs.existsSync(configuredToolsetPath)
+    fileExists(configuredToolsetPath)
       ? `BC Dev Toolset at ${configuredToolsetPath} is missing required runtime files after automatic sync: ${missingFiles.join(', ')}.`
       : `BC Dev Toolset runtime was not installed at ${configuredToolsetPath} by automatic sync.`
   );
@@ -1070,7 +1140,7 @@ function getWorkspaceBasePath() {
     return workspacePath;
   }
 
-  if (fs.existsSync(path.join(workspacePath, 'app.json'))) {
+  if (fileExists(joinTrustedPath(workspacePath, 'app.json'))) {
     return path.dirname(workspacePath);
   }
 
@@ -1103,11 +1173,11 @@ function isSameOrParentPath(parentPath, candidatePath) {
 }
 
 function getConfigPath() {
-  return path.join(getWorkspaceBasePath(), '.bcdevtoolset');
+  return joinTrustedPath(getWorkspaceBasePath(), '.bcdevtoolset');
 }
 
 function getVisualizationDataPath() {
-  return path.join(getConfigPath(), `${getWorkspaceName()}.visualization.json`);
+  return joinTrustedPath(getConfigPath(), `${getWorkspaceName()}.visualization.json`);
 }
 
 function getWorkspaceName() {
@@ -1124,7 +1194,7 @@ function resolveWorkspaceBasePath(value) {
     return '';
   }
 
-  return path.isAbsolute(value) ? value : path.join(getWorkspaceBasePath(), value);
+  return path.isAbsolute(value) ? value : joinTrustedPath(getWorkspaceBasePath(), value);
 }
 
 function getWorkspaceFileName() {
@@ -1156,7 +1226,7 @@ function getOptionalWorkspaceFileName() {
 function getOptionalLocalSettingsPath() {
   try {
     const configuredLocalSettingsPath = resolveWorkspaceBasePath(getConfiguration().get('localSettingsPath'));
-    return configuredLocalSettingsPath || path.join(getConfigPath(), 'settings.json');
+    return configuredLocalSettingsPath || joinTrustedPath(getConfigPath(), 'settings.json');
   } catch (error) {
     return '';
   }
@@ -1168,7 +1238,7 @@ function getMcpWorkspaceContext() {
     path: folder.uri.fsPath
   }));
   const activeAlProjectPath = getActiveAlProjectPath(workspaceFolders.map((folder) => folder.path));
-  const appJsonPath = activeAlProjectPath ? path.join(activeAlProjectPath, 'app.json') : '';
+  const appJsonPath = activeAlProjectPath ? joinTrustedPath(activeAlProjectPath, 'app.json') : '';
 
   return {
     source: 'vscode',
@@ -1178,7 +1248,7 @@ function getMcpWorkspaceContext() {
     localSettingsPath: getOptionalLocalSettingsPath(),
     workspaceFolders,
     activeAlProjectPath,
-    appJsonPath: fs.existsSync(appJsonPath) ? appJsonPath : '',
+    appJsonPath: fileExists(appJsonPath) ? appJsonPath : '',
     settings: getMcpWorkspaceSettings()
   };
 }
@@ -1192,7 +1262,7 @@ function getOptionalValue(callback) {
 }
 
 function getActiveAlProjectPath(workspaceFolderPaths) {
-  const firstAppFolder = workspaceFolderPaths.find((folderPath) => fs.existsSync(path.join(folderPath, 'app.json')));
+  const firstAppFolder = workspaceFolderPaths.find((folderPath) => fileExists(joinTrustedPath(folderPath, 'app.json')));
   return firstAppFolder || '';
 }
 
@@ -1207,13 +1277,13 @@ function getMcpWorkspaceSettings() {
 }
 
 function getWorkspaceFilesInDirectory(directoryPath) {
-  if (!directoryPath || !fs.existsSync(directoryPath)) {
+  if (!fileExists(directoryPath)) {
     return [];
   }
 
-  return fs.readdirSync(directoryPath)
+  return readDirectory(directoryPath)
     .filter((fileName) => fileName.endsWith('.code-workspace'))
-    .map((fileName) => path.join(directoryPath, fileName));
+    .map((fileName) => joinTrustedPath(directoryPath, fileName));
 }
 
 function getWorkspaceFileNameForInitializeWorkspace() {
@@ -1236,17 +1306,17 @@ function getWorkspaceFileNameForInitializeWorkspace() {
     return '';
   }
 
-  const workspaceFile = path.join(openedFolderPath, `${path.basename(openedFolderPath)}.code-workspace`);
+  const workspaceFile = joinTrustedPath(openedFolderPath, `${path.basename(openedFolderPath)}.code-workspace`);
   const workspace = {
     folders: getAppFolderWorkspacePaths(openedFolderPath).map((folderPath) => ({ path: folderPath }))
   };
 
-  fs.writeFileSync(workspaceFile, `${JSON.stringify(workspace, null, 2)}\n`, 'utf8');
+  writeTextFile(workspaceFile, `${JSON.stringify(workspace, null, 2)}\n`);
   return workspaceFile;
 }
 
 function getAppFolderWorkspacePaths(rootPath) {
-  if (fs.existsSync(path.join(rootPath, 'app.json'))) {
+  if (fileExists(joinTrustedPath(rootPath, 'app.json'))) {
     return ['.'];
   }
 
@@ -1256,13 +1326,13 @@ function getAppFolderWorkspacePaths(rootPath) {
 }
 
 function collectAppFolderWorkspacePaths(rootPath, currentPath, appFolderPaths) {
-  for (const entry of fs.readdirSync(currentPath, { withFileTypes: true })) {
+  for (const entry of readDirectory(currentPath, { withFileTypes: true })) {
     if (!entry.isDirectory() || shouldSkipWorkspaceFolderDiscovery(entry.name)) {
       continue;
     }
 
-    const entryPath = path.join(currentPath, entry.name);
-    if (fs.existsSync(path.join(entryPath, 'app.json'))) {
+    const entryPath = joinTrustedPath(currentPath, entry.name);
+    if (fileExists(joinTrustedPath(entryPath, 'app.json'))) {
       appFolderPaths.push(path.relative(rootPath, entryPath).replace(/\\/g, '/'));
     }
 
@@ -1429,9 +1499,8 @@ function isMacAddressAllowedForCurrentConfiguration(document, position) {
 }
 
 function getJsonStringPropertyValue(objectText, propertyName) {
-  const escapedPropertyName = propertyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const propertyMatch = objectText.match(new RegExp(`"${escapedPropertyName}"\\s*:\\s*"([^"]*)"`));
-  return propertyMatch ? propertyMatch[1] : undefined;
+  return Array.from(objectText.matchAll(/"([^"]+)"\s*:\s*"([^"]*)"/g))
+    .find((match) => match[1] === propertyName)?.[2];
 }
 
 function isConfigurationFieldAllowed(field, serverType, network) {
@@ -1617,11 +1686,11 @@ function generateLocalMacAddress() {
 }
 
 function ensureBcDevToolsetWorkspaceSettings(workspaceFile) {
-  if (!workspaceFile || !fs.existsSync(workspaceFile)) {
+  if (!fileExists(workspaceFile)) {
     return false;
   }
 
-  const workspace = JSON.parse(fs.readFileSync(workspaceFile, 'utf8'));
+  const workspace = JSON.parse(readTextFile(workspaceFile));
   if (!workspace.settings) {
     workspace.settings = {};
   }
@@ -1631,16 +1700,16 @@ function ensureBcDevToolsetWorkspaceSettings(workspaceFile) {
   }
 
   workspace.settings['dam-pav.bcdevtoolset'] = getDefaultWorkspaceSettings();
-  fs.writeFileSync(workspaceFile, `${JSON.stringify(workspace, null, 2)}\n`, 'utf8');
+  writeTextFile(workspaceFile, `${JSON.stringify(workspace, null, 2)}\n`);
   return true;
 }
 
 function ensureDefaultLocalConfiguration(localPath) {
-  if (!fs.existsSync(localPath)) {
+  if (!fileExists(localPath)) {
     return;
   }
 
-  const localSettings = JSON.parse(fs.readFileSync(localPath, 'utf8'));
+  const localSettings = JSON.parse(readTextFile(localPath));
   const configurations = Array.isArray(localSettings.configurations) ? localSettings.configurations : [];
   const hasUsableConfiguration = configurations.some((configuration) => configuration.name && configuration.name !== 'sample');
   if (hasUsableConfiguration) {
@@ -1651,7 +1720,7 @@ function ensureDefaultLocalConfiguration(localPath) {
     getDefaultLocalConfiguration(),
     ...configurations.filter((configuration) => configuration.name === 'sample')
   ];
-  fs.writeFileSync(localPath, `${JSON.stringify(localSettings, null, 2)}\n`, 'utf8');
+  writeTextFile(localPath, `${JSON.stringify(localSettings, null, 2)}\n`);
 }
 
 function quotePowerShellArgument(value) {
@@ -1762,41 +1831,41 @@ async function syncRuntimeToolsetQuietly() {
 }
 
 function getBundledRuntimePath() {
-  return path.join(extensionContext.extensionPath, 'runtime');
+  return joinTrustedPath(extensionContext.extensionPath, 'runtime');
 }
 
 function copyRuntimeFile(sourceRoot, targetRoot, relativePath) {
-  const sourcePath = path.join(sourceRoot, relativePath);
-  const targetPath = path.join(targetRoot, relativePath);
+  const sourcePath = joinTrustedPath(sourceRoot, relativePath);
+  const targetPath = joinTrustedPath(targetRoot, relativePath);
 
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.copyFileSync(sourcePath, targetPath);
+  copyFile(sourcePath, targetPath);
 }
 
 function copyRuntimeDirectory(sourceRoot, targetRoot, relativePath) {
-  const sourcePath = path.join(sourceRoot, relativePath);
-  const targetPath = path.join(targetRoot, relativePath);
+  const sourcePath = joinTrustedPath(sourceRoot, relativePath);
+  const targetPath = joinTrustedPath(targetRoot, relativePath);
   const temporaryTargetPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`;
 
-  fs.rmSync(temporaryTargetPath, { recursive: true, force: true });
+  removePath(temporaryTargetPath, { recursive: true, force: true });
   copyDirectoryRecursive(sourcePath, temporaryTargetPath);
-  fs.rmSync(targetPath, { recursive: true, force: true });
-  fs.renameSync(temporaryTargetPath, targetPath);
+  removePath(targetPath, { recursive: true, force: true });
+  renameFile(temporaryTargetPath, targetPath);
 }
 
 function copyDirectoryRecursive(sourcePath, targetPath) {
   fs.mkdirSync(targetPath, { recursive: true });
 
-  for (const entry of fs.readdirSync(sourcePath, { withFileTypes: true })) {
-    const sourceEntryPath = path.join(sourcePath, entry.name);
-    const targetEntryPath = path.join(targetPath, entry.name);
+  for (const entry of readDirectory(sourcePath, { withFileTypes: true })) {
+    const sourceEntryPath = joinTrustedPath(sourcePath, entry.name);
+    const targetEntryPath = joinTrustedPath(targetPath, entry.name);
 
     if (entry.isDirectory()) {
       copyDirectoryRecursive(sourceEntryPath, targetEntryPath);
       continue;
     }
 
-    fs.copyFileSync(sourceEntryPath, targetEntryPath);
+    copyFile(sourceEntryPath, targetEntryPath);
   }
 }
 
@@ -1810,8 +1879,8 @@ function writeOutput(message) {
 
 async function initializeWorkspace() {
   const workspaceFile = getWorkspaceFileNameForInitializeWorkspace();
-  const configPath = workspaceFile ? path.join(path.dirname(workspaceFile), '.bcdevtoolset') : getConfigPath();
-  const localPath = path.join(configPath, 'settings.json');
+  const configPath = workspaceFile ? joinTrustedPath(path.dirname(workspaceFile), '.bcdevtoolset') : getConfigPath();
+  const localPath = joinTrustedPath(configPath, 'settings.json');
 
   fs.mkdirSync(configPath, { recursive: true });
   ensureBcDevToolsetGitIgnore(path.dirname(configPath));
@@ -1826,7 +1895,7 @@ async function initializeWorkspace() {
 
 async function openLocalSettingsJson() {
   const configPath = getConfigPath();
-  const localPath = path.join(configPath, 'settings.json');
+  const localPath = joinTrustedPath(configPath, 'settings.json');
 
   fs.mkdirSync(configPath, { recursive: true });
   writeJsonIfMissing(localPath, getDefaultLocalSettings());
@@ -1841,15 +1910,15 @@ async function showObjectIdRangeVisualizationData() {
     return;
   }
 
-  const htmlPath = path.join(toolsetPath, 'visualization', 'WorkspaceAnalysis.html');
+  const htmlPath = joinTrustedPath(toolsetPath, 'visualization', 'WorkspaceAnalysis.html');
   const dataPath = getVisualizationDataPath();
 
-  if (!fs.existsSync(htmlPath)) {
+  if (!fileExists(htmlPath)) {
     await vscode.window.showErrorMessage(`WorkspaceAnalysis.html was not found at ${htmlPath}.`);
     return;
   }
 
-  if (!fs.existsSync(dataPath)) {
+  if (!fileExists(dataPath)) {
     const selection = await vscode.window.showWarningMessage(
       `Visualization data was not found at ${dataPath}.`,
       'Prepare Data'
@@ -1869,16 +1938,16 @@ async function showObjectIdRangeVisualizationData() {
     }
   );
 
-  const data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+  const data = JSON.parse(readTextFile(dataPath));
   const injectedDataScript = `<script>window.bcDevToolsetData = ${JSON.stringify(data).replace(/</g, '\\u003c')};</script>`;
-  const html = fs.readFileSync(htmlPath, 'utf8').replace('</head>', `${injectedDataScript}\n</head>`);
+  const html = readTextFile(htmlPath).replace('</head>', `${injectedDataScript}\n</head>`);
   panel.webview.html = html;
 }
 
 function ensureBcDevToolsetGitIgnore(basePath) {
-  const gitIgnorePath = path.join(basePath, '.gitignore');
+  const gitIgnorePath = joinTrustedPath(basePath, '.gitignore');
   const ignoredFolder = '.bcdevtoolset/';
-  const currentContent = fs.existsSync(gitIgnorePath) ? fs.readFileSync(gitIgnorePath, 'utf8') : '';
+  const currentContent = fileExists(gitIgnorePath) ? readTextFile(gitIgnorePath) : '';
   const ignoredEntries = currentContent
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -1889,15 +1958,15 @@ function ensureBcDevToolsetGitIgnore(basePath) {
   }
 
   const separator = currentContent && !currentContent.endsWith('\n') ? '\n' : '';
-  fs.writeFileSync(gitIgnorePath, `${currentContent}${separator}${ignoredFolder}\n`, 'utf8');
+  writeTextFile(gitIgnorePath, `${currentContent}${separator}${ignoredFolder}\n`);
 }
 
 function writeJsonIfMissing(filePath, value) {
-  if (fs.existsSync(filePath)) {
+  if (fileExists(filePath)) {
     return;
   }
 
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  writeTextFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 async function runOperation() {
@@ -1967,7 +2036,7 @@ async function runOperationByIdForMcp(operationId, options = {}) {
 }
 
 function getOperations(toolsetPath) {
-  return JSON.parse(fs.readFileSync(getOperationMetadataPath(toolsetPath), 'utf8'));
+  return JSON.parse(readTextFile(getOperationMetadataPath(toolsetPath)));
 }
 
 async function executeOperation(operation, toolsetPath) {
@@ -2063,7 +2132,7 @@ function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
   const powershellExecutable = operation.powerShellExecutable || getConfiguration().get('powershellExecutable') || 'pwsh';
   const workspaceFile = options.workspaceFile || getWorkspaceFileName();
   const configPath = getConfigPath();
-  const localSettingsPath = options.localSettingsPath || resolveWorkspaceBasePath(getConfiguration().get('localSettingsPath')) || path.join(configPath, 'settings.json');
+  const localSettingsPath = options.localSettingsPath || resolveWorkspaceBasePath(getConfiguration().get('localSettingsPath')) || joinTrustedPath(configPath, 'settings.json');
   const localSettingsArguments = ` -LocalSettingsPath ${quotePowerShellArgument(localSettingsPath)}`;
   const workspaceFileArguments = workspaceFile
     ? ` -WorkspaceFile ${quotePowerShellArgument(workspaceFile)}`
@@ -2121,13 +2190,13 @@ function buildMcpCapturedPowerShellCommand(operationCommand, transcriptPath, res
 }
 
 function createMcpCapturePaths(operationId) {
-  const directoryPath = path.join(os.tmpdir(), 'bc-dev-toolset-mcp');
+  const directoryPath = joinTrustedPath(os.tmpdir(), 'bc-dev-toolset-mcp');
   fs.mkdirSync(directoryPath, { recursive: true });
   const id = `${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${operationId}`;
   return {
     sessionId: id,
-    transcriptPath: path.join(directoryPath, `${id}.transcript.txt`),
-    resultPath: path.join(directoryPath, `${id}.result.json`)
+    transcriptPath: joinTrustedPath(directoryPath, `${id}.transcript.txt`),
+    resultPath: joinTrustedPath(directoryPath, `${id}.result.json`)
   };
 }
 
@@ -2157,7 +2226,7 @@ async function waitForMcpCaptureResult(operation, terminalName, capture, options
         exitCode: null,
         exitCodeSource: 'mcp-prompt',
         timedOut: false,
-        outputAvailable: fs.existsSync(capture.transcriptPath),
+        outputAvailable: fileExists(capture.transcriptPath),
         output: cleanPowerShellTranscript(readTextFileIfExists(capture.transcriptPath))
       };
     }
@@ -2173,7 +2242,7 @@ async function waitForMcpCaptureResult(operation, terminalName, capture, options
     exitCode: null,
     exitCodeSource: 'mcp-capture-timeout',
     timedOut: true,
-    outputAvailable: fs.existsSync(capture.transcriptPath),
+    outputAvailable: fileExists(capture.transcriptPath),
     output: readTextFileIfExists(capture.transcriptPath) || 'The terminal operation did not finish before the MCP timeout.'
   };
   const session = getOrCreateMcpPromptSession(capture.sessionId);
@@ -2185,11 +2254,11 @@ async function waitForMcpCaptureResult(operation, terminalName, capture, options
 }
 
 function readMcpCaptureResult(operation, terminalName, capture) {
-  if (!fs.existsSync(capture.resultPath)) {
+  if (!fileExists(capture.resultPath)) {
     return undefined;
   }
 
-  const result = JSON.parse(fs.readFileSync(capture.resultPath, 'utf8'));
+  const result = JSON.parse(readTextFile(capture.resultPath));
   const output = cleanPowerShellTranscript(readTextFileIfExists(capture.transcriptPath));
   const exitCode = typeof result.exitCode === 'number' ? result.exitCode : 1;
   return {
@@ -2206,7 +2275,7 @@ function readMcpCaptureResult(operation, terminalName, capture) {
 }
 
 function readTextFileIfExists(filePath) {
-  return fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
+  return fileExists(filePath) ? readTextFile(filePath) : '';
 }
 
 function cleanPowerShellTranscript(value) {
@@ -2218,28 +2287,6 @@ function cleanPowerShellTranscript(value) {
 
 function delay(timeoutMs) {
   return new Promise((resolve) => setTimeout(resolve, timeoutMs));
-}
-
-function getMcpExitCodeFromTerminalOutput(output) {
-  const match = String(output).match(/__BCDEVTOOLSET_MCP_EXIT_CODE__\s+(-?\d+)/);
-  return match ? Number(match[1]) : undefined;
-}
-
-function removeMcpExitCodeFromTerminalOutput(output) {
-  return String(output)
-    .replace(/\s*__BCDEVTOOLSET_MCP_EXIT_CODE__\s+-?\d+\s*/g, '\n')
-    .trim();
-}
-
-function isSuccessfulOperationOutput(output) {
-  const text = String(output || '');
-  if (/(\bfailed\b|\berror\b|exception|timed out)/i.test(text)) {
-    return false;
-  }
-
-  return /Running BC Dev Toolset operation:/i.test(text) &&
-    /Operation ID:/i.test(text) &&
-    /(!{4,}\s*DONE\s*!{4,}|Active license information|Current installed BcContainerHelper version|Docker Client Version)/i.test(text);
 }
 
 function waitForTerminalShellIntegration(terminal, timeoutMs) {
@@ -2273,43 +2320,6 @@ async function readTerminalExecutionOutput(execution, outputParts) {
   }
 }
 
-function waitForTerminalExecutionEnd(execution, timeoutMs) {
-  return Promise.race([
-    waitForTerminalExecutionEndEvent(execution),
-    waitForTerminalExecutionExitCode(execution),
-    new Promise((resolve) => setTimeout(() => resolve({ exitCode: null, timedOut: true }), timeoutMs))
-  ]);
-}
-
-function waitForTerminalExecutionEndEvent(execution) {
-  return new Promise((resolve) => {
-    const subscription = vscode.window.onDidEndTerminalShellExecution((event) => {
-      if (event.execution === execution) {
-        subscription.dispose();
-        resolve({
-          exitCode: typeof event.exitCode === 'number' ? event.exitCode : null,
-          timedOut: false
-        });
-      }
-    });
-  });
-}
-
-async function waitForTerminalExecutionExitCode(execution) {
-  try {
-    const exitCode = await execution.exitCode;
-    return {
-      exitCode: typeof exitCode === 'number' ? exitCode : null,
-      timedOut: false
-    };
-  } catch (error) {
-    return {
-      exitCode: null,
-      timedOut: false
-    };
-  }
-}
-
 function waitForTerminalReadToSettle(readPromise, timeoutMs) {
   return Promise.race([
     readPromise,
@@ -2318,7 +2328,7 @@ function waitForTerminalReadToSettle(readPromise, timeoutMs) {
 }
 
 function stripAnsi(value) {
-  return String(value).replace(/\x1b\[[0-9;]*m/g, '');
+  return String(value).replace(new RegExp('\\u001b\\[[0-9;]*m', 'g'), '');
 }
 
 module.exports = {

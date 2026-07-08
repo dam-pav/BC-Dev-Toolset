@@ -49,12 +49,15 @@ jobs:
       - name: Bump main to next pre-release version
         if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          GITHUB_REPOSITORY_NAME: ${{ github.repository }}
         run: |
           set -euo pipefail
 
           CURRENT_VERSION="$(node -e "const pkg = require('./vscode-extension/package.json'); process.stdout.write(pkg.version);")"
-          if [ "$CURRENT_VERSION" != "${{ inputs.release_version }}" ]; then
-            echo "Expected main version ${{ inputs.release_version }} but found $CURRENT_VERSION."
+          if [ "$CURRENT_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "Expected main version $RELEASE_VERSION but found $CURRENT_VERSION."
             exit 1
           fi
 
@@ -78,7 +81,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add vscode-extension/package.json
           git commit -m "chore: bump pre-release version to $NEXT_PRE_RELEASE_VERSION"
-          git remote set-url origin "git@github.com:${{ github.repository }}.git"
+          git remote set-url origin "git@github.com:${GITHUB_REPOSITORY_NAME}.git"
           git push origin HEAD:main
 
       - name: Read extension version
@@ -94,24 +97,27 @@ jobs:
       - name: Package latest VSIX
         if: ${{ github.event_name == 'push' }}
         shell: bash
+        env:
+          EXTENSION_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
 
           mkdir -p dist
-          (cd vscode-extension && npm run package -- --pre-release --out "../dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix")
+          (cd vscode-extension && npm run package -- --pre-release --out "../dist/bc-dev-toolset-latest-${EXTENSION_VERSION}.vsix")
 
       - name: Create or update latest package release
         if: ${{ github.event_name == 'push' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXTENSION_VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
 
-          TAG="latest-v${{ steps.version.outputs.version }}"
-          VSIX_PATH="dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix"
-          RELEASE_TITLE="BC Dev Toolset latest v${{ steps.version.outputs.version }}"
-          RELEASE_NOTES="Latest-channel VSIX package for BC Dev Toolset v${{ steps.version.outputs.version }}."
+          TAG="latest-v${EXTENSION_VERSION}"
+          VSIX_PATH="dist/bc-dev-toolset-latest-${EXTENSION_VERSION}.vsix"
+          RELEASE_TITLE="BC Dev Toolset latest v${EXTENSION_VERSION}"
+          RELEASE_NOTES="Latest-channel VSIX package for BC Dev Toolset v${EXTENSION_VERSION}."
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$VSIX_PATH" --clobber
@@ -131,10 +137,11 @@ jobs:
         if: "${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message || '', 'chore(release):') && !contains(github.event.head_commit.message || '', 'Release v') }}"
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          EXTENSION_VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
 
           bash ./.github/scripts/publish-vsix-with-retry.sh \
-            "dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix" \
+            "dist/bc-dev-toolset-latest-${EXTENSION_VERSION}.vsix" \
             --pre-release

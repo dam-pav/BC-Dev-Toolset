@@ -37,7 +37,7 @@ function Invoke-Tests {
                 $bcCredentials = Get-BcConfigurationCredentialValues -configuration $configuration
                 $params = @{
                     containerName = $configuration.container
-                    credential = (New-Object System.Management.Automation.PSCredential ($bcCredentials.User, (ConvertTo-SecureString -String $bcCredentials.Password -AsPlainText -Force)))
+                    credential = (New-BcDevToolsetPlainTextCredential -UserName $bcCredentials.User -Password $bcCredentials.Password)
                     detailed = $true
                 }
                 # if $configuration.testSuite has a value, add it to the parameters

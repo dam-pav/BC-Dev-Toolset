@@ -44,10 +44,12 @@ jobs:
 
       - name: Generate release note proposal
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
 
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="$RELEASE_VERSION"
           NOTE_PATH="documentation/releases/v${VERSION}.md"
           PREVIOUS_TAG="$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || true)"
 
@@ -64,10 +66,12 @@ jobs:
 
       - name: Commit release proposal
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
 
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="$RELEASE_VERSION"
           BRANCH="release/v${VERSION}"
 
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
@@ -88,6 +92,7 @@ jobs:
       - name: Open draft release PR
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
@@ -97,7 +102,7 @@ jobs:
             exit 1
           fi
 
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="$RELEASE_VERSION"
           EXISTING_PR="$(gh pr list --base main --head "release/v${VERSION}" --state open --json url --jq '.[0].url // ""')"
           if [ -n "$EXISTING_PR" ]; then
             echo "Release PR already exists: $EXISTING_PR"

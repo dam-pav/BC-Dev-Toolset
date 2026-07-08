@@ -43,12 +43,10 @@ function Get-BcConfigurationCredential {
     )
 
     if ($configuration.PSObject.Properties['bcUser'] -and $configuration.PSObject.Properties['bcPassword']) {
-        $securePassword = ConvertTo-SecureString -String $configuration.bcPassword -AsPlainText -Force
-        return New-Object pscredential $configuration.bcUser, $securePassword
+        return New-BcDevToolsetPlainTextCredential -UserName $configuration.bcUser -Password $configuration.bcPassword
     }
 
-    $securePassword = ConvertTo-SecureString -String $configuration.password -AsPlainText -Force
-    return New-Object pscredential $configuration.admin, $securePassword
+    return New-BcDevToolsetPlainTextCredential -UserName $configuration.admin -Password $configuration.password
 }
 
 function Get-WorkspaceRootPath {

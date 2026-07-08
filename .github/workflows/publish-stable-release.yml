@@ -34,6 +34,8 @@ jobs:
       - name: Read and verify release version
         id: version
         shell: bash
+        env:
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
 
@@ -41,8 +43,8 @@ jobs:
           EXPECTED_HEAD_REF="release/v${VERSION}"
           NOTE_PATH="documentation/releases/v${VERSION}.md"
 
-          if [ "${{ github.event.pull_request.head.ref }}" != "$EXPECTED_HEAD_REF" ]; then
-            echo "Merged release PR branch ${{ github.event.pull_request.head.ref }} does not match package version $VERSION."
+          if [ "$PR_HEAD_REF" != "$EXPECTED_HEAD_REF" ]; then
+            echo "Merged release PR branch $PR_HEAD_REF does not match package version $VERSION."
             exit 1
           fi
 
@@ -61,50 +63,59 @@ jobs:
 
       - name: Package VSIX assets
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
 
           mkdir -p dist
-          (cd vscode-extension && npm run package -- --out "../dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix")
+          (cd vscode-extension && npm run package -- --out "../dist/bc-dev-toolset-${RELEASE_VERSION}.vsix")
 
       - name: Promote stable branch and tag release
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          GITHUB_REPOSITORY_NAME: ${{ github.repository }}
         run: |
           set -euo pipefail
 
-          git tag "v${{ steps.version.outputs.version }}"
-          git remote set-url origin "git@github.com:${{ github.repository }}.git"
-          git push --atomic origin HEAD:stable "v${{ steps.version.outputs.version }}"
+          git tag "v${RELEASE_VERSION}"
+          git remote set-url origin "git@github.com:${GITHUB_REPOSITORY_NAME}.git"
+          git push --atomic origin HEAD:stable "v${RELEASE_VERSION}"
 
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_NOTES_PATH: ${{ steps.version.outputs.notes_path }}
         shell: bash
         run: |
           set -euo pipefail
 
-          gh release create "v${{ steps.version.outputs.version }}" \
-            "dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix" \
-            --title "BC Dev Toolset v${{ steps.version.outputs.version }}" \
-            --notes-file "${{ steps.version.outputs.notes_path }}"
+          gh release create "v${RELEASE_VERSION}" \
+            "dist/bc-dev-toolset-${RELEASE_VERSION}.vsix" \
+            --title "BC Dev Toolset v${RELEASE_VERSION}" \
+            --notes-file "${RELEASE_NOTES_PATH}"
 
       - name: Publish stable VSIX to VS Code Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
 
           bash ./.github/scripts/publish-vsix-with-retry.sh \
-            "dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix"
+            "dist/bc-dev-toolset-${RELEASE_VERSION}.vsix"
 
       - name: Trigger latest workflow to bump next pre-release version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
 
           gh workflow run latest-extension.yml \
             --ref main \
-            -f release_version="${{ steps.version.outputs.version }}"
+            -f release_version="${RELEASE_VERSION}"

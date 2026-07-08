@@ -1,3 +1,16 @@
+function New-BcDevToolsetPlainTextCredential {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '', Justification='BC Dev Toolset receives passwords from user configuration and must create PSCredential objects for platform cmdlets.')]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $UserName,
+        [Parameter(Mandatory=$true)]
+        [string] $Password
+    )
+
+    $securePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
+    return [pscredential]::new($UserName, $securePassword)
+}
+
 function Get-SqlBackupRootPath {
     Param (
         [Parameter(Mandatory=$false)]
@@ -674,8 +687,7 @@ function New-RemoteBackupSession {
     }
 
     if ($configuration.PSObject.Properties.Name -contains "remoteUser" -and -not [string]::IsNullOrWhiteSpace($configuration.remoteUser)) {
-        $securePassword = ConvertTo-SecureString -String $configuration.remotePassword -AsPlainText -Force
-        $sessionParameters.Credential = New-Object pscredential $configuration.remoteUser, $securePassword
+        $sessionParameters.Credential = New-BcDevToolsetPlainTextCredential -UserName $configuration.remoteUser -Password $configuration.remotePassword
     }
 
     try {
@@ -852,8 +864,7 @@ function Export-BcServiceSqlBackupSet {
 
         $sqlCredential = $null
         if ($configuration.PSObject.Properties.Name -contains "databaseUser" -and -not [string]::IsNullOrWhiteSpace($configuration.databaseUser)) {
-            $securePassword = ConvertTo-SecureString -String $configuration.databasePassword -AsPlainText -Force
-            $sqlCredential = New-Object pscredential $configuration.databaseUser, $securePassword
+            $sqlCredential = New-BcDevToolsetPlainTextCredential -UserName $configuration.databaseUser -Password $configuration.databasePassword
         }
 
         $backupRequests = @()
