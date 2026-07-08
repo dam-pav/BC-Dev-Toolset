@@ -230,7 +230,8 @@ function getServerInstructions() {
     'Use this server for Business Central Developer\'s Toolset operations. Prefer direct tools named bc_dev_toolset_* for matching user requests; do not inspect Docker containers or call BcContainerHelper directly to duplicate a supported toolset operation.',
     'Before answering questions about the active VS Code workspace, workspace file, workspace folders, AL project path, app.json location, .code-workspace settings, local .bcdevtoolset settings path, or AL settings such as assembly probing paths, call bc_dev_toolset_get_workspace or read bcdevtoolset://workspace/current. Do not infer the workspace by scanning parent folders unless this tool/resource is unavailable.',
     'PowerShell-backed operations require the VS Code terminal bridge and run visibly in the BC Dev Toolset terminal. If the bridge is unavailable, report that the BC Dev Toolset VS Code extension must be active instead of falling back to manual PowerShell.',
-    'Use bc_dev_toolset_show_active_licenses for requests about the current container license. Use bc_dev_toolset_new_docker_container for creating or recreating containers.'
+    'Use bc_dev_toolset_show_active_licenses for requests about the current container license. Use bc_dev_toolset_new_docker_container for creating or recreating containers.',
+    'When an operation returns status "waiting_for_input", you MUST call bc_dev_toolset_answer_operation_prompt with the sessionId and the user\'s answer. Do not retry the original operation. Do not ask the user to type in the terminal. The answer is relayed through MCP to the running script.'
   ].join('\n');
 }
 
@@ -803,18 +804,25 @@ function formatPendingPromptInstruction(bridgeResult) {
   const answerHint = prompt.type === 'confirm'
     ? "answer 'yes' or 'no'"
     : 'answer with the requested text or choice value';
-  return [
+  const lines = [
     'Instruction: The operation is waiting for input and remains paused in the visible VS Code terminal.',
     `Prompt ID: ${prompt.id || '(unknown)'}`,
     prompt.question ? `Question: ${prompt.question}` : '',
     prompt.default ? `Default: ${prompt.default}` : '',
     Array.isArray(prompt.choices) ? `Choices: ${prompt.choices.join(', ')}` : '',
     prompt.risk ? `Risk: ${prompt.risk}` : '',
-    prompt.agentAllowed === false ? 'Agent allowed: false. Ask the user before answering this prompt.' : 'Agent allowed: true.',
+    prompt.agentAllowed === false ? 'Agent autonomous decision allowed: false. Ask the user before answering this prompt.' : 'Agent autonomous decision allowed: true.',
     prompt.destructive ? 'Destructive: true' : '',
-    prompt.sensitive ? 'Sensitive: true. Do not answer sensitive prompts through MCP.' : '',
-    `Next: call bc_dev_toolset_answer_operation_prompt with sessionId '${bridgeResult.sessionId}' and ${answerHint}, or ask the user what to choose.`
-  ].filter((line) => line !== '').join('\n');
+    prompt.sensitive ? 'Sensitive: true. Do not answer sensitive prompts through MCP.' : ''
+  ];
+
+  if (prompt.sensitive) {
+    lines.push('Next: Ask the user to type their answer directly in the VS Code terminal. Do not call answer_operation_prompt for sensitive prompts.');
+  } else {
+    lines.push(`Next: Call bc_dev_toolset_answer_operation_prompt with sessionId '${bridgeResult.sessionId}' and ${answerHint}.`);
+  }
+
+  return lines.filter((line) => line !== '').join('\n');
 }
 
 function formatOperationStatus(status) {

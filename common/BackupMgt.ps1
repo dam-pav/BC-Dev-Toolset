@@ -35,7 +35,7 @@ function Copy-SqlBackupSetToSharedFolder {
 
     $backupEntries = @(Get-SqlBackupSetEntries -backupRootPath $backupRootPath)
     if ($backupEntries.Count -eq 0) {
-        throw "No compatible .bak files found in SQL backup folder '$backupRootPath'. Expected '<database>.app.bak', '<database>.tenant.bak', or '<database>.database.bak'."
+        throw "No compatible .bak files found in SQL backup folder '$backupRootPath'. Expected '<container>.<database>.app.bak', '<container>.<database>.tenant.bak', or '<container>.<database>.database.bak'."
     }
 
     $sharedBackupPath = Join-Path $hostHelperFolder "SqlBackupSets\$containerName\$sharedFolderName"
@@ -120,7 +120,7 @@ function Get-SqlBackupSetEntries {
             continue
         }
 
-        Write-Host "Ignoring backup file '$($backupFile.Name)' because it does not follow the '<database>.app.bak', '<database>.tenant.bak', or '<database>.database.bak' naming convention." -ForegroundColor Yellow
+        Write-Host "Ignoring backup file '$($backupFile.Name)' because it does not follow the '<container>.<database>.app.bak', '<container>.<database>.tenant.bak', or '<container>.<database>.database.bak' naming convention." -ForegroundColor Yellow
     }
 
     return $entries
@@ -132,7 +132,7 @@ function Get-BcContainerDatabaseBackupMap {
         [string] $containerName
     )
 
-    Invoke-ScriptInBcContainer -containerName $containerName -usesession:$false -usepwsh:$false -ScriptBlock {
+    $backupMap = Invoke-ScriptInBcContainer -containerName $containerName -usesession:$false -usepwsh:$false -ScriptBlock {
         $customConfigFile = Join-Path (Get-Item "C:\Program Files\Microsoft Dynamics NAV\*\Service").FullName "CustomSettings.config"
         [xml]$customConfig = [System.IO.File]::ReadAllText($customConfigFile)
         $multitenant = ($customConfig.SelectSingleNode("//appSettings/add[@key='Multitenant']").Value -eq "true")
@@ -164,6 +164,14 @@ function Get-BcContainerDatabaseBackupMap {
             ExportFileName = "$databaseName.database.bak"
         })
     }
+
+    # Prefix export file names with the container name to avoid collisions
+    # when multiple containers share the same internal database names.
+    foreach ($item in $backupMap) {
+        $item | Add-Member -NotePropertyName "ExportFileName" -NotePropertyValue "$containerName.$($item.ExportFileName)" -Force
+    }
+
+    return $backupMap
 }
 
 function Assert-SqlBackupPath {
@@ -372,7 +380,7 @@ function Restore-BcContainerSqlBackupSet {
 
         $backupEntries = @(Get-SqlBackupSetEntries -backupRootPath $backupRootPath)
         if ($backupEntries.Count -eq 0) {
-            throw "No compatible .bak files found at sqlBackupPath '$backupRootPath'. Expected '<database>.app.bak', '<database>.tenant.bak', or '<database>.database.bak'."
+            throw "No compatible .bak files found at sqlBackupPath '$backupRootPath'. Expected '<container>.<database>.app.bak', '<container>.<database>.tenant.bak', or '<container>.<database>.database.bak'."
         }
 
         $sharedRestorePath = Copy-SqlBackupSetToSharedFolder `
