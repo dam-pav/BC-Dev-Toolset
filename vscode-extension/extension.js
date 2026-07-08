@@ -335,9 +335,6 @@ function answerMcpPrompt(body) {
   if (prompt.sensitive) {
     return { status: 'failed', sessionId, error: 'Sensitive prompts cannot be answered through MCP.' };
   }
-  if (prompt.agentAllowed === false) {
-    return { status: 'failed', sessionId, error: 'This prompt is marked as requiring a user decision.' };
-  }
 
   const normalizedAnswer = normalizeMcpPromptAnswer(answer, prompt);
   session.resolvePrompt({ answer: normalizedAnswer, answeredBy: 'mcp' });
