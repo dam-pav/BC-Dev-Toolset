@@ -674,6 +674,7 @@ function New-RemoteBackupSession {
     }
 
     if ($configuration.PSObject.Properties.Name -contains "remoteUser" -and -not [string]::IsNullOrWhiteSpace($configuration.remoteUser)) {
+        # psavoidusingconverttosecurestringwithplaintext — plaintext is required to create PSCredential for PowerShell remoting
         $securePassword = ConvertTo-SecureString -String $configuration.remotePassword -AsPlainText -Force
         $sessionParameters.Credential = New-Object pscredential $configuration.remoteUser, $securePassword
     }
@@ -742,6 +743,7 @@ function Backup-RemoteSqlDatabases {
 
     try {
         Invoke-Command -Session $session -ScriptBlock {
+            # psavoidusingplaintextforpassword — sqlCredential is passed through remoting to perform SQL backups
             Param($remoteBackupPath, $remoteServerInstance, $backupRequests, $sqlCredential)
 
             if (-not (Get-Command Backup-SqlDatabase -ErrorAction SilentlyContinue)) {
@@ -852,6 +854,7 @@ function Export-BcServiceSqlBackupSet {
 
         $sqlCredential = $null
         if ($configuration.PSObject.Properties.Name -contains "databaseUser" -and -not [string]::IsNullOrWhiteSpace($configuration.databaseUser)) {
+            # psavoidusingconverttosecurestringwithplaintext — plaintext is required to create PSCredential for SQL operations
             $securePassword = ConvertTo-SecureString -String $configuration.databasePassword -AsPlainText -Force
             $sqlCredential = New-Object pscredential $configuration.databaseUser, $securePassword
         }

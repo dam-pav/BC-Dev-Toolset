@@ -37,6 +37,7 @@ function Invoke-Tests {
                 $bcCredentials = Get-BcConfigurationCredentialValues -configuration $configuration
                 $params = @{
                     containerName = $configuration.container
+                    # psavoidusingconverttosecurestringwithplaintext — plaintext is required to create PSCredential for Run-TestsInBcContainer
                     credential = (New-Object System.Management.Automation.PSCredential ($bcCredentials.User, (ConvertTo-SecureString -String $bcCredentials.Password -AsPlainText -Force)))
                     detailed = $true
                 }

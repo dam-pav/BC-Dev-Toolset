@@ -43,10 +43,12 @@ function Get-BcConfigurationCredential {
     )
 
     if ($configuration.PSObject.Properties['bcUser'] -and $configuration.PSObject.Properties['bcPassword']) {
+        # psavoidusingconverttosecurestringwithplaintext — plaintext is required to create PSCredential for BcContainer operations
         $securePassword = ConvertTo-SecureString -String $configuration.bcPassword -AsPlainText -Force
         return New-Object pscredential $configuration.bcUser, $securePassword
     }
 
+    # psavoidusingconverttosecurestringwithplaintext — plaintext is required to create PSCredential for BcContainer operations
     $securePassword = ConvertTo-SecureString -String $configuration.password -AsPlainText -Force
     return New-Object pscredential $configuration.admin, $securePassword
 }

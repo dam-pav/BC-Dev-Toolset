@@ -60,6 +60,7 @@ if ($matchingOperations.Count -eq 0) {
 }
 
 if ($matchingOperations.Count -gt 1) {
+    # psavoidassignmenttoautomaticvariable — $matches is intentionally reused here for error messaging (not used by regex)
     $matches = ($matchingOperations | ForEach-Object { $_.id }) -join ', '
     throw "Operation '$Operation' matched multiple operations: $matches"
 }
