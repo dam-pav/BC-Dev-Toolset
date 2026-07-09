@@ -8,6 +8,7 @@
     - Windows Features (Containers, Hyper-V)
     - Git
     - BcContainerHelper PowerShell Module
+    - Node.js and @microsoft/bc-replay for page script tests
 .NOTES
     Requires Administrator privileges
     Requires Windows Pro or Enterprise edition for Hyper-V
@@ -18,7 +19,8 @@ param(
     [switch]$SkipDockerInstall,
     [switch]$SkipWindowsFeatures,
     [switch]$SkipGit,
-    [switch]$SkipBcContainerHelper
+    [switch]$SkipBcContainerHelper,
+    [switch]$SkipNode
 )
 
 # Colors for output
@@ -356,6 +358,25 @@ function Get-WinGetPackageVersion {
     return $null
 }
 
+function Get-NodeInstalledVersion {
+    $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $nodeCommand) {
+        return $null
+    }
+
+    $nodeVersionOutput = node --version 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($nodeVersionOutput)) {
+        return $null
+    }
+
+    try {
+        return [version]($nodeVersionOutput.Trim() -replace "^v", "")
+    }
+    catch {
+        return $null
+    }
+}
+
 function Get-LatestBcContainerHelperVersion {
     $module = Find-Module -Name BcContainerHelper -ErrorAction Stop
     return [version]$module.Version
@@ -638,10 +659,71 @@ else {
 }
 
 # ============================================================================
-# 6. INSTALL BCCONTAINERHELPER MODULE
+# 6. INSTALL NODE.JS AND BC-REPLAY
+# ============================================================================
+if (-not $SkipNode) {
+    Write-Header "6. Installing or Updating Node.js and BC Replay"
+
+    try {
+        $nodeVersion = Get-NodeInstalledVersion
+        if ($nodeVersion -and $nodeVersion.Major -ge 24) {
+            Write-Success "Node.js is installed: v$nodeVersion"
+        }
+        else {
+            if ($nodeVersion) {
+                Write-Warning "Node.js v$nodeVersion is installed, but page script tests require v24 or newer"
+            }
+            else {
+                Write-Warning "Node.js is not installed or not available in PATH"
+            }
+
+            if ($nodeVersion) {
+                Write-Host "Updating Node.js via WinGet..."
+                & winget upgrade -e --id OpenJS.NodeJS --accept-package-agreements --accept-source-agreements
+            }
+            else {
+                Write-Host "Installing Node.js via WinGet..."
+                & winget install -e --id OpenJS.NodeJS --accept-package-agreements --accept-source-agreements
+            }
+
+            $nodeVersion = Get-NodeInstalledVersion
+            if ($nodeVersion -and $nodeVersion.Major -ge 24) {
+                Write-Success "Node.js installed successfully: v$nodeVersion"
+            }
+            else {
+                Write-Warning "Node.js installation may require restarting PowerShell before node/npm are available"
+            }
+        }
+
+        if (Get-Command npm -ErrorAction SilentlyContinue) {
+            Write-Host "Installing/Updating @microsoft/bc-replay globally..."
+            npm install -g @microsoft/bc-replay@latest
+            if (Get-Command replay -ErrorAction SilentlyContinue) {
+                Write-Success "@microsoft/bc-replay is available"
+            }
+            else {
+                Write-Warning "@microsoft/bc-replay was installed, but the replay command is not available in PATH. Restart PowerShell and run prerequisites again if needed."
+            }
+        }
+        else {
+            Write-Warning "npm is not available. Restart PowerShell and run prerequisites again to install @microsoft/bc-replay."
+        }
+    }
+    catch {
+        Write-Error "Failed to install Node.js or @microsoft/bc-replay: $_"
+        Write-Host "Try running: winget install -e --id OpenJS.NodeJS"
+        Write-Host "Then run: npm install -g @microsoft/bc-replay@latest"
+    }
+}
+else {
+    Write-Host "Skipping Node.js and BC Replay installation (--SkipNode flag set)"
+}
+
+# ============================================================================
+# 7. INSTALL BCCONTAINERHELPER MODULE
 # ============================================================================
 if (-not $SkipBcContainerHelper) {
-    Write-Header "6. Installing or Updating BcContainerHelper PowerShell Module"
+    Write-Header "7. Installing or Updating BcContainerHelper PowerShell Module"
     
     try {
         Write-Host "Checking if BcContainerHelper is already installed..."
@@ -708,7 +790,8 @@ Next steps:
 2. Restart your computer for Windows features to take effect
 3. After restart, Docker service should start automatically
 4. Restart PowerShell to use git commands
-5. Review the BC-Dev-Toolset README.md for additional configuration
+5. Restart PowerShell to use node/npm commands if Node.js was installed or updated
+6. Review the BC-Dev-Toolset README.md for additional configuration
 
 For troubleshooting, see:
 - Docker Engine: https://download.docker.com/win/static/stable/x86_64/

@@ -68,3 +68,19 @@ test('returns false and preserves incomplete JSON fragments', () => {
     assert.equal(mcpServer.getInputBuffer().toString('utf8'), fragment);
   }
 });
+
+test('preserves boolean prompt answers for MCP clients', () => {
+  assert.equal(mcpServer.normalizePromptToolAnswer(true), true);
+  assert.equal(mcpServer.normalizePromptToolAnswer(false), false);
+});
+
+test('normalizes numeric and string prompt answers without dropping false-like values', () => {
+  assert.equal(mcpServer.normalizePromptToolAnswer(0), '0');
+  assert.equal(mcpServer.normalizePromptToolAnswer(1), '1');
+  assert.equal(mcpServer.normalizePromptToolAnswer(' no '), 'no');
+});
+
+test('rejects empty prompt answers', () => {
+  assert.throws(() => mcpServer.normalizePromptToolAnswer('   '), /answer is required/);
+  assert.throws(() => mcpServer.normalizePromptToolAnswer(undefined), /answer is required/);
+});

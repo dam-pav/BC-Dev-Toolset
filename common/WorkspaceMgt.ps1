@@ -882,6 +882,12 @@ function Initialize-Context {
 
     $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name country -Value $country -Force
 
+    $executeTestsInContainerName = ""
+    if ($workspaceJSON.value.settings."dam-pav.bcdevtoolset".executeTestsInContainerName) {
+        $executeTestsInContainerName = $workspaceJSON.value.settings."dam-pav.bcdevtoolset".executeTestsInContainerName
+    }
+    $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value $executeTestsInContainerName -Force
+
     # Add missing defaults
     if ($null -eq $settingsJSONvalue.shortcuts) {
         $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name shortcuts -Value (Get-ShortcutMode $settingsJSONvalue)
@@ -1580,7 +1586,6 @@ Import-NAVServerLicense -LicenseFile '$escapedContainerLicenseFile' -ServerInsta
                 )
                 Write-Host "SQL backup restore detected. The license will be imported before NAV user setup because BcContainerHelper skips -licenseFile for restored bakFolder databases." -ForegroundColor Yellow
             }
-
             New-BcContainer @Parameters
         }
 

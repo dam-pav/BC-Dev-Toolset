@@ -117,6 +117,7 @@
           "default": {
             "country": "w1",
             "selectArtifact": "Closest",
+            "executeTestsInContainerName": "",
             "configurations": [
               {
                 "name": "sample",
@@ -219,6 +220,11 @@
               ],
               "default": "Closest",
               "description": "Business Central artifact selection strategy."
+            },
+            "executeTestsInContainerName": {
+              "type": "string",
+              "default": "",
+              "description": "Optional container name used by Test operations. If empty and only one Dev container configuration exists, tests run there without backup restore or app deployment. Otherwise Test operations ask which Dev container to use when needed. If the selected container is missing, it is created and an initial SQL backup set is exported before tests continue."
             },
             "sqlBackupPath": {
               "not": {},
@@ -822,7 +828,7 @@
       },
       {
         "command": "bcDevToolset.operation.invokeTests",
-        "title": "BC Dev Toolset: Run tests in all containers"
+        "title": "BC Dev Toolset: Run AL test tool tests"
       },
       {
         "command": "bcDevToolset.operation.invokePageScriptTests",

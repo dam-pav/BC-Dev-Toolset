@@ -278,8 +278,12 @@ function getTools() {
             description: 'Session ID returned by the waiting operation.'
           },
           answer: {
-            type: 'string',
-            description: 'Prompt answer. Use yes/no for confirmation prompts; use the requested text or choice value for other prompt types.'
+            anyOf: [
+              { type: 'string' },
+              { type: 'boolean' },
+              { type: 'number' }
+            ],
+            description: 'Prompt answer. Use yes/no or true/false for confirmation prompts; use the requested text or choice value for other prompt types.'
           }
         }
       }
@@ -599,8 +603,8 @@ function getOperationToolAliases(operationId) {
       ];
     case 'invokeTests':
       return [
-        'run automated tests in configured containers',
-        'run Business Central tests'
+        'run AL test tool tests',
+        'run Business Central AL test tool tests'
       ];
     case 'invokePageScriptTests':
       return [
@@ -778,12 +782,14 @@ async function answerOperationPrompt(args) {
   }
 
   const sessionId = String(args.sessionId || '').trim();
-  const answer = String(args.answer || '').trim();
+  let answer;
+  try {
+    answer = normalizePromptToolAnswer(args.answer);
+  } catch (error) {
+    return textResult(error.message, true);
+  }
   if (!sessionId) {
     return textResult('sessionId is required.', true);
-  }
-  if (!answer) {
-    return textResult('answer is required.', true);
   }
 
   const response = await postBridgeJson('/prompt/answer', { sessionId, answer });
@@ -799,10 +805,30 @@ async function answerOperationPrompt(args) {
   ].join('\n'));
 }
 
+function normalizePromptToolAnswer(answer) {
+  if (typeof answer === 'boolean') {
+    return answer;
+  }
+
+  if (typeof answer === 'number' && Number.isFinite(answer)) {
+    return String(answer);
+  }
+
+  if (typeof answer === 'string') {
+    const trimmedAnswer = answer.trim();
+    if (!trimmedAnswer) {
+      throw new Error('answer is required.');
+    }
+    return trimmedAnswer;
+  }
+
+  throw new Error('answer is required.');
+}
+
 function formatPendingPromptInstruction(bridgeResult) {
   const prompt = bridgeResult.prompt || {};
   const answerHint = prompt.type === 'confirm'
-    ? "answer 'yes' or 'no'"
+    ? "answer 'yes'/'no' or true/false"
     : 'answer with the requested text or choice value';
   const lines = [
     'Instruction: The operation is waiting for input and remains paused in the visible VS Code terminal.',
@@ -1121,6 +1147,7 @@ module.exports = {
     setInputBuffer: (value) => {
       inputBuffer = Buffer.from(value, 'utf8');
     },
+    normalizePromptToolAnswer,
     tryReadRawJsonMessage
   }
 };

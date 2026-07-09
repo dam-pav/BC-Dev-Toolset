@@ -70,7 +70,7 @@
   },
   {
     "id": "invokeTests",
-    "title": "Run tests in all containers",
+    "title": "Run AL test tool tests",
     "script": "operations/Invoke-Tests.ps1",
     "category": "Tests"
   },

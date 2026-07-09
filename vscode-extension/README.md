@@ -116,7 +116,7 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 
 ### Tests
 
-- `Run tests in all containers`: Runs tests across configured container targets.
+- `Run AL test tool tests`: Runs Business Central AL test tool tests.
 - `Run page script tests`: Runs page script test recordings and writes the results to the configured output location.
 
 ### Publish
@@ -144,7 +144,7 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 ### Prerequisites
 
 - `Show BcContainerHelper versions (installed and available)`: Shows the installed and available BcContainerHelper versions.
-- `Install/Update Prerequisites`: Installs and updates the main prerequisites used by the toolset, including BcContainerHelper.
+- `Install/Update Prerequisites`: Installs and updates the main prerequisites used by the toolset, including BcContainerHelper, Node.js, and @microsoft/bc-replay.
 - `Install/Update Microsoft PowerShell`: Updates the Windows PowerShell installation used for the toolkit setup flow.
 
 ### MCP Configuration
@@ -178,6 +178,7 @@ These are stored in the workspace file under `dam-pav.bcdevtoolset`.
 
 - `country`: Business Central artifact country code. Default: `w1`.
 - `selectArtifact`: Artifact selection strategy. Default: `Closest`. Common values are `Closest` and `Latest`.
+- `executeTestsInContainerName`: Optional container name used by Test operations. If empty and only one Dev Container configuration exists, tests run there without backup restore or app deployment. If empty, or if the value is not found and multiple Dev Container configurations exist, Test operations ask which configured container to use. If the selected container is missing, it is created and an initial SQL backup set is exported before tests continue.
 - `configurations`: Shared target definitions for the workspace. These are useful when a team wants common environment entries available to everyone.
 
 Each workspace `configuration` entry can contain:
