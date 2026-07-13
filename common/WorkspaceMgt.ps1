@@ -754,7 +754,9 @@ function Select-IndexFromList {
         [Parameter(Mandatory=$true)]
         [array] $Options,
         [Parameter(Mandatory=$false)]
-        [int] $DefaultIndex = 0
+        [int] $DefaultIndex = 0,
+        [Parameter(Mandatory=$false)]
+        [bool] $AgentAllowed = $false
     )
 
     if (-not $Options -or $Options.Count -eq 0) {
@@ -773,7 +775,7 @@ function Select-IndexFromList {
 
     while ($true) {
         $prompt = "Select an option [1..{0}] (Enter={1}): " -f $Options.Count, ($DefaultIndex+1)
-        $selection = Request-BcDevToolsetMcpPrompt -PromptId "selectIndex.$($Title -replace '[^A-Za-z0-9]+', '.')" -Type 'choice' -Question $prompt -DefaultValue "$($DefaultIndex + 1)" -Choices @(1..$Options.Count | ForEach-Object { "$_" }) -Risk "Selects one of the displayed options."
+        $selection = Request-BcDevToolsetMcpPrompt -PromptId "selectIndex.$($Title -replace '[^A-Za-z0-9]+', '.')" -Type 'choice' -Question $prompt -DefaultValue "$($DefaultIndex + 1)" -Choices @(1..$Options.Count | ForEach-Object { "$_" }) -Risk "Selects one of the displayed options." -AgentAllowed $AgentAllowed
         if ($null -eq $selection) {
             $selection = Read-Host -Prompt $prompt
         } else {

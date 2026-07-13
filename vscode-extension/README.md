@@ -73,6 +73,8 @@ PowerShell-backed operations still run in the visible `BC Dev Toolset: <PowerShe
 
 Some operations require confirmation before they start. If an operation asks a supported question while running, the visible terminal shows the question and the operation pauses. The agent may answer low-risk operational questions when it has enough context, but sensitive prompts and destructive user decisions still require you to choose. Operations started from the Command Palette keep the normal terminal behavior and can always be answered directly in the terminal.
 
+MCP operation tools also accept a `promptAnswers` object keyed by prompt ID. Agents can use it to pre-supply known answers when the decision is already clear. Test operations expose `testContainerSelection`, `executeTestsInContainer`, and `pullFullArtifact` inputs and automatically pre-supply routine defaults; container backup operations expose `containerSelection` for the target container choice.
+
 You do not need to know the MCP tool names for normal use. Ask the agent for the BC Dev Toolset action you want, and the MCP server exposes focused operation tools for the agent to choose from.
 
 ### Codex

@@ -84,3 +84,116 @@ test('rejects empty prompt answers', () => {
   assert.throws(() => mcpServer.normalizePromptToolAnswer('   '), /answer is required/);
   assert.throws(() => mcpServer.normalizePromptToolAnswer(undefined), /answer is required/);
 });
+
+test('lists prompt answer tool before operation tools', () => {
+  const toolNames = mcpServer.getTools().map((tool) => tool.name);
+
+  assert.ok(toolNames.indexOf('bc_dev_toolset_answer_operation_prompt') > -1);
+  assert.ok(toolNames.indexOf('bc_dev_toolset_new_docker_container') > -1);
+  assert.ok(
+    toolNames.indexOf('bc_dev_toolset_answer_operation_prompt') < toolNames.indexOf('bc_dev_toolset_new_docker_container')
+  );
+});
+
+test('operation tool descriptions point pending prompts to answer tool', () => {
+  const newDockerContainerTool = mcpServer.getTools().find((tool) => tool.name === 'bc_dev_toolset_new_docker_container');
+
+  assert.match(newDockerContainerTool.description, /This starts a new operation/);
+  assert.match(newDockerContainerTool.description, /bc_dev_toolset_answer_operation_prompt/);
+});
+
+test('pre-supplies testing prompt answers for test operations', () => {
+  assert.deepEqual(
+    mcpServer.getOperationPromptAnswers({ id: 'invokeTests' }, {}),
+    {
+      'selectIndex.Select.the.container.configuration.to.execute.tests.in.': '1',
+      'tests.executeInContainer': 'yes',
+      'tests.createMissingContainer.pullFullArtifact': 'no'
+    }
+  );
+});
+
+test('does not pre-supply testing prompt answers for non-test operations', () => {
+  assert.deepEqual(mcpServer.getOperationPromptAnswers({ id: 'newDockerContainer' }, {}), {});
+});
+
+test('maps test operation prompt aliases to prompt answers', () => {
+  assert.deepEqual(
+    mcpServer.getOperationPromptAnswers(
+      { id: 'invokeTests' },
+      {
+        testContainerSelection: 2,
+        executeTestsInContainer: true,
+        pullFullArtifact: false
+      }
+    ),
+    {
+      'selectIndex.Select.the.container.configuration.to.execute.tests.in.': '2',
+      'tests.executeInContainer': 'yes',
+      'tests.createMissingContainer.pullFullArtifact': 'no'
+    }
+  );
+});
+
+test('lets explicit prompt answers override operation defaults', () => {
+  assert.deepEqual(
+    mcpServer.getOperationPromptAnswers(
+      { id: 'invokeTests' },
+      {
+        testContainerSelection: 2,
+        promptAnswers: {
+          'tests.executeInContainer': 'no',
+          'custom.prompt': false
+        }
+      }
+    ),
+    {
+      'selectIndex.Select.the.container.configuration.to.execute.tests.in.': '2',
+      'tests.executeInContainer': 'no',
+      'tests.createMissingContainer.pullFullArtifact': 'no',
+      'custom.prompt': false
+    }
+  );
+});
+
+test('maps backup container selection aliases to prompt answers', () => {
+  assert.deepEqual(
+    mcpServer.getOperationPromptAnswers(
+      { id: 'backupBcContainerDatabases' },
+      {
+        containerSelection: 2
+      }
+    ),
+    {
+      'selectIndex.Select.container.for.SQL.backup.export.': '2',
+      'selectIndex.Select.container.for.SQL.backup.restore.': '2'
+    }
+  );
+});
+
+test('does not map empty backup container selection aliases', () => {
+  assert.deepEqual(
+    mcpServer.getOperationPromptAnswers(
+      { id: 'backupBcContainerDatabases' },
+      {
+        containerSelection: ''
+      }
+    ),
+    {}
+  );
+});
+
+test('maps backup container name aliases so choice prompts can reject them', () => {
+  assert.deepEqual(
+    mcpServer.getOperationPromptAnswers(
+      { id: 'backupBcContainerDatabases' },
+      {
+        containerSelection: 'newdritest'
+      }
+    ),
+    {
+      'selectIndex.Select.container.for.SQL.backup.export.': 'newdritest',
+      'selectIndex.Select.container.for.SQL.backup.restore.': 'newdritest'
+    }
+  );
+});
