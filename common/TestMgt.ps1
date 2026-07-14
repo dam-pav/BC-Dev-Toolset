@@ -17,6 +17,379 @@ function Get-BcConfigurationCredentialValues {
     }
 }
 
+function Copy-BcDevToolsetPsObject {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $InputObject
+    )
+
+    $copy = [PSCustomObject]@{}
+    foreach ($property in $InputObject.PSObject.Properties) {
+        $copy | Add-Member -MemberType NoteProperty -Name $property.Name -Value $property.Value
+    }
+    return $copy
+}
+
+function Get-TestContainerConfigurations {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON
+    )
+
+    return @($settingsJSON.configurations | Where-Object {
+        $_.targetType -eq "Dev" -and $_.serverType -eq "Container" -and -not [string]::IsNullOrWhiteSpace($_.container)
+    })
+}
+
+function Get-ExecuteTestsInContainerName {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON
+    )
+
+    if ($settingsJSON.PSObject.Properties['executeTestsInContainerName'] -and -not [string]::IsNullOrWhiteSpace($settingsJSON.executeTestsInContainerName)) {
+        return ([string]$settingsJSON.executeTestsInContainerName).Trim()
+    }
+
+    return ""
+}
+
+function Select-TestContainerConfiguration {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON
+    )
+
+    $configurations = @(Get-TestContainerConfigurations -settingsJSON $settingsJSON)
+    if ($configurations.Count -eq 0) {
+        throw "No Dev Container configurations with a non-empty container value found. Cannot execute tests."
+    }
+
+    $configuredContainerName = Get-ExecuteTestsInContainerName -settingsJSON $settingsJSON
+    if ($configurations.Count -eq 1) {
+        $configuration = $configurations[0]
+        if ([string]::IsNullOrWhiteSpace($configuredContainerName)) {
+            Write-Host "Only one Dev container configuration is available and executeTestsInContainerName is empty. Tests will run in '$($configuration.container)' without backup restore or app deployment." -ForegroundColor Blue
+            return [PSCustomObject]@{
+                Configuration = $configuration
+                PrepareContainer = $false
+            }
+        }
+
+        if ($configuration.container -ne $configuredContainerName) {
+            Write-Host "The configured executeTestsInContainerName value '$configuredContainerName' was not found among Dev container configurations." -ForegroundColor Red
+        }
+
+        return [PSCustomObject]@{
+            Configuration = $configuration
+            PrepareContainer = $true
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($configuredContainerName)) {
+        $matchingConfigurations = @($configurations | Where-Object { $_.container -eq $configuredContainerName })
+        if ($matchingConfigurations.Count -eq 1) {
+            return [PSCustomObject]@{
+                Configuration = $matchingConfigurations[0]
+                PrepareContainer = $true
+            }
+        }
+
+        Write-Host "The configured executeTestsInContainerName value '$configuredContainerName' was not found among Dev container configurations." -ForegroundColor Red
+    }
+
+    $options = @()
+    foreach ($configuration in $configurations) {
+        $options += "$($configuration.name) ($($configuration.container))"
+    }
+
+    $selectedIndex = Select-IndexFromList `
+        -Title "Select the container configuration to execute tests in:" `
+        -Options $options `
+        -DefaultIndex 0
+
+    return [PSCustomObject]@{
+        Configuration = $configurations[$selectedIndex]
+        PrepareContainer = $true
+    }
+}
+
+function New-TestExecutionSettings {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration
+    )
+
+    $testSettings = Copy-BcDevToolsetPsObject -InputObject $settingsJSON
+    $testSettings.configurations = @($configuration)
+    return $testSettings
+}
+
+function Restore-TestContainerBackupIfExists {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration
+    )
+
+    if (-not $configuration.PSObject.Properties['sqlBackupPath'] -or [string]::IsNullOrWhiteSpace($configuration.sqlBackupPath)) {
+        Write-Host "No sqlBackupPath is configured for '$($configuration.name)'. Skipping database restore." -ForegroundColor Gray
+        return
+    }
+
+    $backupRootPath = Get-SqlBackupRootPath `
+        -scriptPath $scriptPath `
+        -sqlBackupPath $configuration.sqlBackupPath
+
+    if ([string]::IsNullOrWhiteSpace($backupRootPath) -or -not (Test-Path -Path $backupRootPath -PathType Container)) {
+        Write-Host "No SQL backup set folder found for '$($configuration.name)'. Skipping database restore." -ForegroundColor Gray
+        return
+    }
+
+    $backupEntries = @(Get-SqlBackupSetEntries -backupRootPath $backupRootPath)
+    if ($backupEntries.Count -eq 0) {
+        Write-Host "No compatible .bak files found in '$backupRootPath'. Skipping database restore." -ForegroundColor Gray
+        return
+    }
+
+    $sharedRestorePath = Copy-SqlBackupSetToSharedFolder `
+        -containerName $configuration.container `
+        -backupRootPath $backupRootPath `
+        -sharedFolderName "TestRestore"
+
+    Write-Host ""
+    Write-Host "Restoring SQL backup set to container '$($configuration.container)'." -ForegroundColor Green
+    Write-Host "Backup folder: $backupRootPath" -ForegroundColor Gray
+    Restore-DatabasesInBcContainer `
+        -containerName $configuration.container `
+        -bakFolder $sharedRestorePath
+
+    Write-Host "SQL backup set restored to container '$($configuration.container)'." -ForegroundColor Green
+}
+
+function Get-TestWorkspaceAppJson {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $workspaceJSON
+    )
+
+    $appJSON = @{}
+    foreach ($appPath in $workspaceJSON.folders.path) {
+        Get-AppJSON `
+            -scriptPath $scriptPath `
+            -appPath $appPath `
+            -appJSON ([ref]$appJSON)
+
+        if ($appJSON.application) {
+            return $appJSON
+        }
+    }
+
+    throw "Artifact URL could not be determined because no app.json with an application version was found."
+}
+
+function Get-TestSelectArtifact {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $workspaceJSON
+    )
+
+    if ($workspaceJSON.settings."dam-pav.bcdevtoolset".selectArtifact) {
+        return $workspaceJSON.settings."dam-pav.bcdevtoolset".selectArtifact
+    }
+
+    return "Closest"
+}
+
+function Export-TestContainerBackupSet {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration
+    )
+
+    Assert-SqlBackupPath `
+        -sqlBackupPath $configuration.sqlBackupPath `
+        -operationName "creating an initial test container SQL backup" `
+        -configurationName $configuration.name
+
+    $exportRootPath = Get-SqlBackupRootPath `
+        -scriptPath $scriptPath `
+        -sqlBackupPath $configuration.sqlBackupPath
+
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $sharedBackupPath = Join-Path $hostHelperFolder "Extensions\$($configuration.container)\SqlBackups\$timestamp"
+    New-Item -ItemType Directory -Path $sharedBackupPath -Force | Out-Null
+    New-Item -ItemType Directory -Path $exportRootPath -Force | Out-Null
+
+    Write-Host ""
+    Write-Host "Creating initial SQL backup set for container '$($configuration.container)'." -ForegroundColor Green
+    Write-Host "Shared working folder: $sharedBackupPath" -ForegroundColor Gray
+    Write-Host "Export folder: $exportRootPath" -ForegroundColor Gray
+
+    Backup-BcContainerDatabases `
+        -containerName $configuration.container `
+        -bakFolder $sharedBackupPath
+
+    Get-ChildItem -Path $exportRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue |
+        Remove-Item -Force
+
+    $backupMap = @(Get-BcContainerDatabaseBackupMap -containerName $configuration.container)
+    foreach ($backupItem in $backupMap) {
+        $sourceFile = Join-Path $sharedBackupPath $backupItem.HelperFileName
+        if (-not (Test-Path -Path $sourceFile -PathType Leaf)) {
+            Write-Host "Expected backup file '$sourceFile' was not created; skipping." -ForegroundColor Yellow
+            continue
+        }
+        Move-Item -Path $sourceFile -Destination (Join-Path $exportRootPath $backupItem.ExportFileName) -Force
+    }
+
+    Remove-Item -Path $sharedBackupPath -Force -Recurse
+
+    Write-Host "Initial SQL backup set exported for container '$($configuration.container)'." -ForegroundColor Green
+}
+
+function New-TestExecutionContainerIfMissing {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $workspaceJSON,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $testSettings,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration
+    )
+
+    $null = docker container inspect $configuration.container 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        return $false
+    }
+
+    Write-Host "Container '$($configuration.container)' does not exist. Creating it before executing tests." -ForegroundColor Yellow
+
+    Clear-Artifacts -scriptPath $scriptPath -workspaceJSON $workspaceJSON
+
+    $pullFullArtifact = (Confirm-Option `
+        -question "Do you want to perform a complete pull of all artifacts? This will take longer but ensure you have the latest base image and artifacts. Do this if your previous pull attempt resulted in errors during container deployment, such as version mismatches between data and components." `
+        -defaultYes:$false `
+        -PromptId "tests.createMissingContainer.pullFullArtifact" `
+        -Risk "Downloads fresh artifacts and can significantly increase container creation time.")
+    if ($pullFullArtifact) {
+        Write-Host "All artifacts will be pulled." -ForegroundColor Blue
+    }
+
+    $appJSON = Get-TestWorkspaceAppJson `
+        -scriptPath $scriptPath `
+        -workspaceJSON $workspaceJSON
+
+    $selectArtifact = Get-TestSelectArtifact -workspaceJSON $workspaceJSON
+
+    $success = New-DockerContainer `
+        -testMode $false `
+        -scriptPath $scriptPath `
+        -appJSON $appJSON `
+        -settingsJSON $testSettings `
+        -selectArtifact $selectArtifact `
+        -pullFullArtifact $pullFullArtifact
+
+    if ($success -ne $true) {
+        throw "Container '$($configuration.container)' could not be created."
+    }
+
+    Write-Host ""
+    Write-Host "Applying server configuration to the new test container." -ForegroundColor Green
+    Update-ContainerServerConfiguration `
+        -settingsJSON $testSettings
+
+    if (-not (Test-DockerContainerRunning -containerName $configuration.container)) {
+        throw "Container '$($configuration.container)' was created but is not running."
+    }
+
+    Export-TestContainerBackupSet `
+        -scriptPath $scriptPath `
+        -configuration $configuration
+
+    return $true
+}
+
+function Initialize-TestExecutionContainer {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $workspaceJSON
+    )
+
+    $selection = Select-TestContainerConfiguration -settingsJSON $settingsJSON
+    $configuration = $selection.Configuration
+    $containerName = $configuration.container
+
+    if (-not (Confirm-Option `
+        -question "Do you want to execute tests in the '$containerName' container?" `
+        -PromptId "tests.executeInContainer" `
+        -Risk "Creates the container and an initial backup if missing, restores a configured SQL backup set if present, publishes dependencies and all workspace apps, then executes tests in the selected container." `
+        -AgentAllowed $true `
+        -Destructive $true)) {
+        Write-Host "Test execution aborted." -ForegroundColor Yellow
+        return $null
+    }
+
+    $testSettings = New-TestExecutionSettings `
+        -settingsJSON $settingsJSON `
+        -configuration $configuration
+
+    $containerWasCreated = New-TestExecutionContainerIfMissing `
+        -scriptPath $scriptPath `
+        -settingsJSON $settingsJSON `
+        -workspaceJSON $workspaceJSON `
+        -testSettings $testSettings `
+        -configuration $configuration
+
+    if (-not (Test-DockerContainerRunning -containerName $containerName)) {
+        throw "Container '$containerName' exists but is not running."
+    }
+
+    if (-not $selection.PrepareContainer) {
+        return $testSettings
+    }
+
+    if ($containerWasCreated) {
+        Write-Host "Skipping SQL backup restore because the backup set was just created from the new container." -ForegroundColor Gray
+    } else {
+        Restore-TestContainerBackupIfExists `
+            -scriptPath $scriptPath `
+            -configuration $configuration
+    }
+
+    Write-Host ""
+    Write-Host "Deploying dependencies to '$containerName'." -ForegroundColor Green
+    Publish-Dependencies `
+        -settingsJSON $testSettings `
+        -targetType "Dev"
+
+    Write-Host ""
+    Write-Host "Deploying all workspace apps to '$containerName'." -ForegroundColor Green
+    Publish-Apps `
+        -scriptPath $scriptPath `
+        -settingsJSON $testSettings `
+        -workspaceJSON $workspaceJSON `
+        -targetType "Dev" `
+        -publishAsDev $true
+
+    return $testSettings
+}
+
 function Invoke-Tests {
     Param (
         [Parameter(Mandatory=$true)]
@@ -90,48 +463,26 @@ function Invoke-PageScriptTests {
 
     # Check if node/npm is available
     if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-        Write-Error "npm is not installed or not in PATH. Please install Node.js."
+        Write-Host "npm is not installed or not in PATH. Run the 'Install prerequisites' operation, restart PowerShell if needed, and try again." -ForegroundColor Red
         return
     }
 
     # Check minimum version for node.js is 24
     $nodeVersionOutput = node --version
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to get node.js version. Ensure node.js is installed and working."
+        Write-Host "Failed to get Node.js version. Run the 'Install prerequisites' operation, restart PowerShell if needed, and try again." -ForegroundColor Red
         return
     }
     $nodeVersion = [version]($nodeVersionOutput.Trim() -replace "^v", "")
     if ($nodeVersion.Major -lt 24) {
-        Write-Error "node.js version 24 or higher is required. Current version: $nodeVersion"
+        Write-Host "Node.js version 24 or higher is required. Current version: $nodeVersion. Run the 'Install prerequisites' operation, restart PowerShell if needed, and try again." -ForegroundColor Red
         return
     }
 
-    Write-Host "Installing/Updating @microsoft/bc-replay..." -ForegroundColor Blue
-    # Install latest version
-    npm install @microsoft/bc-replay@latest
-    
-    # Loop 'npm audit fix --force' until 0 vulnerabilities or max retries reached
-    $maxRetries = 50
-    $retry = 0
-    do {
-        $retry++
-        Write-Host "Running npm audit fix --force (Attempt $retry/$maxRetries)..." -ForegroundColor Blue
-        npm audit fix --force # | Out-Null
-        
-        # Capture audit result
-        try {
-            $auditJson = npm audit --json | Out-String | ConvertFrom-Json
-            $vulnCount = $auditJson.metadata.vulnerabilities.total
-        } catch {
-             $vulnCount = -1
-        }
-        
-        if ($vulnCount -eq 0) {
-            Write-Host "All vulnerabilities resolved." -ForegroundColor Green
-            break
-        }
-        Write-Host "Remaining vulnerabilities: $vulnCount" -ForegroundColor Yellow
-    } until ($vulnCount -eq 0 -or $retry -ge $maxRetries)
+    if (-not (Get-Command replay -ErrorAction SilentlyContinue)) {
+        Write-Host "@microsoft/bc-replay is not installed or the replay command is not in PATH. Run the 'Install prerequisites' operation, restart PowerShell if needed, and try again." -ForegroundColor Red
+        return
+    }
 
     foreach ($configuration in $($settingsJSON.configurations | Where-Object  { $_.targetType -eq $targetType })) {
         Write-Host "Running page script tests on '$($configuration.name)'." -ForegroundColor Blue
@@ -202,8 +553,7 @@ function Invoke-PageScriptTests {
         $relativeRecPath = Resolve-Path $recordingsPath -Relative
         $testPattern = Join-Path $relativeRecPath "*.yml"
 
-        $npxArgs = @(
-            "replay",
+        $replayArgs = @(
             "-Tests", $testPattern,
             "-StartAddress", $baseUrl,
             "-Authentication", "UserPassword",
@@ -213,9 +563,9 @@ function Invoke-PageScriptTests {
         )
 
         if ($settingsJSON.pageScriptTestHeaded) {
-            $npxArgs += "-Headed"
+            $replayArgs += "-Headed"
         }
 
-        npx $npxArgs
+        & replay @replayArgs
     }
 }

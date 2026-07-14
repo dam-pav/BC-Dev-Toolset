@@ -5,6 +5,7 @@ const path = require('path');
 const childProcess = require('child_process');
 const http = require('http');
 const os = require('os');
+const bridgeIdentity = require('./mcp-bridge-identity');
 
 const defaultProtocolVersion = '2025-11-25';
 const toolsetPath = process.env.BCDEVTOOLSET_MCP_TOOLSET_PATH || path.resolve(__dirname, '..');
@@ -15,21 +16,22 @@ const defaultWorkspaceFile = process.env.BCDEVTOOLSET_MCP_WORKSPACE_FILE || '';
 const defaultWorkspaceContext = parseJsonEnvironmentValue(process.env.BCDEVTOOLSET_MCP_WORKSPACE_CONTEXT);
 const defaultLocalSettingsPath = process.env.BCDEVTOOLSET_MCP_LOCAL_SETTINGS_PATH || '';
 const defaultPowerShellExecutable = process.env.BCDEVTOOLSET_MCP_POWERSHELL_EXECUTABLE || 'pwsh';
-const bridgeStatePath = process.env.BCDEVTOOLSET_MCP_BRIDGE_STATE_PATH || path.join(os.tmpdir(), 'bc-dev-toolset-mcp', 'vscode-bridge.json');
-const bridgeState = readBridgeState();
-const bridgeUrl = process.env.BCDEVTOOLSET_MCP_BRIDGE_URL || bridgeState.url || '';
-const bridgeToken = process.env.BCDEVTOOLSET_MCP_BRIDGE_TOKEN || bridgeState.token || '';
+const bridgeStateDirectory = process.env.BCDEVTOOLSET_MCP_BRIDGE_STATE_DIR || path.join(os.tmpdir(), 'bc-dev-toolset-mcp', 'instances');
+const bridgeBinding = resolveBridgeBinding();
+const bridgeUrl = bridgeBinding.url || '';
+const bridgeToken = bridgeBinding.token || '';
 const outputLimit = 60000;
 
 let inputBuffer = Buffer.alloc(0);
 let waitingForMessageLogged = false;
 let transportMode = 'unknown';
+let bridgeHandshakePromise;
 
 function startServer() {
   log(`started pid=${process.pid} node=${process.execPath}`);
   log(`toolsetPath=${toolsetPath}`);
-  log(`bridgeUrl=${bridgeUrl || '(none)'}`);
-  log(`bridgeStatePath=${bridgeStatePath || '(none)'}`);
+  log(`bridge=${bridgeBinding.instanceId ? `instance=${bridgeBinding.instanceId} protocol=${bridgeBinding.protocolVersion} extensionHostPid=${bridgeBinding.extensionHostPid}` : '(none)'}`);
+  log(`workspace=${(bridgeBinding.workspace && (bridgeBinding.workspace.workspaceFilePath || bridgeBinding.workspace.workspacePath)) || '(none)'}`);
 
   process.stdin.on('data', (chunk) => {
     log(`stdin ${chunk.length} bytes`);
@@ -231,7 +233,7 @@ function getServerInstructions() {
     'Before answering questions about the active VS Code workspace, workspace file, workspace folders, AL project path, app.json location, .code-workspace settings, local .bcdevtoolset settings path, or AL settings such as assembly probing paths, call bc_dev_toolset_get_workspace or read bcdevtoolset://workspace/current. Do not infer the workspace by scanning parent folders unless this tool/resource is unavailable.',
     'PowerShell-backed operations require the VS Code terminal bridge and run visibly in the BC Dev Toolset terminal. If the bridge is unavailable, report that the BC Dev Toolset VS Code extension must be active instead of falling back to manual PowerShell.',
     'Use bc_dev_toolset_show_active_licenses for requests about the current container license. Use bc_dev_toolset_new_docker_container for creating or recreating containers.',
-    'When an operation returns status "waiting_for_input", you MUST call bc_dev_toolset_answer_operation_prompt with the sessionId and the user\'s answer. Do not retry the original operation. Do not ask the user to type in the terminal. The answer is relayed through MCP to the running script.'
+    'When an operation returns status "waiting_for_input", you MUST call bc_dev_toolset_answer_operation_prompt with the sessionId and the user\'s answer. Do not retry the original operation. Do not start a different operation tool to answer a prompt. Do not ask the user to type in the terminal unless the prompt is sensitive or says autonomous agent decisions are not allowed. The answer is relayed through MCP to the running script.'
   ].join('\n');
 }
 
@@ -242,8 +244,7 @@ function getProtocolVersion(message) {
 }
 
 function getTools() {
-  const tools = getOperationTools();
-  tools.push(
+  const tools = [
     {
       name: 'bc_dev_toolset_get_workspace',
       description: 'Use this tool first whenever the user asks about the current workspace, active VS Code workspace file, workspace folders, AL project context, app.json location, .code-workspace settings, local .bcdevtoolset settings path, or AL settings such as assembly probing paths. Returns the active VS Code workspace context known to BC Dev Toolset. Do not guess by scanning folders before calling this.',
@@ -278,13 +279,22 @@ function getTools() {
             description: 'Session ID returned by the waiting operation.'
           },
           answer: {
-            type: 'string',
-            description: 'Prompt answer. Use yes/no for confirmation prompts; use the requested text or choice value for other prompt types.'
+            anyOf: [
+              { type: 'string' },
+              { type: 'boolean' },
+              { type: 'number' }
+            ],
+            description: 'Prompt answer. Use yes/no or true/false for confirmation prompts; use the requested text or choice value for other prompt types.'
+          },
+          statusTimeoutSeconds: {
+            type: 'number',
+            description: 'Optional seconds to wait for the resumed operation to complete or reach another prompt. Defaults to 3600.'
           }
         }
       }
     }
-  );
+  ];
+  tools.push(...getOperationTools());
   if (shouldExposeGenericTools()) {
     tools.push(
       {
@@ -570,7 +580,7 @@ function getOperationToolDescription(operation) {
   const confirmationText = operation.requiresConfirmation
     ? ' This operation changes state and requires confirm: true.'
     : '';
-  return `BC Dev Toolset: ${operation.title}. Category: ${operation.category}.${aliasText}${confirmationText}`;
+  return `BC Dev Toolset: ${operation.title}. Category: ${operation.category}.${aliasText}${confirmationText} This starts a new operation. Do not use this tool to answer a pending operation prompt; when a result says waiting_for_input, use bc_dev_toolset_answer_operation_prompt with the returned sessionId instead.`;
 }
 
 function getOperationToolAliases(operationId) {
@@ -599,8 +609,8 @@ function getOperationToolAliases(operationId) {
       ];
     case 'invokeTests':
       return [
-        'run automated tests in configured containers',
-        'run Business Central tests'
+        'run AL test tool tests',
+        'run Business Central AL test tool tests'
       ];
     case 'invokePageScriptTests':
       return [
@@ -629,8 +639,60 @@ function getOperationToolInputSchema(operation) {
     timeoutSeconds: {
       type: 'number',
       description: getOperationTimeoutDescription(operation)
+    },
+    promptAnswers: {
+      type: 'object',
+      description: 'Optional answers for known operation prompts, keyed by prompt ID. Use this when the answer is already clear and the MCP client may not reliably make a follow-up bc_dev_toolset_answer_operation_prompt call. Example for testing: {"selectIndex.Select.the.container.configuration.to.execute.tests.in.":"2","tests.executeInContainer":"yes"}.',
+      additionalProperties: {
+        anyOf: [
+          { type: 'string' },
+          { type: 'boolean' },
+          { type: 'number' }
+        ]
+      }
     }
   };
+
+  if (isTestOperation(operation)) {
+    properties.testContainerSelection = {
+      anyOf: [
+        { type: 'string' },
+        { type: 'number' }
+      ],
+      description: 'Optional 1-based choice for the test container configuration prompt. Use this when selecting among displayed options, for example 2 for option 2. Defaults to 1.'
+    };
+    properties.executeTestsInContainer = {
+      anyOf: [
+        { type: 'boolean' },
+        { type: 'string' }
+      ],
+      description: 'Optional answer for the "execute tests in this container" prompt. Defaults to true/yes when the test operation is requested.'
+    };
+    properties.pullFullArtifact = {
+      anyOf: [
+        { type: 'boolean' },
+        { type: 'string' }
+      ],
+      description: 'Optional answer for pulling all artifacts when a missing test container must be created. Defaults to false/no.'
+    };
+  }
+
+  if (isContainerBackupOperation(operation)) {
+    properties.containerSelection = {
+      anyOf: [
+        { type: 'string' },
+        { type: 'number' }
+      ],
+      description: 'Optional 1-based choice for the SQL backup container selection prompt. Use 2 for option 2. Non-choice values are rejected when the prompt validates available choices.'
+    };
+    properties.backupContainerSelection = {
+      anyOf: [
+        { type: 'string' },
+        { type: 'number' }
+      ],
+      description: 'Alias for containerSelection.'
+    };
+  }
 
   if (operation.requiresConfirmation) {
     properties.confirm = {
@@ -726,6 +788,7 @@ async function runOperationInTerminal(operation, args, progress) {
     workspacePath: args.workspacePath,
     workspaceFile: args.workspaceFile,
     localSettingsPath: args.localSettingsPath,
+    promptAnswers: getOperationPromptAnswers(operation, args),
     timeoutSeconds: getTerminalTimeoutSeconds(operation, args)
   });
 
@@ -735,23 +798,115 @@ async function runOperationInTerminal(operation, args, progress) {
 
   const bridgeResult = response.body || {};
   const completed = bridgeResult.status === 'completed';
+  const running = bridgeResult.status === 'running';
   const startedOnly = bridgeResult.status === 'started';
   const waitingForInput = bridgeResult.status === 'waiting_for_input';
+  const promptAnswered = bridgeResult.status === 'prompt_answered';
+  if (promptAnswered && bridgeResult.sessionId) {
+    const followUpStatus = await waitForOperationStatusAfterPrompt(
+      bridgeResult.sessionId,
+      getPromptAnswerStatusTimeoutSeconds(args)
+    );
+    return textResult([
+      `Status: ${bridgeResult.status}`,
+      `Session ID: ${bridgeResult.sessionId}`,
+      `Answer: ${bridgeResult.answer}`,
+      '',
+      'FOLLOW-UP STATUS:',
+      formatOperationStatus(followUpStatus)
+    ].join('\n'), followUpStatus.status === 'failed');
+  }
+  const displayOperationTitle = bridgeResult.operationTitle || operation.title;
+  const displayOperationId = bridgeResult.operationId || operation.id;
   return textResult([
-    `Operation: ${operation.title}`,
-    `Operation ID: ${operation.id}`,
+    `Operation: ${displayOperationTitle}`,
+    `Operation ID: ${displayOperationId}`,
     `Status: ${bridgeResult.status || 'unknown'}`,
+    bridgeResult.blockedByPendingPrompt ? `Blocked operation ID: ${bridgeResult.blockedOperationId || operation.id}` : '',
     bridgeResult.sessionId ? `Session ID: ${bridgeResult.sessionId}` : '',
     typeof bridgeResult.exitCode === 'number' ? `Exit code: ${bridgeResult.exitCode}` : '',
     bridgeResult.exitCodeSource ? `Exit code source: ${bridgeResult.exitCodeSource}` : '',
     `Terminal: ${bridgeResult.terminalName || 'BC Dev Toolset PowerShell terminal'}`,
     waitingForInput
-      ? formatPendingPromptInstruction(bridgeResult)
+      ? `${bridgeResult.blockedByPendingPrompt ? 'Instruction: Another BC Dev Toolset operation is already waiting for input. Do not start a different operation until this prompt is answered.\n' : ''}${formatPendingPromptInstruction(bridgeResult)}`
+      : promptAnswered
+      ? 'Instruction: A pending prompt for this operation was answered from promptAnswers and the existing visible VS Code terminal operation has resumed. Do not call this operation tool again. Call bc_dev_toolset_get_operation_status with this session ID to check completion and captured output.'
+      : running && bridgeResult.reusedExistingOperation
+      ? 'Instruction: This operation is already running in the visible VS Code terminal. Do not start it again. Call bc_dev_toolset_get_operation_status with this session ID to check completion and captured output.'
+      : running
+      ? 'Instruction: The operation is running visibly in the VS Code terminal. Call bc_dev_toolset_get_operation_status with this session ID to check completion and captured output.'
       : startedOnly
       ? 'Instruction: The operation is running visibly in the VS Code terminal. Terminal output capture was unavailable, so watch that terminal for progress and final output.'
       : 'Instruction: The operation ran visibly in the VS Code terminal. Use the captured terminal output below as the MCP result.',
     bridgeResult.output ? ['', 'TERMINAL OUTPUT:', truncateOutput(bridgeResult.output)].join('\n') : ''
-  ].filter((line) => line !== '').join('\n'), !completed && !startedOnly && !waitingForInput);
+  ].filter((line) => line !== '').join('\n'), !completed && !running && !startedOnly && !waitingForInput && !promptAnswered);
+}
+
+function isTestOperation(operation) {
+  return operation && (operation.id === 'invokeTests' || operation.id === 'invokePageScriptTests');
+}
+
+function isContainerBackupOperation(operation) {
+  return operation && (operation.id === 'backupBcContainerDatabases' || operation.id === 'restoreBcContainerDatabases');
+}
+
+function getOperationPromptAnswers(operation, args = {}) {
+  const promptAnswers = {};
+  if (isTestOperation(operation)) {
+    promptAnswers['selectIndex.Select.the.container.configuration.to.execute.tests.in.'] = normalizePromptAliasAnswer(args.testContainerSelection, '1');
+    promptAnswers['tests.executeInContainer'] = normalizePromptAliasAnswer(args.executeTestsInContainer, 'yes');
+    promptAnswers['tests.createMissingContainer.pullFullArtifact'] = normalizePromptAliasAnswer(args.pullFullArtifact, 'no');
+  }
+  if (isContainerBackupOperation(operation)) {
+    const containerSelection = normalizePromptChoiceAliasAnswer(
+      args.containerSelection ?? args.backupContainerSelection,
+      ''
+    );
+    if (containerSelection) {
+      promptAnswers['selectIndex.Select.container.for.SQL.backup.export.'] = containerSelection;
+      promptAnswers['selectIndex.Select.container.for.SQL.backup.restore.'] = containerSelection;
+    }
+  }
+
+  if (args.promptAnswers && typeof args.promptAnswers === 'object' && !Array.isArray(args.promptAnswers)) {
+    for (const [promptId, answer] of Object.entries(args.promptAnswers)) {
+      const normalizedPromptId = String(promptId || '').trim();
+      if (normalizedPromptId) {
+        promptAnswers[normalizedPromptId] = answer;
+      }
+    }
+  }
+
+  return promptAnswers;
+}
+
+function normalizePromptAliasAnswer(value, defaultValue) {
+  if (typeof value === 'boolean') {
+    return value ? 'yes' : 'no';
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+
+  return defaultValue;
+}
+
+function normalizePromptChoiceAliasAnswer(value, defaultValue) {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+    return String(value);
+  }
+
+  if (typeof value === 'string') {
+    const trimmedValue = value.trim();
+    return trimmedValue || defaultValue;
+  }
+
+  return defaultValue;
 }
 
 async function getOperationStatus(args) {
@@ -778,12 +933,14 @@ async function answerOperationPrompt(args) {
   }
 
   const sessionId = String(args.sessionId || '').trim();
-  const answer = String(args.answer || '').trim();
+  let answer;
+  try {
+    answer = normalizePromptToolAnswer(args.answer);
+  } catch (error) {
+    return textResult(error.message, true);
+  }
   if (!sessionId) {
     return textResult('sessionId is required.', true);
-  }
-  if (!answer) {
-    return textResult('answer is required.', true);
   }
 
   const response = await postBridgeJson('/prompt/answer', { sessionId, answer });
@@ -791,18 +948,85 @@ async function answerOperationPrompt(args) {
     return textResult(`Failed to answer BC Dev Toolset prompt: ${response.body.error || response.rawBody}`, true);
   }
 
+  const followUpStatus = await waitForOperationStatusAfterPrompt(
+    response.body.sessionId || sessionId,
+    getPromptAnswerStatusTimeoutSeconds(args)
+  );
   return textResult([
     `Status: ${response.body.status}`,
     `Session ID: ${response.body.sessionId}`,
     `Answer: ${response.body.answer}`,
-    'Instruction: The operation has resumed in the visible VS Code terminal. Call bc_dev_toolset_get_operation_status with this session ID to check completion and captured output.'
-  ].join('\n'));
+    '',
+    'FOLLOW-UP STATUS:',
+    formatOperationStatus(followUpStatus)
+  ].join('\n'), followUpStatus.status === 'failed');
+}
+
+async function waitForOperationStatusAfterPrompt(sessionId, timeoutSeconds) {
+  const timeoutMs = timeoutSeconds * 1000;
+  const startedAt = Date.now();
+  let lastStatus = { status: 'running', sessionId };
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    const response = await postBridgeJson('/operation-status', { sessionId });
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return {
+        status: 'failed',
+        sessionId,
+        result: {
+          output: `Failed to get BC Dev Toolset operation status: ${response.body.error || response.rawBody}`
+        }
+      };
+    }
+
+    lastStatus = response.body || { status: 'unknown', sessionId };
+    if (['completed', 'failed', 'waiting_for_input', 'unknown'].includes(lastStatus.status)) {
+      return lastStatus;
+    }
+
+    await delay(1000);
+  }
+
+  return {
+    ...lastStatus,
+    status: lastStatus.status || 'running',
+    timedOutWaitingForCompletion: true
+  };
+}
+
+function getPromptAnswerStatusTimeoutSeconds(args = {}) {
+  const requestedTimeoutSeconds = Number(args.statusTimeoutSeconds);
+  if (Number.isFinite(requestedTimeoutSeconds) && requestedTimeoutSeconds > 0) {
+    return requestedTimeoutSeconds;
+  }
+
+  return 3600;
+}
+
+function normalizePromptToolAnswer(answer) {
+  if (typeof answer === 'boolean') {
+    return answer;
+  }
+
+  if (typeof answer === 'number' && Number.isFinite(answer)) {
+    return String(answer);
+  }
+
+  if (typeof answer === 'string') {
+    const trimmedAnswer = answer.trim();
+    if (!trimmedAnswer) {
+      throw new Error('answer is required.');
+    }
+    return trimmedAnswer;
+  }
+
+  throw new Error('answer is required.');
 }
 
 function formatPendingPromptInstruction(bridgeResult) {
   const prompt = bridgeResult.prompt || {};
   const answerHint = prompt.type === 'confirm'
-    ? "answer 'yes' or 'no'"
+    ? "answer 'yes'/'no' or true/false"
     : 'answer with the requested text or choice value';
   const lines = [
     'Instruction: The operation is waiting for input and remains paused in the visible VS Code terminal.',
@@ -870,10 +1094,42 @@ function shouldUseTerminalBridge() {
   return Boolean(bridgeUrl && bridgeToken);
 }
 
-function postBridgeJson(route, body) {
+async function postBridgeJson(route, body) {
+  if (route !== '/handshake') {
+    bridgeHandshakePromise ||= validateBridgeHandshake();
+    await bridgeHandshakePromise;
+  }
+  return postBridgeJsonRaw(route, body);
+}
+
+async function validateBridgeHandshake() {
+  const response = await postBridgeJsonRaw('/handshake', {});
+  const identity = response.body || {};
+  if (response.statusCode < 200 || response.statusCode >= 300 ||
+      identity.protocolVersion !== bridgeBinding.protocolVersion ||
+      identity.instanceId !== bridgeBinding.instanceId ||
+      identity.extensionHostPid !== bridgeBinding.extensionHostPid) {
+    throw new Error('BC Dev Toolset bridge handshake mismatch; refusing to route across VS Code windows.');
+  }
+  const expectedWorkspace = bridgeBinding.workspace || {};
+  const actualWorkspace = identity.workspace || {};
+  if ((expectedWorkspace.workspaceFilePath || expectedWorkspace.workspacePath) !==
+      (actualWorkspace.workspaceFilePath || actualWorkspace.workspacePath)) {
+    throw new Error('BC Dev Toolset bridge workspace handshake mismatch; refusing the request.');
+  }
+}
+
+function postBridgeJsonRaw(route, body) {
   return new Promise((resolve, reject) => {
     const url = new URL(route, bridgeUrl);
-    const content = JSON.stringify(body || {});
+    const content = JSON.stringify({
+      ...(body || {}),
+      binding: {
+        protocolVersion: bridgeBinding.protocolVersion,
+        instanceId: bridgeBinding.instanceId,
+        extensionHostPid: bridgeBinding.extensionHostPid
+      }
+    });
     const request = http.request(url, {
       method: 'POST',
       headers: {
@@ -909,14 +1165,31 @@ function postBridgeJson(route, body) {
   });
 }
 
-function readBridgeState() {
-  if (!bridgeStatePath || !fs.existsSync(bridgeStatePath)) {
-    return {};
-  }
+function delay(timeoutMs) {
+  return new Promise((resolve) => setTimeout(resolve, timeoutMs));
+}
 
+function resolveBridgeBinding() {
+  const directUrl = process.env.BCDEVTOOLSET_MCP_BRIDGE_URL || '';
+  if (directUrl) {
+    const state = bridgeIdentity.createState({
+      instanceId: process.env.BCDEVTOOLSET_MCP_BRIDGE_INSTANCE_ID || '',
+      url: directUrl,
+      token: process.env.BCDEVTOOLSET_MCP_BRIDGE_TOKEN || '',
+      extensionHostPid: Number(process.env.BCDEVTOOLSET_MCP_EXTENSION_HOST_PID),
+      workspace: defaultWorkspaceContext || getFallbackWorkspaceContext()
+    });
+    const error = bridgeIdentity.validateState(state);
+    if (error || Number(process.env.BCDEVTOOLSET_MCP_BRIDGE_PROTOCOL_VERSION) !== bridgeIdentity.protocolVersion) {
+      log(`direct bridge binding rejected: ${error || 'protocol version mismatch'}`);
+      return {};
+    }
+    return state;
+  }
   try {
-    return JSON.parse(fs.readFileSync(bridgeStatePath, 'utf8'));
+    return bridgeIdentity.discoverState(bridgeStateDirectory, process.cwd());
   } catch (error) {
+    log(`bridge discovery unavailable: ${error.message}`);
     return {};
   }
 }
@@ -1121,6 +1394,9 @@ module.exports = {
     setInputBuffer: (value) => {
       inputBuffer = Buffer.from(value, 'utf8');
     },
+    getTools,
+    getOperationPromptAnswers,
+    normalizePromptToolAnswer,
     tryReadRawJsonMessage
   }
 };

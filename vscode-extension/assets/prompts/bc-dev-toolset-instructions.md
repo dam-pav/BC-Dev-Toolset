@@ -21,7 +21,7 @@ When working with Business Central AL projects, use the **BC Dev Toolset** MCP s
 | **Publishing** | `bc_dev_toolset_publish_runtime_apps2_production` — Publish runtime packages to production |
 | **Publishing** | `bc_dev_toolset_unpublish_docker_apps` — Unpublish apps from Docker |
 | **Publishing** | `bc_dev_toolset_unpublish_test_apps` — Unpublish apps from test |
-| **Testing** | `bc_dev_toolset_invoke_tests` — Run tests in all containers |
+| **Testing** | `bc_dev_toolset_invoke_tests` — Run AL test tool tests |
 | **Testing** | `bc_dev_toolset_invoke_page_script_tests` — Run page script tests |
 | **Backups** | `bc_dev_toolset_backup_bc_container_databases` — Backup Docker container databases |
 | **Backups** | `bc_dev_toolset_backup_bc_service_databases` — Backup BC service databases |
@@ -41,4 +41,5 @@ When working with Business Central AL projects, use the **BC Dev Toolset** MCP s
 3. **Runtime packages** — Use `bc_dev_toolset_create_runtime_package` only when the user explicitly asks for runtime packages. Do not use it as a substitute for AL compile/build/validation.
 4. **Compile/build requests** — Use a matching compile/build MCP tool when one exists. If no matching tool is available, normal AL CLI compilation with the discovered workspace settings is appropriate.
 5. **Terminal bridge** — PowerShell-backed MCP operations require the BC Dev Toolset VS Code extension terminal bridge. If the MCP tool reports the bridge is unavailable, tell the user to start or reload the VS Code extension host.
-6. **PowerShell fallback** — Manual PowerShell/terminal commands are appropriate only for work not covered by a `bc_dev_toolset_*` MCP tool, for reading local files, and for normal codebase maintenance.
+6. **Prompt answers** — If an operation returns `waiting_for_input`, call `bc_dev_toolset_answer_operation_prompt` with the returned `sessionId`. If the answer is already known before starting an operation, pass it in the operation tool's `promptAnswers` object keyed by prompt ID. For test operations, prefer the explicit `testContainerSelection`, `executeTestsInContainer`, and `pullFullArtifact` inputs. For container backup operations, prefer `containerSelection`.
+7. **PowerShell fallback** — Manual PowerShell/terminal commands are appropriate only for work not covered by a `bc_dev_toolset_*` MCP tool, for reading local files, and for normal codebase maintenance.

@@ -12,6 +12,7 @@ const {
   runCodexMcpIntegrationTransition,
   updateCodexMcpConfigContent
 } = require('./codex-mcp-config');
+const bridgeIdentity = require('./mcp-bridge-identity');
 
 let extensionContext;
 let runtimeSyncPromise;
@@ -24,6 +25,8 @@ let mcpBridgeServer;
 let mcpBridgeUrl;
 let mcpBridgeToken;
 let mcpBridgeStatePath;
+let mcpBridgeInstanceId;
+let mcpBridgeWorkspace;
 const mcpPromptSessions = new Map();
 const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
@@ -156,6 +159,8 @@ function activate(context) {
 function deactivate() {}
 
 function startMcpBridgeServer(context) {
+  mcpBridgeInstanceId = crypto.randomUUID();
+  mcpBridgeWorkspace = getMcpWorkspaceContext();
   mcpBridgeToken = crypto.randomBytes(32).toString('hex');
   mcpBridgeServer = http.createServer((request, response) => {
     void handleMcpBridgeRequest(request, response);
@@ -190,7 +195,11 @@ function startMcpPromptSessionCleanup() {
 }
 
 function getMcpBridgeStatePath(context) {
-  return path.join(os.tmpdir(), 'bc-dev-toolset-mcp', 'vscode-bridge.json');
+  return path.join(getMcpBridgeStateDirectory(context), `${mcpBridgeInstanceId}.json`);
+}
+
+function getMcpBridgeStateDirectory(context) {
+  return path.join(os.tmpdir(), 'bc-dev-toolset-mcp', 'instances');
 }
 
 function writeMcpBridgeState(context) {
@@ -198,14 +207,18 @@ function writeMcpBridgeState(context) {
     return;
   }
 
-  mcpBridgeStatePath = getMcpBridgeStatePath(context);
-  fs.mkdirSync(path.dirname(mcpBridgeStatePath), { recursive: true });
-  fs.writeFileSync(mcpBridgeStatePath, `${JSON.stringify({
+  const stateDirectory = getMcpBridgeStateDirectory(context);
+  bridgeIdentity.cleanupStates(stateDirectory);
+  // Version 1.2.6 and earlier used a last-writer-wins file one directory above.
+  fs.rmSync(path.join(path.dirname(stateDirectory), bridgeIdentity.legacyStateFileName), { force: true });
+  const state = bridgeIdentity.createState({
+    instanceId: mcpBridgeInstanceId,
     url: mcpBridgeUrl,
     token: mcpBridgeToken,
-    pid: process.pid,
-    updatedAt: new Date().toISOString()
-  }, null, 2)}\n`, 'utf8');
+    extensionHostPid: process.pid,
+    workspace: mcpBridgeWorkspace
+  });
+  mcpBridgeStatePath = bridgeIdentity.writeOwnedState(stateDirectory, state);
 }
 
 function removeMcpBridgeState() {
@@ -228,6 +241,15 @@ async function handleMcpBridgeRequest(request, response) {
     }
 
     const body = await readRequestBody(request);
+    const bindingError = validateMcpBridgeBinding(body);
+    if (bindingError) {
+      writeMcpBridgeResponse(response, 409, { error: bindingError });
+      return;
+    }
+    if (request.url === '/handshake') {
+      writeMcpBridgeResponse(response, 200, getMcpBridgePublicIdentity());
+      return;
+    }
     if (request.url === '/prompt/request') {
       await handleMcpPromptRequest(body, response);
       return;
@@ -258,12 +280,36 @@ async function handleMcpBridgeRequest(request, response) {
       writeMcpBridgeResponse(response, 400, { error: 'operationId is required.' });
       return;
     }
+    const requestedPaths = [body.workspacePath, body.workspaceFile, body.localSettingsPath].filter(Boolean);
+    if (requestedPaths.some((candidate) => !bridgeIdentity.workspaceOwnsPath(mcpBridgeWorkspace, candidate))) {
+      writeMcpBridgeResponse(response, 409, { error: 'The requested workspace does not belong to this bound BC Dev Toolset bridge.' });
+      return;
+    }
+
+    const promptAnswerResult = answerWaitingMcpPromptFromPromptAnswers(operationId, body.promptAnswers);
+    if (promptAnswerResult) {
+      writeMcpBridgeResponse(response, promptAnswerResult.status === 'failed' ? 400 : 200, promptAnswerResult);
+      return;
+    }
+
+    const existingOperationResult = getExistingMcpOperationForPromptAnswers(operationId, body.promptAnswers);
+    if (existingOperationResult) {
+      writeMcpBridgeResponse(response, existingOperationResult.status === 'failed' ? 400 : 200, existingOperationResult);
+      return;
+    }
+
+    const blockingPromptResult = getBlockingMcpPromptForOperationStart(operationId);
+    if (blockingPromptResult) {
+      writeMcpBridgeResponse(response, 200, blockingPromptResult);
+      return;
+    }
 
     const timeoutSeconds = Number(body.timeoutSeconds);
     const result = await runOperationByIdForMcp(operationId, {
       workspacePath: body.workspacePath,
       workspaceFile: body.workspaceFile,
       localSettingsPath: body.localSettingsPath,
+      promptAnswers: body.promptAnswers,
       timeoutMs: Number.isFinite(timeoutSeconds) && timeoutSeconds > 0
         ? timeoutSeconds * 1000
         : undefined
@@ -294,6 +340,22 @@ async function handleMcpPromptRequest(body, response) {
   touchMcpPromptSession(session);
   writeOutput(`BC Dev Toolset MCP operation is waiting for input: ${promptRequest.question || promptRequest.id || '(unknown prompt)'}`);
 
+  let automaticAnswer;
+  try {
+    automaticAnswer = getMcpAutomaticPromptAnswer(session, promptRequest);
+  } catch (error) {
+    writeOutput(`BC Dev Toolset MCP pre-supplied answer for prompt '${promptRequest.id}' was rejected: ${error.message}`);
+  }
+  if (automaticAnswer) {
+    session.status = 'running';
+    session.answer = automaticAnswer;
+    session.respondedAt = new Date().toISOString();
+    touchMcpPromptSession(session);
+    writeOutput(`BC Dev Toolset MCP operation prompt '${promptRequest.id}' was answered from pre-supplied MCP promptAnswers.`);
+    writeMcpBridgeResponse(response, 200, automaticAnswer);
+    return;
+  }
+
   await new Promise((resolve) => {
     response.setTimeout(0);
     session.resolvePrompt = (answer) => {
@@ -306,6 +368,177 @@ async function handleMcpPromptRequest(body, response) {
     };
     requestCleanupOnResponseClose(response, session);
   });
+}
+
+function getMcpBridgePublicIdentity() {
+  return {
+    protocolVersion: bridgeIdentity.protocolVersion,
+    instanceId: mcpBridgeInstanceId,
+    extensionHostPid: process.pid,
+    workspace: mcpBridgeWorkspace
+  };
+}
+
+function validateMcpBridgeBinding(body) {
+  const binding = body && body.binding;
+  if (!bridgeIdentity.validateBinding({ instanceId: mcpBridgeInstanceId, extensionHostPid: process.pid }, binding)) {
+    return 'MCP bridge identity mismatch. The request was rejected to prevent cross-window routing.';
+  }
+  return '';
+}
+
+function getMcpAutomaticPromptAnswer(session, prompt) {
+  if (!session || !prompt || prompt.sensitive) {
+    return undefined;
+  }
+
+  const promptId = String(prompt.id || '').trim();
+  if (!promptId || !session.promptAnswers || typeof session.promptAnswers !== 'object') {
+    return undefined;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(session.promptAnswers, promptId)) {
+    return undefined;
+  }
+
+  const normalizedAnswer = normalizeMcpPromptAnswer(session.promptAnswers[promptId], prompt);
+  return { answer: normalizedAnswer, answeredBy: 'mcp-promptAnswers' };
+}
+
+function normalizeMcpPromptAnswers(promptAnswers) {
+  if (!promptAnswers || typeof promptAnswers !== 'object' || Array.isArray(promptAnswers)) {
+    return {};
+  }
+
+  const normalizedPromptAnswers = {};
+  for (const [promptId, answer] of Object.entries(promptAnswers)) {
+    const normalizedPromptId = String(promptId || '').trim();
+    if (normalizedPromptId) {
+      normalizedPromptAnswers[normalizedPromptId] = answer;
+    }
+  }
+
+  return normalizedPromptAnswers;
+}
+
+function answerWaitingMcpPromptFromPromptAnswers(operationId, promptAnswers) {
+  const normalizedPromptAnswers = normalizeMcpPromptAnswers(promptAnswers);
+  if (Object.keys(normalizedPromptAnswers).length === 0) {
+    return undefined;
+  }
+
+  const normalizedOperationId = String(operationId || '').trim();
+  for (const session of mcpPromptSessions.values()) {
+    if (
+      session.operationId !== normalizedOperationId ||
+      session.status !== 'waiting_for_input' ||
+      !session.resolvePrompt ||
+      !session.prompt
+    ) {
+      continue;
+    }
+
+    const promptId = String(session.prompt.id || '').trim();
+    if (!Object.prototype.hasOwnProperty.call(normalizedPromptAnswers, promptId)) {
+      continue;
+    }
+
+    if (session.prompt.sensitive) {
+      return {
+        status: 'failed',
+        sessionId: session.sessionId,
+        operationId: session.operationId,
+        operationTitle: session.operationTitle,
+        error: 'Sensitive prompts cannot be answered through MCP promptAnswers.'
+      };
+    }
+
+    let normalizedAnswer;
+    try {
+      normalizedAnswer = normalizeMcpPromptAnswer(normalizedPromptAnswers[promptId], session.prompt);
+    } catch (error) {
+      return {
+        status: 'failed',
+        sessionId: session.sessionId,
+        operationId: session.operationId,
+        operationTitle: session.operationTitle,
+        prompt: session.prompt,
+        error: error.message
+      };
+    }
+
+    session.resolvePrompt({ answer: normalizedAnswer, answeredBy: 'mcp-promptAnswers-operation-call' });
+    session.resolvePrompt = undefined;
+    return {
+      status: 'prompt_answered',
+      sessionId: session.sessionId,
+      operationId: session.operationId,
+      operationTitle: session.operationTitle,
+      terminalName: session.terminalName,
+      prompt: session.prompt,
+      answer: normalizedAnswer
+    };
+  }
+
+  return undefined;
+}
+
+function getExistingMcpOperationForPromptAnswers(operationId, promptAnswers) {
+  const normalizedPromptAnswers = normalizeMcpPromptAnswers(promptAnswers);
+  if (Object.keys(normalizedPromptAnswers).length === 0) {
+    return undefined;
+  }
+
+  const normalizedOperationId = String(operationId || '').trim();
+  const matchingSessions = [...mcpPromptSessions.values()]
+    .filter((session) => session.operationId === normalizedOperationId && session.capture)
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.updatedAt || left.startedAt || '') || 0;
+      const rightTime = Date.parse(right.updatedAt || right.startedAt || '') || 0;
+      return rightTime - leftTime;
+    });
+
+  const session = matchingSessions[0];
+  if (!session) {
+    return undefined;
+  }
+
+  const status = getMcpOperationStatus({ sessionId: session.sessionId });
+  if (status.status !== 'running' && status.status !== 'waiting_for_input') {
+    return undefined;
+  }
+
+  return {
+    ...status,
+    reusedExistingOperation: true
+  };
+}
+
+function getBlockingMcpPromptForOperationStart(operationId) {
+  const normalizedOperationId = String(operationId || '').trim();
+  const waitingSessions = [...mcpPromptSessions.values()]
+    .filter((session) => (
+      session.status === 'waiting_for_input' &&
+      session.resolvePrompt &&
+      session.prompt &&
+      session.operationId !== normalizedOperationId
+    ))
+    .sort((left, right) => {
+      const leftTime = Date.parse(left.updatedAt || left.startedAt || '') || 0;
+      const rightTime = Date.parse(right.updatedAt || right.startedAt || '') || 0;
+      return rightTime - leftTime;
+    });
+
+  const session = waitingSessions[0];
+  if (!session) {
+    return undefined;
+  }
+
+  return {
+    ...getMcpPromptSessionSnapshot(session),
+    blockedOperationId: normalizedOperationId,
+    blockedByPendingPrompt: true
+  };
 }
 
 function requestCleanupOnResponseClose(response, session) {
@@ -336,7 +569,12 @@ function answerMcpPrompt(body) {
     return { status: 'failed', sessionId, error: 'Sensitive prompts cannot be answered through MCP.' };
   }
 
-  const normalizedAnswer = normalizeMcpPromptAnswer(answer, prompt);
+  let normalizedAnswer;
+  try {
+    normalizedAnswer = normalizeMcpPromptAnswer(answer, prompt);
+  } catch (error) {
+    return { status: 'failed', sessionId, error: error.message };
+  }
   session.resolvePrompt({ answer: normalizedAnswer, answeredBy: 'mcp' });
   session.resolvePrompt = undefined;
   return { status: 'answered', sessionId, answer: normalizedAnswer };
@@ -350,12 +588,12 @@ function normalizeMcpPromptAnswer(answer, prompt = {}) {
   const value = String(answer || '').trim().toLowerCase();
   if (prompt.type && prompt.type !== 'confirm') {
     if (!value && prompt.default) {
-      return String(prompt.default);
+      return validateMcpPromptChoice(String(prompt.default), prompt);
     }
     if (!value) {
       throw new Error('answer is required.');
     }
-    return String(answer).trim();
+    return validateMcpPromptChoice(String(answer).trim(), prompt);
   }
 
   if (['yes', 'y', 'true', '1'].includes(value)) {
@@ -366,6 +604,20 @@ function normalizeMcpPromptAnswer(answer, prompt = {}) {
   }
 
   throw new Error('answer must be yes or no.');
+}
+
+function validateMcpPromptChoice(answer, prompt = {}) {
+  if (!Array.isArray(prompt.choices) || prompt.choices.length === 0) {
+    return answer;
+  }
+
+  const normalizedAnswer = String(answer || '').trim();
+  const allowedChoices = prompt.choices.map((choice) => String(choice).trim());
+  if (allowedChoices.includes(normalizedAnswer)) {
+    return normalizedAnswer;
+  }
+
+  throw new Error(`answer must be one of: ${allowedChoices.join(', ')}`);
 }
 
 function getMcpOperationStatus(body) {
@@ -411,6 +663,7 @@ function getOrCreateMcpPromptSession(sessionId) {
     sessionId,
     status: 'running',
     prompt: undefined,
+    promptAnswers: undefined,
     answer: undefined,
     startedAt: now,
     updatedAt: now,
@@ -553,8 +806,11 @@ function registerMcpServerDefinitionProvider(context) {
       await waitForMcpBridgeServer();
       server.env = {
         ...server.env,
-      BCDEVTOOLSET_MCP_BRIDGE_URL: mcpBridgeUrl || '',
-      BCDEVTOOLSET_MCP_BRIDGE_TOKEN: mcpBridgeToken || ''
+        BCDEVTOOLSET_MCP_BRIDGE_URL: mcpBridgeUrl || '',
+        BCDEVTOOLSET_MCP_BRIDGE_TOKEN: mcpBridgeToken || '',
+        BCDEVTOOLSET_MCP_BRIDGE_INSTANCE_ID: mcpBridgeInstanceId || '',
+        BCDEVTOOLSET_MCP_BRIDGE_PROTOCOL_VERSION: String(bridgeIdentity.protocolVersion),
+        BCDEVTOOLSET_MCP_EXTENSION_HOST_PID: String(process.pid)
       };
       return server;
     }
@@ -583,7 +839,10 @@ function createMcpServerDefinition(context) {
       BCDEVTOOLSET_MCP_EXTENSION_VERSION: mcpServerVersion,
       BCDEVTOOLSET_MCP_BRIDGE_URL: mcpBridgeUrl || '',
       BCDEVTOOLSET_MCP_BRIDGE_TOKEN: mcpBridgeToken || '',
-      BCDEVTOOLSET_MCP_BRIDGE_STATE_PATH: mcpBridgeStatePath || getMcpBridgeStatePath(context),
+      BCDEVTOOLSET_MCP_BRIDGE_INSTANCE_ID: mcpBridgeInstanceId || '',
+      BCDEVTOOLSET_MCP_BRIDGE_PROTOCOL_VERSION: String(bridgeIdentity.protocolVersion),
+      BCDEVTOOLSET_MCP_EXTENSION_HOST_PID: String(process.pid),
+      BCDEVTOOLSET_MCP_BRIDGE_STATE_DIR: getMcpBridgeStateDirectory(context),
       BCDEVTOOLSET_SHORTCUTS: getShortcutMode(),
       BCDEVTOOLSET_HOST_HELPER_FOLDER: getHostHelperFolder(),
       ELECTRON_RUN_AS_NODE: '1'
@@ -609,6 +868,10 @@ async function showMcpStatus() {
     `MCP server file exists: ${serverPath ? fs.existsSync(serverPath) : false}`,
     `MCP Node executable: ${nodeExecutable}`,
     `MCP terminal bridge: ${mcpBridgeUrl || '(not ready)'}`,
+    `MCP protocol version: ${bridgeIdentity.protocolVersion}`,
+    `MCP bound instance: ${mcpBridgeInstanceId || '(not ready)'}`,
+    `Extension-host PID: ${process.pid}`,
+    `MCP bound workspace: ${(mcpBridgeWorkspace && (mcpBridgeWorkspace.workspaceFilePath || mcpBridgeWorkspace.workspacePath)) || '(not ready)'}`,
     `MCP bridge state: ${mcpBridgeStatePath || (extensionContext ? getMcpBridgeStatePath(extensionContext) : '(not ready)')}`,
     `Toolset path: ${getToolsetPath()}`,
     `Codex integration setting: ${formatCodexMcpIntegrationSetting(integrationSetting)}`,
@@ -762,7 +1025,11 @@ async function applyCodexMcpConfiguration(context) {
 
   const configPath = getCodexConfigPath();
   const existingContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
-  const updatedContent = updateCodexMcpConfigContent(existingContent, { mcpServerPath, toolsetPath });
+  const updatedContent = updateCodexMcpConfigContent(existingContent, {
+    mcpServerPath,
+    toolsetPath,
+    bridgeStateDirectory: getMcpBridgeStateDirectory(context)
+  });
   const configChanged = writeFileWithBackupIfChanged(configPath, updatedContent);
   const agentsResult = ensureCodexGlobalAgentsInstructions();
   return {
@@ -1165,13 +1432,17 @@ function getOptionalLocalSettingsPath() {
 function getMcpWorkspaceContext() {
   const workspaceFolders = (vscode.workspace.workspaceFolders || []).map((folder) => ({
     name: folder.name,
-    path: folder.uri.fsPath
+    path: folder.uri.fsPath,
+    uri: folder.uri.toString()
   }));
   const activeAlProjectPath = getActiveAlProjectPath(workspaceFolders.map((folder) => folder.path));
   const appJsonPath = activeAlProjectPath ? path.join(activeAlProjectPath, 'app.json') : '';
 
   return {
     source: 'vscode',
+    workspaceUri: vscode.workspace.workspaceFile
+      ? vscode.workspace.workspaceFile.toString()
+      : (workspaceFolders[0] && workspaceFolders[0].uri) || '',
     workspacePath: getOptionalWorkspacePath(),
     workspaceFilePath: getOptionalWorkspaceFileName(),
     workspaceBasePath: getOptionalValue(getWorkspaceBasePath),
@@ -2021,6 +2292,7 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
   const session = getOrCreateMcpPromptSession(capture.sessionId);
   session.operationId = operation.id;
   session.operationTitle = operation.title;
+  session.promptAnswers = normalizeMcpPromptAnswers(options.promptAnswers);
   touchMcpPromptSession(session);
   const { command, powershellExecutable } = buildOperationTerminalCommand(operation, toolsetPath, {
     nonInteractive: false,
@@ -2081,12 +2353,14 @@ function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
     ? [
         `$env:BCDEVTOOLSET_MCP_SESSION_ID = ${quotePowerShellArgument(options.mcpSessionId)}`,
         `$env:BCDEVTOOLSET_MCP_PROMPT_URL = ${quotePowerShellArgument(`${mcpBridgeUrl}/prompt/request`)}`,
-        `$env:BCDEVTOOLSET_MCP_PROMPT_TOKEN = ${quotePowerShellArgument(mcpBridgeToken)}`
+        `$env:BCDEVTOOLSET_MCP_PROMPT_TOKEN = ${quotePowerShellArgument(mcpBridgeToken)}`,
+        `$env:BCDEVTOOLSET_MCP_PROMPT_BINDING = ${quotePowerShellArgument(JSON.stringify({ protocolVersion: bridgeIdentity.protocolVersion, instanceId: mcpBridgeInstanceId, extensionHostPid: process.pid }))}`
       ].join('; ') + '; '
     : [
         '$env:BCDEVTOOLSET_MCP_SESSION_ID = $null',
         '$env:BCDEVTOOLSET_MCP_PROMPT_URL = $null',
-        '$env:BCDEVTOOLSET_MCP_PROMPT_TOKEN = $null'
+        '$env:BCDEVTOOLSET_MCP_PROMPT_TOKEN = $null',
+        '$env:BCDEVTOOLSET_MCP_PROMPT_BINDING = $null'
       ].join('; ') + '; ';
 
   const command =

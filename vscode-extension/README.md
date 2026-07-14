@@ -73,6 +73,8 @@ PowerShell-backed operations still run in the visible `BC Dev Toolset: <PowerShe
 
 Some operations require confirmation before they start. If an operation asks a supported question while running, the visible terminal shows the question and the operation pauses. The agent may answer low-risk operational questions when it has enough context, but sensitive prompts and destructive user decisions still require you to choose. Operations started from the Command Palette keep the normal terminal behavior and can always be answered directly in the terminal.
 
+MCP operation tools also accept a `promptAnswers` object keyed by prompt ID. Agents can use it to pre-supply known answers when the decision is already clear. Test operations expose `testContainerSelection`, `executeTestsInContainer`, and `pullFullArtifact` inputs and automatically pre-supply routine defaults; container backup operations expose `containerSelection` for the target container choice.
+
 You do not need to know the MCP tool names for normal use. Ask the agent for the BC Dev Toolset action you want, and the MCP server exposes focused operation tools for the agent to choose from.
 
 ### Codex
@@ -83,7 +85,7 @@ Automatic maintenance is disabled while running an Extension Development Host so
 
 Run `BC Dev Toolset: Disable Codex MCP Integration` to opt out and remove the extension-managed MCP entry and global instructions.
 
-The Codex MCP server uses the same VS Code terminal bridge for PowerShell-backed operations. Keep the BC Dev Toolset extension active in VS Code when you want Codex to run operations in the visible terminal and read the captured results.
+The Codex MCP server uses the VS Code terminal bridge belonging to the current workspace for PowerShell-backed operations. Multiple VS Code windows are supported concurrently: each extension host publishes an isolated, authenticated instance, and a Codex MCP process binds once to the live instance that owns its startup working directory. Keep the BC Dev Toolset extension active in each workspace where Codex should run operations in that window's visible terminal. A request whose workspace or bridge identity does not match is rejected instead of being routed to another window.
 
 ## Other prerequisites
 
@@ -116,7 +118,7 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 
 ### Tests
 
-- `Run tests in all containers`: Runs tests across configured container targets.
+- `Run AL test tool tests`: Runs Business Central AL test tool tests.
 - `Run page script tests`: Runs page script test recordings and writes the results to the configured output location.
 
 ### Publish
@@ -144,12 +146,12 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 ### Prerequisites
 
 - `Show BcContainerHelper versions (installed and available)`: Shows the installed and available BcContainerHelper versions.
-- `Install/Update Prerequisites`: Installs and updates the main prerequisites used by the toolset, including BcContainerHelper.
+- `Install/Update Prerequisites`: Installs and updates the main prerequisites used by the toolset, including BcContainerHelper, Node.js, and @microsoft/bc-replay.
 - `Install/Update Microsoft PowerShell`: Updates the Windows PowerShell installation used for the toolkit setup flow.
 
 ### MCP Configuration
 
-- `Show MCP status`: Shows the extension MCP API, server, terminal bridge, and runtime status.
+- `Show MCP status`: Shows the extension MCP API, server, protocol/instance identity, bound workspace, terminal bridge, and runtime status. Authentication tokens are never displayed.
 - `Configure Codex MCP integration`: Enables automatic maintenance, adds or updates the BC Dev Toolset MCP server entry in Codex configuration, and adds managed global Codex instructions.
 - `Disable Codex MCP integration`: Disables automatic maintenance and removes the extension-managed Codex MCP entry and global instructions.
 
@@ -178,6 +180,7 @@ These are stored in the workspace file under `dam-pav.bcdevtoolset`.
 
 - `country`: Business Central artifact country code. Default: `w1`.
 - `selectArtifact`: Artifact selection strategy. Default: `Closest`. Common values are `Closest` and `Latest`.
+- `executeTestsInContainerName`: Optional container name used by Test operations. If empty and only one Dev Container configuration exists, tests run there without backup restore or app deployment. If empty, or if the value is not found and multiple Dev Container configurations exist, Test operations ask which configured container to use. If the selected container is missing, it is created and an initial SQL backup set is exported before tests continue.
 - `configurations`: Shared target definitions for the workspace. These are useful when a team wants common environment entries available to everyone.
 
 Each workspace `configuration` entry can contain:

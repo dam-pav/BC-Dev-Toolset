@@ -57,13 +57,15 @@ PowerShell-backed operations still run in the visible `BC Dev Toolset: <PowerShe
 
 Some operations require confirmation before they start. If an operation asks a supported question while running, the visible terminal shows the question and the operation pauses. The agent may answer low-risk operational questions when it has enough context, but sensitive prompts and destructive user decisions still require you to choose. Operations started from the Command Palette keep the normal terminal behavior and can always be answered directly in the terminal.
 
+MCP operation tools also accept a `promptAnswers` object keyed by prompt ID. Agents can use it to pre-supply known answers when the decision is already clear. Test operations expose `testContainerSelection`, `executeTestsInContainer`, and `pullFullArtifact` inputs and automatically pre-supply routine defaults; container backup operations expose `containerSelection` for the target container choice.
+
 You do not need to know the MCP tool names for normal use. Ask the agent for the BC Dev Toolset action you want, and the MCP server exposes focused operation tools for the agent to choose from.
 
 #### Codex
 
 Codex does not automatically discover MCP servers contributed through the VS Code extension API. Run `BC Dev Toolset: Configure Codex MCP Integration` to add or update the `bc-dev-toolset` MCP server entry in your Codex configuration. The operation enables automatic configuration maintenance and adds managed global Codex instructions so Codex knows to use BC Dev Toolset MCP operations in your AL workspaces. After an extension upgrade, the extension updates the versioned MCP server path on its first activation; restart Codex afterward to load the new server. Run `BC Dev Toolset: Disable Codex MCP Integration` to opt out and remove the managed configuration. You do not need to add these instructions to each AL repository.
 
-The Codex MCP server uses the same VS Code terminal bridge for PowerShell-backed operations. Keep the BC Dev Toolset extension active in VS Code when you want Codex to run operations in the visible terminal and read the captured results.
+The Codex MCP server uses the VS Code terminal bridge belonging to the current workspace for PowerShell-backed operations. Multiple VS Code windows are supported concurrently: each extension host publishes an isolated, authenticated instance, and a Codex MCP process binds once to the live instance that owns its startup working directory. Keep the extension active in each workspace where Codex should run operations in that window's visible terminal. Cross-workspace bridge requests fail closed.
 
 ## Prerequisites
 
@@ -227,6 +229,47 @@ Starting a new workspace should be easy.
 2. I do recommend to add **`launch.json`** to *.gitignore*. These files are personalized per developer and managed by the toolset.
 3. You can now create your first Docker container.
 
+## Backup & Restore
+
+Be aware that backup and restore work only within the context of the same BC release. The database defines the version which is limited to running on a specific platform (service). You cannot use this to "upgrade" your data in a meaningful way, say use a configuration from BC22 in BC27.
+
+That said; you can maintain data persistence in a couple of ways. One is to use the backup and restore functionality of *BcContainerHelper*. You can backup the current state of your container and restore it later, or share it with other developers. You can retrieve the state of a central test database and use it with your development to find test scenarios more easily or skip tedious configuration.
+
+SQL backup operations create and consume a compatible backup set in each Container configuration's *sqlBackupPath*. Different container configurations can use different folders; set the same folder on multiple Container configurations only when sharing the backup set is intentional. When more than one Container configuration has a non-empty *sqlBackupPath*, container backup and restore operations ask which container to use; container backup also offers an option to back up all qualified containers. Missing or stopped containers are reported and skipped.
+
+Backup files are classified by suffix: *\<name\>.app.bak* for the application database, *\<name\>.tenant.bak* for multitenant tenant databases, or *\<name\>.database.bak* for a single-tenant database. Container backups add the container name to the exported file name to avoid collisions when multiple containers share the same internal database names. Regular BC service SQL Server backups use the database name directly.
+
+To retrieve bak files from a SQL Server host you will require credentials with the ability to create remote Powershell sessions to the SQL Server host.
+
+You can follow the naming convention manually and prepare a bak file set manually, if you find yourself unable to use the toolset backup scripts. A regular Microsoft artifact-based container is multitenant and contains an application database plus tenant databases.
+
+### Backup
+
+Container backups created by the toolset use this naming convention: *<container\>.<database\>.\*.bak*. The container name in the exported file name identifies the backup's origin. Existing *.bak* files in the selected *sqlBackupPath* are replaced when a new backup set is exported, so file name collisions are not preserved across backup runs.
+
+BC service SQL Server backups use the same role suffixes without adding a container name: *<database\>.app.bak*, *<database\>.tenant.bak*, or *<database\>.database.bak*. They are exported to every distinct *sqlBackupPath* configured on Container configurations.
+
+### Restore
+
+Restore is based on the selected folder's content. It looks for \*.app.bak, \*.tenant.bak, and \*.database.bak files and does not require file names to start with the target container name. You can copy a compatible backup set into the target configuration's *sqlBackupPath* and restore it from there.
+
+## Testing
+
+The Tests group contains two operations:
+
+- *Run AL test tool tests* runs Business Central AL test tool tests with *Run-TestsInBcContainer*.
+- *Run page script tests* runs page scripting recordings from *recordingsPath* and writes results to *pageScriptTestResultsPath*.
+
+Both operations execute against a Dev Container configuration. If only one Dev Container configuration exists and *executeTestsInContainerName* is empty, tests run in that container as-is: no backup restore and no app deployment are performed.
+
+If *executeTestsInContainerName* is set, or if multiple Dev Container configurations are available, the operation resolves the configured container name or asks which configured container to use. It then asks for explicit confirmation before running tests in that container.
+
+When a selected container does not exist, the operation creates it from the selected configuration and immediately exports an initial SQL backup set to that configuration's *sqlBackupPath*. Because that backup was just created from the new container, restore is skipped for that run.
+
+When preparation is required for an existing selected container, the operation restores the SQL backup set from *sqlBackupPath* if compatible backup files exist, publishes dependency apps, publishes all workspace apps including test apps, and then executes the tests.
+
+Page script tests additionally require Node.js 24 or newer and the *@microsoft/bc-replay* command-line tool. The test operation verifies these prerequisites and exits cleanly if they are missing. Run the *Install prerequisites* operation to install or update them.
+
 ## Setup
 
 ### *.gitignore*
@@ -265,6 +308,7 @@ to remove the files from git. You will need to commit these changes. Beware, thi
     "dam-pav.bcdevtoolset": {
       "country": "w1",
       "selectArtifact": "Closest",
+      "executeTestsInContainerName": "",
       "configurations":  [
         {
           "name": "Local",
@@ -301,7 +345,6 @@ to remove the files from git. You will need to commit these changes. Beware, thi
     }
   }
 }
-
 ```
 
 #### Folders
@@ -332,6 +375,7 @@ These are stored in the `.code-workspace` file under the root attribute `dam-pav
 
 - `country`: Optional platform country version. The default is `w1`.
 - `selectArtifact`: Artifact selection strategy. Common values are `Closest` and `Latest`.
+- `executeTestsInContainerName`: Optional container name used by Test operations. If empty and only one Dev Container configuration exists, tests run there without backup restore or app deployment. If empty, or if the value is not found and multiple Dev Container configurations exist, Test operations ask which configured container to use. If the selected container is missing, it is created and an initial SQL backup set is exported before tests continue.
 - `configurations`: Shared list of deployment targets for the workspace.
 
 #### Configurations
@@ -392,17 +436,3 @@ These settings are stored in `.bcdevtoolset/settings.json`:
 > Point is, using ***configurations*** in BC Dev Toolset supplements and does not collide with standard launch setup.
 >
 > BC Dev Toolset doesn't initialize launch setup at workspace level at this time.
-
-## Additional Notes
-
-### Backup & Restore
-
-Be aware that backup and restore work only within the context of the same BC release. The database defines the version which is limited to running on a specific platform (service). You cannot use this to "upgrade" your data in a meaningful way, say use a configuration from BC22 in BC27.
-
-That said; you can maintain data persistence in a couple of ways. One is to use the backup and restore functionality of *BcContainerHelper*. You can backup the current state of your container and restore it later, or share it with other developers. You can retrieve the state of a central test database and use it with your development to find test scenarios more easily or skip tedious configuration.
-
-SQL backup operations create and consume a compatible backup set in each Container configuration's *sqlBackupPath*. Different container configurations can use different folders; set the same folder on multiple Container configurations only when sharing the backup set is intentional. When more than one Container configuration has a non-empty *sqlBackupPath*, container backup and restore operations ask which container to use; backup also offers an option to back up all qualified containers. Missing or stopped containers are reported and skipped. Container backups and regular BC service SQL Server backups use the same file naming convention: *\<database\>.app.bak* for the application database, *\<database\>.tenant.bak* for multitenant tenant databases, or *\<database\>.database.bak* for a single-tenant database.
-
-To retrieve bak files from a SQL Server host you will require credentials with the ability to create remote Powershell sessions to the SQL Server host.
-
-You can follow the naming convention manually and prepare a bak file set manually, if you find yourself unable to use the toolset backup scripts. A regular MS artifact based container is multi-tenant and contains three databases. *CRONUS* is the app database while the other two, *default* and *tenant*, are tenant databases.

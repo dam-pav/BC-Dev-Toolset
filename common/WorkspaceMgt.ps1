@@ -630,7 +630,8 @@ function Request-BcDevToolsetMcpPrompt {
     $promptUrl = $env:BCDEVTOOLSET_MCP_PROMPT_URL
     $promptToken = $env:BCDEVTOOLSET_MCP_PROMPT_TOKEN
     $sessionId = $env:BCDEVTOOLSET_MCP_SESSION_ID
-    if ([string]::IsNullOrWhiteSpace($promptUrl) -or [string]::IsNullOrWhiteSpace($promptToken) -or [string]::IsNullOrWhiteSpace($sessionId)) {
+    $promptBinding = $env:BCDEVTOOLSET_MCP_PROMPT_BINDING
+    if ([string]::IsNullOrWhiteSpace($promptUrl) -or [string]::IsNullOrWhiteSpace($promptToken) -or [string]::IsNullOrWhiteSpace($sessionId) -or [string]::IsNullOrWhiteSpace($promptBinding)) {
         return $null
     }
 
@@ -642,6 +643,7 @@ function Request-BcDevToolsetMcpPrompt {
 
     $body = @{
         sessionId = $sessionId
+        binding = $promptBinding | ConvertFrom-Json
         prompt = @{
             id = $effectivePromptId
             type = $Type
@@ -754,7 +756,9 @@ function Select-IndexFromList {
         [Parameter(Mandatory=$true)]
         [array] $Options,
         [Parameter(Mandatory=$false)]
-        [int] $DefaultIndex = 0
+        [int] $DefaultIndex = 0,
+        [Parameter(Mandatory=$false)]
+        [bool] $AgentAllowed = $false
     )
 
     if (-not $Options -or $Options.Count -eq 0) {
@@ -773,7 +777,7 @@ function Select-IndexFromList {
 
     while ($true) {
         $prompt = "Select an option [1..{0}] (Enter={1}): " -f $Options.Count, ($DefaultIndex+1)
-        $selection = Request-BcDevToolsetMcpPrompt -PromptId "selectIndex.$($Title -replace '[^A-Za-z0-9]+', '.')" -Type 'choice' -Question $prompt -DefaultValue "$($DefaultIndex + 1)" -Choices @(1..$Options.Count | ForEach-Object { "$_" }) -Risk "Selects one of the displayed options."
+        $selection = Request-BcDevToolsetMcpPrompt -PromptId "selectIndex.$($Title -replace '[^A-Za-z0-9]+', '.')" -Type 'choice' -Question $prompt -DefaultValue "$($DefaultIndex + 1)" -Choices @(1..$Options.Count | ForEach-Object { "$_" }) -Risk "Selects one of the displayed options." -AgentAllowed $AgentAllowed
         if ($null -eq $selection) {
             $selection = Read-Host -Prompt $prompt
         } else {
@@ -881,6 +885,12 @@ function Initialize-Context {
     }
 
     $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name country -Value $country -Force
+
+    $executeTestsInContainerName = ""
+    if ($workspaceJSON.value.settings."dam-pav.bcdevtoolset".executeTestsInContainerName) {
+        $executeTestsInContainerName = $workspaceJSON.value.settings."dam-pav.bcdevtoolset".executeTestsInContainerName
+    }
+    $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value $executeTestsInContainerName -Force
 
     # Add missing defaults
     if ($null -eq $settingsJSONvalue.shortcuts) {
@@ -1580,7 +1590,6 @@ Import-NAVServerLicense -LicenseFile '$escapedContainerLicenseFile' -ServerInsta
                 )
                 Write-Host "SQL backup restore detected. The license will be imported before NAV user setup because BcContainerHelper skips -licenseFile for restored bakFolder databases." -ForegroundColor Yellow
             }
-
             New-BcContainer @Parameters
         }
 
