@@ -17,6 +17,7 @@ function updateCodexMcpConfigContent(content, values) {
     '',
     `[${environmentTableName}]`,
     `BCDEVTOOLSET_MCP_TOOLSET_PATH = ${quoteTomlString(values.toolsetPath)}`,
+    `BCDEVTOOLSET_MCP_BRIDGE_STATE_DIR = ${quoteTomlString(values.bridgeStateDirectory)}`,
     ''
   ].join('\n');
 

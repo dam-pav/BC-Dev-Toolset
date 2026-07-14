@@ -630,7 +630,8 @@ function Request-BcDevToolsetMcpPrompt {
     $promptUrl = $env:BCDEVTOOLSET_MCP_PROMPT_URL
     $promptToken = $env:BCDEVTOOLSET_MCP_PROMPT_TOKEN
     $sessionId = $env:BCDEVTOOLSET_MCP_SESSION_ID
-    if ([string]::IsNullOrWhiteSpace($promptUrl) -or [string]::IsNullOrWhiteSpace($promptToken) -or [string]::IsNullOrWhiteSpace($sessionId)) {
+    $promptBinding = $env:BCDEVTOOLSET_MCP_PROMPT_BINDING
+    if ([string]::IsNullOrWhiteSpace($promptUrl) -or [string]::IsNullOrWhiteSpace($promptToken) -or [string]::IsNullOrWhiteSpace($sessionId) -or [string]::IsNullOrWhiteSpace($promptBinding)) {
         return $null
     }
 
@@ -642,6 +643,7 @@ function Request-BcDevToolsetMcpPrompt {
 
     $body = @{
         sessionId = $sessionId
+        binding = $promptBinding | ConvertFrom-Json
         prompt = @{
             id = $effectivePromptId
             type = $Type

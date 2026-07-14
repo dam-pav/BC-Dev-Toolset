@@ -85,7 +85,7 @@ Automatic maintenance is disabled while running an Extension Development Host so
 
 Run `BC Dev Toolset: Disable Codex MCP Integration` to opt out and remove the extension-managed MCP entry and global instructions.
 
-The Codex MCP server uses the same VS Code terminal bridge for PowerShell-backed operations. Keep the BC Dev Toolset extension active in VS Code when you want Codex to run operations in the visible terminal and read the captured results.
+The Codex MCP server uses the VS Code terminal bridge belonging to the current workspace for PowerShell-backed operations. Multiple VS Code windows are supported concurrently: each extension host publishes an isolated, authenticated instance, and a Codex MCP process binds once to the live instance that owns its startup working directory. Keep the BC Dev Toolset extension active in each workspace where Codex should run operations in that window's visible terminal. A request whose workspace or bridge identity does not match is rejected instead of being routed to another window.
 
 ## Other prerequisites
 
@@ -151,7 +151,7 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 
 ### MCP Configuration
 
-- `Show MCP status`: Shows the extension MCP API, server, terminal bridge, and runtime status.
+- `Show MCP status`: Shows the extension MCP API, server, protocol/instance identity, bound workspace, terminal bridge, and runtime status. Authentication tokens are never displayed.
 - `Configure Codex MCP integration`: Enables automatic maintenance, adds or updates the BC Dev Toolset MCP server entry in Codex configuration, and adds managed global Codex instructions.
 - `Disable Codex MCP integration`: Disables automatic maintenance and removes the extension-managed Codex MCP entry and global instructions.
 

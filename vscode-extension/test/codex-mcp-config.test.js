@@ -14,6 +14,7 @@ const {
 const oldServerPath = 'C:\\Users\\Developer\\.vscode\\extensions\\dam-pav.bc-dev-toolset-1.2.0\\mcp-server.js';
 const currentServerPath = 'C:\\Users\\Developer\\.vscode\\extensions\\dam-pav.bc-dev-toolset-1.2.2\\mcp-server.js';
 const toolsetPath = 'C:\\Users\\Developer\\AppData\\Local\\BC-Dev-Toolset\\toolset';
+const bridgeStateDirectory = 'C:\\Users\\Developer\\AppData\\Local\\Temp\\bc-dev-toolset-mcp\\instances';
 
 test('updates a managed Codex MCP section and preserves unrelated tables', () => {
   const source = [
@@ -32,18 +33,19 @@ test('updates a managed Codex MCP section and preserves unrelated tables', () =>
     ''
   ].join('\n');
 
-  const updated = updateCodexMcpConfigContent(source, { mcpServerPath: currentServerPath, toolsetPath });
+  const updated = updateCodexMcpConfigContent(source, { mcpServerPath: currentServerPath, toolsetPath, bridgeStateDirectory });
 
   assert.match(updated, /\[projects\."C:\\\\Source"\]/);
   assert.match(updated, /\[mcp_servers\.other\]/);
   assert.match(updated, /dam-pav\.bc-dev-toolset-1\.2\.2/);
   assert.doesNotMatch(updated, /C:\\\\old/);
-  assert.equal(updateCodexMcpConfigContent(updated, { mcpServerPath: currentServerPath, toolsetPath }), updated);
+  assert.match(updated, /BCDEVTOOLSET_MCP_BRIDGE_STATE_DIR/);
+  assert.equal(updateCodexMcpConfigContent(updated, { mcpServerPath: currentServerPath, toolsetPath, bridgeStateDirectory }), updated);
 });
 
 test('classifies current and stale versioned extension paths', () => {
-  const staleContent = updateCodexMcpConfigContent('', { mcpServerPath: oldServerPath, toolsetPath });
-  const currentContent = updateCodexMcpConfigContent('', { mcpServerPath: currentServerPath, toolsetPath });
+  const staleContent = updateCodexMcpConfigContent('', { mcpServerPath: oldServerPath, toolsetPath, bridgeStateDirectory });
+  const currentContent = updateCodexMcpConfigContent('', { mcpServerPath: currentServerPath, toolsetPath, bridgeStateDirectory });
 
   assert.equal(classifyCodexMcpConfiguration(staleContent, currentServerPath).status, 'stale');
   assert.equal(classifyCodexMcpConfiguration(currentContent, currentServerPath).status, 'current');
@@ -52,7 +54,8 @@ test('classifies current and stale versioned extension paths', () => {
 test('does not classify an unrecognized custom server as migratable', () => {
   const content = updateCodexMcpConfigContent('', {
     mcpServerPath: 'C:\\Custom\\bc-dev-toolset\\mcp-server.js',
-    toolsetPath
+    toolsetPath,
+    bridgeStateDirectory
   });
 
   assert.equal(classifyCodexMcpConfiguration(content, currentServerPath).status, 'custom');
@@ -62,7 +65,8 @@ test('round-trips generated paths containing spaces', () => {
   const serverPath = 'C:\\Users\\Dev User\\.vscode\\extensions\\dam-pav.bc-dev-toolset-1.2.2\\mcp-server.js';
   const content = updateCodexMcpConfigContent('', {
     mcpServerPath: serverPath,
-    toolsetPath: 'C:\\Users\\Dev User\\BC Dev Toolset'
+    toolsetPath: 'C:\\Users\\Dev User\\BC Dev Toolset',
+    bridgeStateDirectory
   });
 
   assert.equal(classifyCodexMcpConfiguration(content, serverPath).status, 'current');
@@ -71,7 +75,8 @@ test('round-trips generated paths containing spaces', () => {
 test('removes only the BC Dev Toolset MCP tables', () => {
   const source = updateCodexMcpConfigContent('[mcp_servers.other]\ncommand = "other"\n', {
     mcpServerPath: currentServerPath,
-    toolsetPath
+    toolsetPath,
+    bridgeStateDirectory
   });
 
   const updated = removeCodexMcpConfigContent(source);

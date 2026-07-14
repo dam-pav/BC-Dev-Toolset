@@ -5,6 +5,7 @@ const path = require('path');
 const childProcess = require('child_process');
 const http = require('http');
 const os = require('os');
+const bridgeIdentity = require('./mcp-bridge-identity');
 
 const defaultProtocolVersion = '2025-11-25';
 const toolsetPath = process.env.BCDEVTOOLSET_MCP_TOOLSET_PATH || path.resolve(__dirname, '..');
@@ -15,21 +16,22 @@ const defaultWorkspaceFile = process.env.BCDEVTOOLSET_MCP_WORKSPACE_FILE || '';
 const defaultWorkspaceContext = parseJsonEnvironmentValue(process.env.BCDEVTOOLSET_MCP_WORKSPACE_CONTEXT);
 const defaultLocalSettingsPath = process.env.BCDEVTOOLSET_MCP_LOCAL_SETTINGS_PATH || '';
 const defaultPowerShellExecutable = process.env.BCDEVTOOLSET_MCP_POWERSHELL_EXECUTABLE || 'pwsh';
-const bridgeStatePath = process.env.BCDEVTOOLSET_MCP_BRIDGE_STATE_PATH || path.join(os.tmpdir(), 'bc-dev-toolset-mcp', 'vscode-bridge.json');
-const bridgeState = readBridgeState();
-const bridgeUrl = process.env.BCDEVTOOLSET_MCP_BRIDGE_URL || bridgeState.url || '';
-const bridgeToken = process.env.BCDEVTOOLSET_MCP_BRIDGE_TOKEN || bridgeState.token || '';
+const bridgeStateDirectory = process.env.BCDEVTOOLSET_MCP_BRIDGE_STATE_DIR || path.join(os.tmpdir(), 'bc-dev-toolset-mcp', 'instances');
+const bridgeBinding = resolveBridgeBinding();
+const bridgeUrl = bridgeBinding.url || '';
+const bridgeToken = bridgeBinding.token || '';
 const outputLimit = 60000;
 
 let inputBuffer = Buffer.alloc(0);
 let waitingForMessageLogged = false;
 let transportMode = 'unknown';
+let bridgeHandshakePromise;
 
 function startServer() {
   log(`started pid=${process.pid} node=${process.execPath}`);
   log(`toolsetPath=${toolsetPath}`);
-  log(`bridgeUrl=${bridgeUrl || '(none)'}`);
-  log(`bridgeStatePath=${bridgeStatePath || '(none)'}`);
+  log(`bridge=${bridgeBinding.instanceId ? `instance=${bridgeBinding.instanceId} protocol=${bridgeBinding.protocolVersion} extensionHostPid=${bridgeBinding.extensionHostPid}` : '(none)'}`);
+  log(`workspace=${(bridgeBinding.workspace && (bridgeBinding.workspace.workspaceFilePath || bridgeBinding.workspace.workspacePath)) || '(none)'}`);
 
   process.stdin.on('data', (chunk) => {
     log(`stdin ${chunk.length} bytes`);
@@ -1092,10 +1094,42 @@ function shouldUseTerminalBridge() {
   return Boolean(bridgeUrl && bridgeToken);
 }
 
-function postBridgeJson(route, body) {
+async function postBridgeJson(route, body) {
+  if (route !== '/handshake') {
+    bridgeHandshakePromise ||= validateBridgeHandshake();
+    await bridgeHandshakePromise;
+  }
+  return postBridgeJsonRaw(route, body);
+}
+
+async function validateBridgeHandshake() {
+  const response = await postBridgeJsonRaw('/handshake', {});
+  const identity = response.body || {};
+  if (response.statusCode < 200 || response.statusCode >= 300 ||
+      identity.protocolVersion !== bridgeBinding.protocolVersion ||
+      identity.instanceId !== bridgeBinding.instanceId ||
+      identity.extensionHostPid !== bridgeBinding.extensionHostPid) {
+    throw new Error('BC Dev Toolset bridge handshake mismatch; refusing to route across VS Code windows.');
+  }
+  const expectedWorkspace = bridgeBinding.workspace || {};
+  const actualWorkspace = identity.workspace || {};
+  if ((expectedWorkspace.workspaceFilePath || expectedWorkspace.workspacePath) !==
+      (actualWorkspace.workspaceFilePath || actualWorkspace.workspacePath)) {
+    throw new Error('BC Dev Toolset bridge workspace handshake mismatch; refusing the request.');
+  }
+}
+
+function postBridgeJsonRaw(route, body) {
   return new Promise((resolve, reject) => {
     const url = new URL(route, bridgeUrl);
-    const content = JSON.stringify(body || {});
+    const content = JSON.stringify({
+      ...(body || {}),
+      binding: {
+        protocolVersion: bridgeBinding.protocolVersion,
+        instanceId: bridgeBinding.instanceId,
+        extensionHostPid: bridgeBinding.extensionHostPid
+      }
+    });
     const request = http.request(url, {
       method: 'POST',
       headers: {
@@ -1135,14 +1169,27 @@ function delay(timeoutMs) {
   return new Promise((resolve) => setTimeout(resolve, timeoutMs));
 }
 
-function readBridgeState() {
-  if (!bridgeStatePath || !fs.existsSync(bridgeStatePath)) {
-    return {};
+function resolveBridgeBinding() {
+  const directUrl = process.env.BCDEVTOOLSET_MCP_BRIDGE_URL || '';
+  if (directUrl) {
+    const state = bridgeIdentity.createState({
+      instanceId: process.env.BCDEVTOOLSET_MCP_BRIDGE_INSTANCE_ID || '',
+      url: directUrl,
+      token: process.env.BCDEVTOOLSET_MCP_BRIDGE_TOKEN || '',
+      extensionHostPid: Number(process.env.BCDEVTOOLSET_MCP_EXTENSION_HOST_PID),
+      workspace: defaultWorkspaceContext || getFallbackWorkspaceContext()
+    });
+    const error = bridgeIdentity.validateState(state);
+    if (error || Number(process.env.BCDEVTOOLSET_MCP_BRIDGE_PROTOCOL_VERSION) !== bridgeIdentity.protocolVersion) {
+      log(`direct bridge binding rejected: ${error || 'protocol version mismatch'}`);
+      return {};
+    }
+    return state;
   }
-
   try {
-    return JSON.parse(fs.readFileSync(bridgeStatePath, 'utf8'));
+    return bridgeIdentity.discoverState(bridgeStateDirectory, process.cwd());
   } catch (error) {
+    log(`bridge discovery unavailable: ${error.message}`);
     return {};
   }
 }

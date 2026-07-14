@@ -12,7 +12,7 @@
     "directory": "vscode-extension"
   },
   "scripts": {
-    "validate": "node --check extension.js && node --check mcp-server.js && node --check codex-mcp-config.js && node --test",
+    "validate": "node --check extension.js && node --check mcp-server.js && node --check mcp-bridge-identity.js && node --check codex-mcp-config.js && node --test",
     "test": "node --test test",
     "prepare:runtime": "node ./build/prepare-runtime-package.js",
     "package": "npm run prepare:runtime && npx @vscode/vsce package --no-dependencies",

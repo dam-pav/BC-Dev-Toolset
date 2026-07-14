@@ -12,6 +12,7 @@ const {
   runCodexMcpIntegrationTransition,
   updateCodexMcpConfigContent
 } = require('./codex-mcp-config');
+const bridgeIdentity = require('./mcp-bridge-identity');
 
 let extensionContext;
 let runtimeSyncPromise;
@@ -24,6 +25,8 @@ let mcpBridgeServer;
 let mcpBridgeUrl;
 let mcpBridgeToken;
 let mcpBridgeStatePath;
+let mcpBridgeInstanceId;
+let mcpBridgeWorkspace;
 const mcpPromptSessions = new Map();
 const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
@@ -156,6 +159,8 @@ function activate(context) {
 function deactivate() {}
 
 function startMcpBridgeServer(context) {
+  mcpBridgeInstanceId = crypto.randomUUID();
+  mcpBridgeWorkspace = getMcpWorkspaceContext();
   mcpBridgeToken = crypto.randomBytes(32).toString('hex');
   mcpBridgeServer = http.createServer((request, response) => {
     void handleMcpBridgeRequest(request, response);
@@ -190,7 +195,11 @@ function startMcpPromptSessionCleanup() {
 }
 
 function getMcpBridgeStatePath(context) {
-  return path.join(os.tmpdir(), 'bc-dev-toolset-mcp', 'vscode-bridge.json');
+  return path.join(getMcpBridgeStateDirectory(context), `${mcpBridgeInstanceId}.json`);
+}
+
+function getMcpBridgeStateDirectory(context) {
+  return path.join(os.tmpdir(), 'bc-dev-toolset-mcp', 'instances');
 }
 
 function writeMcpBridgeState(context) {
@@ -198,14 +207,18 @@ function writeMcpBridgeState(context) {
     return;
   }
 
-  mcpBridgeStatePath = getMcpBridgeStatePath(context);
-  fs.mkdirSync(path.dirname(mcpBridgeStatePath), { recursive: true });
-  fs.writeFileSync(mcpBridgeStatePath, `${JSON.stringify({
+  const stateDirectory = getMcpBridgeStateDirectory(context);
+  bridgeIdentity.cleanupStates(stateDirectory);
+  // Version 1.2.6 and earlier used a last-writer-wins file one directory above.
+  fs.rmSync(path.join(path.dirname(stateDirectory), bridgeIdentity.legacyStateFileName), { force: true });
+  const state = bridgeIdentity.createState({
+    instanceId: mcpBridgeInstanceId,
     url: mcpBridgeUrl,
     token: mcpBridgeToken,
-    pid: process.pid,
-    updatedAt: new Date().toISOString()
-  }, null, 2)}\n`, 'utf8');
+    extensionHostPid: process.pid,
+    workspace: mcpBridgeWorkspace
+  });
+  mcpBridgeStatePath = bridgeIdentity.writeOwnedState(stateDirectory, state);
 }
 
 function removeMcpBridgeState() {
@@ -228,6 +241,15 @@ async function handleMcpBridgeRequest(request, response) {
     }
 
     const body = await readRequestBody(request);
+    const bindingError = validateMcpBridgeBinding(body);
+    if (bindingError) {
+      writeMcpBridgeResponse(response, 409, { error: bindingError });
+      return;
+    }
+    if (request.url === '/handshake') {
+      writeMcpBridgeResponse(response, 200, getMcpBridgePublicIdentity());
+      return;
+    }
     if (request.url === '/prompt/request') {
       await handleMcpPromptRequest(body, response);
       return;
@@ -256,6 +278,11 @@ async function handleMcpBridgeRequest(request, response) {
     const operationId = String((body && body.operationId) || '').trim();
     if (!operationId) {
       writeMcpBridgeResponse(response, 400, { error: 'operationId is required.' });
+      return;
+    }
+    const requestedPaths = [body.workspacePath, body.workspaceFile, body.localSettingsPath].filter(Boolean);
+    if (requestedPaths.some((candidate) => !bridgeIdentity.workspaceOwnsPath(mcpBridgeWorkspace, candidate))) {
+      writeMcpBridgeResponse(response, 409, { error: 'The requested workspace does not belong to this bound BC Dev Toolset bridge.' });
       return;
     }
 
@@ -341,6 +368,23 @@ async function handleMcpPromptRequest(body, response) {
     };
     requestCleanupOnResponseClose(response, session);
   });
+}
+
+function getMcpBridgePublicIdentity() {
+  return {
+    protocolVersion: bridgeIdentity.protocolVersion,
+    instanceId: mcpBridgeInstanceId,
+    extensionHostPid: process.pid,
+    workspace: mcpBridgeWorkspace
+  };
+}
+
+function validateMcpBridgeBinding(body) {
+  const binding = body && body.binding;
+  if (!bridgeIdentity.validateBinding({ instanceId: mcpBridgeInstanceId, extensionHostPid: process.pid }, binding)) {
+    return 'MCP bridge identity mismatch. The request was rejected to prevent cross-window routing.';
+  }
+  return '';
 }
 
 function getMcpAutomaticPromptAnswer(session, prompt) {
@@ -762,8 +806,11 @@ function registerMcpServerDefinitionProvider(context) {
       await waitForMcpBridgeServer();
       server.env = {
         ...server.env,
-      BCDEVTOOLSET_MCP_BRIDGE_URL: mcpBridgeUrl || '',
-      BCDEVTOOLSET_MCP_BRIDGE_TOKEN: mcpBridgeToken || ''
+        BCDEVTOOLSET_MCP_BRIDGE_URL: mcpBridgeUrl || '',
+        BCDEVTOOLSET_MCP_BRIDGE_TOKEN: mcpBridgeToken || '',
+        BCDEVTOOLSET_MCP_BRIDGE_INSTANCE_ID: mcpBridgeInstanceId || '',
+        BCDEVTOOLSET_MCP_BRIDGE_PROTOCOL_VERSION: String(bridgeIdentity.protocolVersion),
+        BCDEVTOOLSET_MCP_EXTENSION_HOST_PID: String(process.pid)
       };
       return server;
     }
@@ -792,7 +839,10 @@ function createMcpServerDefinition(context) {
       BCDEVTOOLSET_MCP_EXTENSION_VERSION: mcpServerVersion,
       BCDEVTOOLSET_MCP_BRIDGE_URL: mcpBridgeUrl || '',
       BCDEVTOOLSET_MCP_BRIDGE_TOKEN: mcpBridgeToken || '',
-      BCDEVTOOLSET_MCP_BRIDGE_STATE_PATH: mcpBridgeStatePath || getMcpBridgeStatePath(context),
+      BCDEVTOOLSET_MCP_BRIDGE_INSTANCE_ID: mcpBridgeInstanceId || '',
+      BCDEVTOOLSET_MCP_BRIDGE_PROTOCOL_VERSION: String(bridgeIdentity.protocolVersion),
+      BCDEVTOOLSET_MCP_EXTENSION_HOST_PID: String(process.pid),
+      BCDEVTOOLSET_MCP_BRIDGE_STATE_DIR: getMcpBridgeStateDirectory(context),
       BCDEVTOOLSET_SHORTCUTS: getShortcutMode(),
       BCDEVTOOLSET_HOST_HELPER_FOLDER: getHostHelperFolder(),
       ELECTRON_RUN_AS_NODE: '1'
@@ -818,6 +868,10 @@ async function showMcpStatus() {
     `MCP server file exists: ${serverPath ? fs.existsSync(serverPath) : false}`,
     `MCP Node executable: ${nodeExecutable}`,
     `MCP terminal bridge: ${mcpBridgeUrl || '(not ready)'}`,
+    `MCP protocol version: ${bridgeIdentity.protocolVersion}`,
+    `MCP bound instance: ${mcpBridgeInstanceId || '(not ready)'}`,
+    `Extension-host PID: ${process.pid}`,
+    `MCP bound workspace: ${(mcpBridgeWorkspace && (mcpBridgeWorkspace.workspaceFilePath || mcpBridgeWorkspace.workspacePath)) || '(not ready)'}`,
     `MCP bridge state: ${mcpBridgeStatePath || (extensionContext ? getMcpBridgeStatePath(extensionContext) : '(not ready)')}`,
     `Toolset path: ${getToolsetPath()}`,
     `Codex integration setting: ${formatCodexMcpIntegrationSetting(integrationSetting)}`,
@@ -971,7 +1025,11 @@ async function applyCodexMcpConfiguration(context) {
 
   const configPath = getCodexConfigPath();
   const existingContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
-  const updatedContent = updateCodexMcpConfigContent(existingContent, { mcpServerPath, toolsetPath });
+  const updatedContent = updateCodexMcpConfigContent(existingContent, {
+    mcpServerPath,
+    toolsetPath,
+    bridgeStateDirectory: getMcpBridgeStateDirectory(context)
+  });
   const configChanged = writeFileWithBackupIfChanged(configPath, updatedContent);
   const agentsResult = ensureCodexGlobalAgentsInstructions();
   return {
@@ -1374,13 +1432,17 @@ function getOptionalLocalSettingsPath() {
 function getMcpWorkspaceContext() {
   const workspaceFolders = (vscode.workspace.workspaceFolders || []).map((folder) => ({
     name: folder.name,
-    path: folder.uri.fsPath
+    path: folder.uri.fsPath,
+    uri: folder.uri.toString()
   }));
   const activeAlProjectPath = getActiveAlProjectPath(workspaceFolders.map((folder) => folder.path));
   const appJsonPath = activeAlProjectPath ? path.join(activeAlProjectPath, 'app.json') : '';
 
   return {
     source: 'vscode',
+    workspaceUri: vscode.workspace.workspaceFile
+      ? vscode.workspace.workspaceFile.toString()
+      : (workspaceFolders[0] && workspaceFolders[0].uri) || '',
     workspacePath: getOptionalWorkspacePath(),
     workspaceFilePath: getOptionalWorkspaceFileName(),
     workspaceBasePath: getOptionalValue(getWorkspaceBasePath),
@@ -2291,12 +2353,14 @@ function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
     ? [
         `$env:BCDEVTOOLSET_MCP_SESSION_ID = ${quotePowerShellArgument(options.mcpSessionId)}`,
         `$env:BCDEVTOOLSET_MCP_PROMPT_URL = ${quotePowerShellArgument(`${mcpBridgeUrl}/prompt/request`)}`,
-        `$env:BCDEVTOOLSET_MCP_PROMPT_TOKEN = ${quotePowerShellArgument(mcpBridgeToken)}`
+        `$env:BCDEVTOOLSET_MCP_PROMPT_TOKEN = ${quotePowerShellArgument(mcpBridgeToken)}`,
+        `$env:BCDEVTOOLSET_MCP_PROMPT_BINDING = ${quotePowerShellArgument(JSON.stringify({ protocolVersion: bridgeIdentity.protocolVersion, instanceId: mcpBridgeInstanceId, extensionHostPid: process.pid }))}`
       ].join('; ') + '; '
     : [
         '$env:BCDEVTOOLSET_MCP_SESSION_ID = $null',
         '$env:BCDEVTOOLSET_MCP_PROMPT_URL = $null',
-        '$env:BCDEVTOOLSET_MCP_PROMPT_TOKEN = $null'
+        '$env:BCDEVTOOLSET_MCP_PROMPT_TOKEN = $null',
+        '$env:BCDEVTOOLSET_MCP_PROMPT_BINDING = $null'
       ].join('; ') + '; ';
 
   const command =
