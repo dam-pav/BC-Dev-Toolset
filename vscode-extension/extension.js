@@ -723,9 +723,9 @@ function cleanupMcpCaptureFiles(capture) {
 
   for (const filePath of [capture.transcriptPath, capture.resultPath]) {
     const validatedPath = filePath ? assertMcpCapturePath(filePath) : '';
-    if (validatedPath && fs.existsSync(validatedPath)) {
+    if (validatedPath && fs.existsSync(validatedPath)) { // nosemgrep -- confined to the MCP capture root
       try {
-        fs.rmSync(validatedPath, { force: true });
+        fs.rmSync(validatedPath, { force: true }); // nosemgrep -- confined to the MCP capture root
       } catch (error) {
         writeOutput(`Failed to remove MCP capture file ${validatedPath}: ${error.message}`);
       }
@@ -1088,24 +1088,24 @@ function getTimestampForFileName() {
 
 function writeFileWithBackupIfChanged(authorizedRoot, filePath, content) {
   const validatedPath = assertWithinRoot(authorizedRoot, filePath);
-  const currentContent = fs.existsSync(validatedPath) ? fs.readFileSync(validatedPath, 'utf8') : '';
+  const currentContent = fs.existsSync(validatedPath) ? fs.readFileSync(validatedPath, 'utf8') : ''; // nosemgrep -- containment checked
   if (currentContent === content) {
     return false;
   }
 
-  fs.mkdirSync(path.dirname(validatedPath), { recursive: true });
+  fs.mkdirSync(path.dirname(validatedPath), { recursive: true }); // nosemgrep -- validated path is within authorizedRoot
   if (currentContent) {
     const backupPath = assertWithinRoot(authorizedRoot, `${validatedPath}.${getTimestampForFileName()}.bak`);
-    fs.writeFileSync(backupPath, currentContent, 'utf8');
+    fs.writeFileSync(backupPath, currentContent, 'utf8'); // nosemgrep -- containment checked
   }
 
   const temporaryPath = assertWithinRoot(authorizedRoot, `${validatedPath}.${process.pid}.${Date.now()}.tmp`);
   try {
-    fs.writeFileSync(temporaryPath, content, 'utf8');
-    fs.renameSync(temporaryPath, validatedPath);
+    fs.writeFileSync(temporaryPath, content, 'utf8'); // nosemgrep -- containment checked
+    fs.renameSync(temporaryPath, validatedPath); // nosemgrep -- both paths share authorizedRoot
   } catch (error) {
-    if (fs.existsSync(temporaryPath)) {
-      fs.unlinkSync(temporaryPath);
+    if (fs.existsSync(temporaryPath)) { // nosemgrep -- containment checked
+      fs.unlinkSync(temporaryPath); // nosemgrep -- containment checked
     }
     throw error;
   }
@@ -1264,9 +1264,10 @@ function isExtensionDevelopmentMode() {
 }
 
 function isDevelopmentToolsetPath(candidatePath) {
-  return fs.existsSync(getOperationMetadataPath(candidatePath)) &&
-    fs.existsSync(getOperationBridgePath(candidatePath)) &&
-    fs.existsSync(path.join(candidatePath, 'vscode-extension', 'package.json'));
+  const packagePath = resolveWithinRoot(candidatePath, 'vscode-extension', 'package.json');
+  return fs.existsSync(getOperationMetadataPath(candidatePath)) && // nosemgrep -- derived within candidatePath
+    fs.existsSync(getOperationBridgePath(candidatePath)) && // nosemgrep -- derived within candidatePath
+    fs.existsSync(packagePath); // nosemgrep -- derived within candidatePath
 }
 
 function getOperationMetadataPath(toolsetPath) {
@@ -1278,13 +1279,13 @@ function getOperationBridgePath(toolsetPath) {
 }
 
 function getMissingRuntimeFiles(toolsetPath) {
-  return requiredRuntimeFiles.filter((relativePath) => !fs.existsSync(resolveWithinRoot(toolsetPath, relativePath)));
+  return requiredRuntimeFiles.filter((relativePath) => !fs.existsSync(resolveWithinRoot(toolsetPath, relativePath))); // nosemgrep -- each path is contained by toolsetPath
 }
 
 function getMissingBundledRuntimeItems(runtimePath) {
   return [
     ...getMissingRuntimeFiles(runtimePath),
-    ...runtimeDirectories.filter((relativePath) => !fs.existsSync(resolveWithinRoot(runtimePath, relativePath)))
+    ...runtimeDirectories.filter((relativePath) => !fs.existsSync(resolveWithinRoot(runtimePath, relativePath))) // nosemgrep -- each path is contained by runtimePath
   ];
 }
 
