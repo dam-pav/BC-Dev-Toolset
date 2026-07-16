@@ -117,6 +117,19 @@ test('does not pre-supply testing prompt answers for non-test operations', () =>
   assert.deepEqual(mcpServer.getOperationPromptAnswers({ id: 'newDockerContainer' }, {}), {});
 });
 
+test('exposes the workspace name on the initialization MCP tool', () => {
+  const initializeWorkspaceTool = mcpServer.getTools().find((tool) => tool.name === 'bc_dev_toolset_initialize_workspace');
+
+  assert.equal(initializeWorkspaceTool.inputSchema.properties.workspaceName.type, 'string');
+});
+
+test('maps the workspace name to the initialization prompt', () => {
+  assert.deepEqual(
+    mcpServer.getOperationPromptAnswers({ id: 'initializeWorkspace' }, { workspaceName: 'Sales Workspace' }),
+    { 'initializeWorkspace.workspaceName': 'Sales Workspace' }
+  );
+});
+
 test('maps test operation prompt aliases to prompt answers', () => {
   assert.deepEqual(
     mcpServer.getOperationPromptAnswers(

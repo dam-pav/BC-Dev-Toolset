@@ -172,12 +172,15 @@ function Resolve-WorkspaceFolderPath {
         return $folderPath
     }
 
-    if ([System.IO.Path]::IsPathRooted($folderPath)) {
-        return $folderPath
+    $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
+    $candidatePath = if ([System.IO.Path]::IsPathRooted($folderPath)) {
+        $folderPath
+    } else {
+        Join-Path $workspaceRootPath.FullName $folderPath
     }
 
-    $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
-    return Join-Path $workspaceRootPath.FullName $folderPath
+    # Paths declared as workspace folders are explicitly authorized, including supported external folders.
+    return [System.IO.Path]::GetFullPath($candidatePath)
 }
 
 function Test-DockerContainerExists {
@@ -928,6 +931,7 @@ function Resolve-BcDevToolsetWorkspaceFile {
         } else {
             Join-Path $WorkspaceRootPath $WorkspaceFile
         }
+        $workspaceFilePath = [System.IO.Path]::GetFullPath($workspaceFilePath)
 
         if (-not (Test-Path -LiteralPath $workspaceFilePath -PathType Leaf)) {
             throw "Workspace file not found: $workspaceFilePath"

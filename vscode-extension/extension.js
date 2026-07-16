@@ -13,6 +13,7 @@ const {
   updateCodexMcpConfigContent
 } = require('./codex-mcp-config');
 const bridgeIdentity = require('./mcp-bridge-identity');
+const { assertWithinRoot, authorizeRoot, resolveWithinRoot } = require('./path-security');
 
 let extensionContext;
 let runtimeSyncPromise;
@@ -31,6 +32,8 @@ const mcpPromptSessions = new Map();
 const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
+// Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
+const mcpServerDefinitionRevision = 2;
 
 const directOperationIds = [
   'invokeTests',
@@ -117,7 +120,7 @@ function activate(context) {
         operationTerminalName = undefined;
       }
     }),
-    vscode.commands.registerCommand('bcDevToolset.initializeWorkspace', initializeWorkspace),
+    vscode.commands.registerCommand('bcDevToolset.initializeWorkspace', () => runOperationById('initializeWorkspace')),
     vscode.commands.registerCommand('bcDevToolset.openLocalSettingsJson', openLocalSettingsJson),
     vscode.commands.registerCommand('bcDevToolset.showObjectIdRangeVisualizationData', showObjectIdRangeVisualizationData),
     vscode.commands.registerCommand('bcDevToolset.showMcpStatus', showMcpStatus),
@@ -719,11 +722,12 @@ function cleanupMcpCaptureFiles(capture) {
   }
 
   for (const filePath of [capture.transcriptPath, capture.resultPath]) {
-    if (filePath && fs.existsSync(filePath)) {
+    const validatedPath = filePath ? assertMcpCapturePath(filePath) : '';
+    if (validatedPath && fs.existsSync(validatedPath)) { // nosemgrep -- confined to the MCP capture root
       try {
-        fs.rmSync(filePath, { force: true });
+        fs.rmSync(validatedPath, { force: true }); // nosemgrep -- confined to the MCP capture root
       } catch (error) {
-        writeOutput(`Failed to remove MCP capture file ${filePath}: ${error.message}`);
+        writeOutput(`Failed to remove MCP capture file ${validatedPath}: ${error.message}`);
       }
     }
   }
@@ -823,7 +827,7 @@ function createMcpServerDefinition(context) {
   const workspaceFile = getOptionalWorkspaceFileName();
   const localSettingsPath = getOptionalLocalSettingsPath();
   const nodeExecutable = getMcpNodeExecutable();
-  const mcpServerVersion = getMcpServerVersion(context, serverPath);
+  const mcpServerVersion = getMcpServerVersion(context);
 
   const serverDefinition = new vscode.McpStdioServerDefinition(
     'BC Dev Toolset Operations',
@@ -915,7 +919,7 @@ async function disableCodexMcp() {
   const canRemoveConfiguration = configuration.status === 'current' || configuration.status === 'stale';
   const updatedContent = canRemoveConfiguration ? removeCodexMcpConfigContent(existingContent).trimEnd() : existingContent;
   const normalizedContent = canRemoveConfiguration && updatedContent ? `${updatedContent}\n` : updatedContent;
-  const configChanged = writeFileWithBackupIfChanged(configPath, normalizedContent);
+  const configChanged = writeFileWithBackupIfChanged(getCodexHomePath(), configPath, normalizedContent);
   const agentsResult = removeCodexGlobalAgentsInstructions();
   let settingError;
   try {
@@ -1030,7 +1034,7 @@ async function applyCodexMcpConfiguration(context) {
     toolsetPath,
     bridgeStateDirectory: getMcpBridgeStateDirectory(context)
   });
-  const configChanged = writeFileWithBackupIfChanged(configPath, updatedContent);
+  const configChanged = writeFileWithBackupIfChanged(getCodexHomePath(), configPath, updatedContent);
   const agentsResult = ensureCodexGlobalAgentsInstructions();
   return {
     enabled: true,
@@ -1063,7 +1067,7 @@ function formatCodexMcpIntegrationSetting(value) {
 
 function getCodexHomePath() {
   if (process.env.CODEX_HOME) {
-    return process.env.CODEX_HOME;
+    return authorizeRoot(process.env.CODEX_HOME, 'Codex home directory');
   }
 
   const homePath = process.env.USERPROFILE || process.env.HOME;
@@ -1071,35 +1075,37 @@ function getCodexHomePath() {
     throw new Error('Could not resolve the user profile folder for Codex config.');
   }
 
-  return path.join(homePath, '.codex');
+  return resolveWithinRoot(authorizeRoot(homePath, 'User profile directory'), '.codex');
 }
 
 function getCodexConfigPath() {
-  return path.join(getCodexHomePath(), 'config.toml');
+  return resolveWithinRoot(getCodexHomePath(), 'config.toml');
 }
 
 function getTimestampForFileName() {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-');
 }
 
-function writeFileWithBackupIfChanged(filePath, content) {
-  const currentContent = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
+function writeFileWithBackupIfChanged(authorizedRoot, filePath, content) {
+  const validatedPath = assertWithinRoot(authorizedRoot, filePath);
+  const currentContent = fs.existsSync(validatedPath) ? fs.readFileSync(validatedPath, 'utf8') : ''; // nosemgrep -- containment checked
   if (currentContent === content) {
     return false;
   }
 
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.mkdirSync(path.dirname(validatedPath), { recursive: true }); // nosemgrep -- validated path is within authorizedRoot
   if (currentContent) {
-    fs.writeFileSync(`${filePath}.${getTimestampForFileName()}.bak`, currentContent, 'utf8');
+    const backupPath = assertWithinRoot(authorizedRoot, `${validatedPath}.${getTimestampForFileName()}.bak`);
+    fs.writeFileSync(backupPath, currentContent, 'utf8'); // nosemgrep -- containment checked
   }
 
-  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  const temporaryPath = assertWithinRoot(authorizedRoot, `${validatedPath}.${process.pid}.${Date.now()}.tmp`);
   try {
-    fs.writeFileSync(temporaryPath, content, 'utf8');
-    fs.renameSync(temporaryPath, filePath);
+    fs.writeFileSync(temporaryPath, content, 'utf8'); // nosemgrep -- containment checked
+    fs.renameSync(temporaryPath, validatedPath); // nosemgrep -- both paths share authorizedRoot
   } catch (error) {
-    if (fs.existsSync(temporaryPath)) {
-      fs.unlinkSync(temporaryPath);
+    if (fs.existsSync(temporaryPath)) { // nosemgrep -- containment checked
+      fs.unlinkSync(temporaryPath); // nosemgrep -- containment checked
     }
     throw error;
   }
@@ -1120,7 +1126,7 @@ function ensureCodexGlobalAgentsInstructions() {
 
   return {
     path: agentsPath,
-    changed: writeFileWithBackupIfChanged(agentsPath, updatedContent)
+    changed: writeFileWithBackupIfChanged(codexHomePath, agentsPath, updatedContent)
   };
 }
 
@@ -1135,17 +1141,17 @@ function removeCodexGlobalAgentsInstructions() {
   const updatedContent = removeGeneratedMarkdownSection(currentContent, 'bc-dev-toolset-codex-mcp');
   return {
     path: agentsPath,
-    changed: writeFileWithBackupIfChanged(agentsPath, updatedContent)
+    changed: writeFileWithBackupIfChanged(codexHomePath, agentsPath, updatedContent)
   };
 }
 
 function getCodexGlobalAgentsPath(codexHomePath) {
-  const overridePath = path.join(codexHomePath, 'AGENTS.override.md');
+  const overridePath = resolveWithinRoot(codexHomePath, 'AGENTS.override.md');
   if (fs.existsSync(overridePath) && fs.readFileSync(overridePath, 'utf8').trim()) {
     return overridePath;
   }
 
-  return path.join(codexHomePath, 'AGENTS.md');
+  return resolveWithinRoot(codexHomePath, 'AGENTS.md');
 }
 
 function getCodexAgentsInstructionSection() {
@@ -1213,13 +1219,9 @@ function getMcpNodeExecutable() {
   return process.execPath;
 }
 
-function getMcpServerVersion(context, serverPath) {
+function getMcpServerVersion(context) {
   const extensionVersion = context.extension.packageJSON.version || 'unknown';
-  try {
-    return `${extensionVersion}.${Math.floor(fs.statSync(serverPath).mtimeMs)}`;
-  } catch (error) {
-    return extensionVersion;
-  }
+  return `${extensionVersion}.${mcpServerDefinitionRevision}`;
 }
 
 function getConfiguration() {
@@ -1242,10 +1244,10 @@ function getDefaultToolsetPath() {
 function getToolsetPath() {
   const configuredPath = getConfiguration().get('toolsetPath');
   if (configuredPath && configuredPath.trim()) {
-    return configuredPath;
+    return authorizeRoot(configuredPath, 'BC Dev Toolset installation path');
   }
 
-  return getDevelopmentToolsetPath() || getDefaultToolsetPath();
+  return authorizeRoot(getDevelopmentToolsetPath() || getDefaultToolsetPath(), 'BC Dev Toolset installation path');
 }
 
 function getDevelopmentToolsetPath() {
@@ -1262,27 +1264,28 @@ function isExtensionDevelopmentMode() {
 }
 
 function isDevelopmentToolsetPath(candidatePath) {
-  return fs.existsSync(getOperationMetadataPath(candidatePath)) &&
-    fs.existsSync(getOperationBridgePath(candidatePath)) &&
-    fs.existsSync(path.join(candidatePath, 'vscode-extension', 'package.json'));
+  const packagePath = resolveWithinRoot(candidatePath, 'vscode-extension', 'package.json');
+  return fs.existsSync(getOperationMetadataPath(candidatePath)) && // nosemgrep -- derived within candidatePath
+    fs.existsSync(getOperationBridgePath(candidatePath)) && // nosemgrep -- derived within candidatePath
+    fs.existsSync(packagePath); // nosemgrep -- derived within candidatePath
 }
 
 function getOperationMetadataPath(toolsetPath) {
-  return path.join(toolsetPath, 'operations', 'operations.json');
+  return resolveWithinRoot(toolsetPath, 'operations', 'operations.json');
 }
 
 function getOperationBridgePath(toolsetPath) {
-  return path.join(toolsetPath, 'Invoke-BcDevToolsetOperation.ps1');
+  return resolveWithinRoot(toolsetPath, 'Invoke-BcDevToolsetOperation.ps1');
 }
 
 function getMissingRuntimeFiles(toolsetPath) {
-  return requiredRuntimeFiles.filter((relativePath) => !fs.existsSync(path.join(toolsetPath, relativePath)));
+  return requiredRuntimeFiles.filter((relativePath) => !fs.existsSync(resolveWithinRoot(toolsetPath, relativePath))); // nosemgrep -- each path is contained by toolsetPath
 }
 
 function getMissingBundledRuntimeItems(runtimePath) {
   return [
     ...getMissingRuntimeFiles(runtimePath),
-    ...runtimeDirectories.filter((relativePath) => !fs.existsSync(path.join(runtimePath, relativePath)))
+    ...runtimeDirectories.filter((relativePath) => !fs.existsSync(resolveWithinRoot(runtimePath, relativePath))) // nosemgrep -- each path is contained by runtimePath
   ];
 }
 
@@ -1485,93 +1488,6 @@ function getWorkspaceFilesInDirectory(directoryPath) {
   return fs.readdirSync(directoryPath)
     .filter((fileName) => fileName.endsWith('.code-workspace'))
     .map((fileName) => path.join(directoryPath, fileName));
-}
-
-function getWorkspaceFileNameForInitializeWorkspace() {
-  if (vscode.workspace.workspaceFile) {
-    return vscode.workspace.workspaceFile.fsPath;
-  }
-
-  const workspaceFolders = vscode.workspace.workspaceFolders || [];
-  if (workspaceFolders.length !== 1) {
-    return getWorkspaceFileName();
-  }
-
-  const openedFolderPath = workspaceFolders[0].uri.fsPath;
-  const existingWorkspaceFiles = getWorkspaceFilesInDirectory(openedFolderPath);
-  if (existingWorkspaceFiles.length === 1) {
-    return existingWorkspaceFiles[0];
-  }
-
-  if (existingWorkspaceFiles.length > 1) {
-    return '';
-  }
-
-  const workspaceFile = path.join(openedFolderPath, `${path.basename(openedFolderPath)}.code-workspace`);
-  const workspace = {
-    folders: getAppFolderWorkspacePaths(openedFolderPath).map((folderPath) => ({ path: folderPath }))
-  };
-
-  fs.writeFileSync(workspaceFile, `${JSON.stringify(workspace, null, 2)}\n`, 'utf8');
-  return workspaceFile;
-}
-
-function getAppFolderWorkspacePaths(rootPath) {
-  if (fs.existsSync(path.join(rootPath, 'app.json'))) {
-    return ['.'];
-  }
-
-  const appFolderPaths = [];
-  collectAppFolderWorkspacePaths(rootPath, rootPath, appFolderPaths);
-  return appFolderPaths.sort((left, right) => left.localeCompare(right));
-}
-
-function collectAppFolderWorkspacePaths(rootPath, currentPath, appFolderPaths) {
-  for (const entry of fs.readdirSync(currentPath, { withFileTypes: true })) {
-    if (!entry.isDirectory() || shouldSkipWorkspaceFolderDiscovery(entry.name)) {
-      continue;
-    }
-
-    const entryPath = path.join(currentPath, entry.name);
-    if (fs.existsSync(path.join(entryPath, 'app.json'))) {
-      appFolderPaths.push(path.relative(rootPath, entryPath).replace(/\\/g, '/'));
-    }
-
-    collectAppFolderWorkspacePaths(rootPath, entryPath, appFolderPaths);
-  }
-}
-
-function shouldSkipWorkspaceFolderDiscovery(folderName) {
-  return folderName === 'node_modules' || folderName === '.git';
-}
-
-function getDefaultWorkspaceSettings() {
-  return {
-    country: 'w1',
-    selectArtifact: 'Closest',
-    configurations: [
-      {
-        name: 'sample',
-        serverType: '',
-        targetType: '',
-        server: '',
-        serverInstance: '',
-        container: '',
-        port: '',
-        environmentType: '',
-        environmentName: '',
-        includeTestToolkit: '',
-        tenant: '',
-        authentication: '',
-        bcUser: '',
-        bcPassword: '',
-        databaseUser: '',
-        databasePassword: '',
-        remoteUser: '',
-        remotePassword: ''
-      }
-    ]
-  };
 }
 
 function getDefaultLocalSettings() {
@@ -1887,25 +1803,6 @@ function generateLocalMacAddress() {
   return ['02', ...Array.from(crypto.randomBytes(5), (byte) => byte.toString(16).padStart(2, '0').toUpperCase())].join(':');
 }
 
-function ensureBcDevToolsetWorkspaceSettings(workspaceFile) {
-  if (!workspaceFile || !fs.existsSync(workspaceFile)) {
-    return false;
-  }
-
-  const workspace = JSON.parse(fs.readFileSync(workspaceFile, 'utf8'));
-  if (!workspace.settings) {
-    workspace.settings = {};
-  }
-
-  if (workspace.settings['dam-pav.bcdevtoolset']) {
-    return false;
-  }
-
-  workspace.settings['dam-pav.bcdevtoolset'] = getDefaultWorkspaceSettings();
-  fs.writeFileSync(workspaceFile, `${JSON.stringify(workspace, null, 2)}\n`, 'utf8');
-  return true;
-}
-
 function ensureDefaultLocalConfiguration(localPath) {
   if (!fs.existsSync(localPath)) {
     return;
@@ -2037,16 +1934,16 @@ function getBundledRuntimePath() {
 }
 
 function copyRuntimeFile(sourceRoot, targetRoot, relativePath) {
-  const sourcePath = path.join(sourceRoot, relativePath);
-  const targetPath = path.join(targetRoot, relativePath);
+  const sourcePath = resolveWithinRoot(sourceRoot, relativePath);
+  const targetPath = resolveWithinRoot(targetRoot, relativePath);
 
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.copyFileSync(sourcePath, targetPath);
 }
 
 function copyRuntimeDirectory(sourceRoot, targetRoot, relativePath) {
-  const sourcePath = path.join(sourceRoot, relativePath);
-  const targetPath = path.join(targetRoot, relativePath);
+  const sourcePath = resolveWithinRoot(sourceRoot, relativePath);
+  const targetPath = resolveWithinRoot(targetRoot, relativePath);
   const temporaryTargetPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`;
 
   fs.rmSync(temporaryTargetPath, { recursive: true, force: true });
@@ -2059,8 +1956,8 @@ function copyDirectoryRecursive(sourcePath, targetPath) {
   fs.mkdirSync(targetPath, { recursive: true });
 
   for (const entry of fs.readdirSync(sourcePath, { withFileTypes: true })) {
-    const sourceEntryPath = path.join(sourcePath, entry.name);
-    const targetEntryPath = path.join(targetPath, entry.name);
+    const sourceEntryPath = resolveWithinRoot(sourcePath, entry.name);
+    const targetEntryPath = resolveWithinRoot(targetPath, entry.name);
 
     if (entry.isDirectory()) {
       copyDirectoryRecursive(sourceEntryPath, targetEntryPath);
@@ -2079,28 +1976,12 @@ function writeOutput(message) {
   outputChannel.appendLine(message);
 }
 
-async function initializeWorkspace() {
-  const workspaceFile = getWorkspaceFileNameForInitializeWorkspace();
-  const configPath = workspaceFile ? path.join(path.dirname(workspaceFile), '.bcdevtoolset') : getConfigPath();
-  const localPath = path.join(configPath, 'settings.json');
-
-  fs.mkdirSync(configPath, { recursive: true });
-  ensureBcDevToolsetGitIgnore(path.dirname(configPath));
-
-  writeJsonIfMissing(localPath, getDefaultLocalSettings());
-  ensureDefaultLocalConfiguration(localPath);
-
-  ensureBcDevToolsetWorkspaceSettings(workspaceFile);
-  await vscode.window.showInformationMessage('BC Dev Toolset workspace configuration is ready.');
-  await vscode.window.showTextDocument(vscode.Uri.file(localPath));
-}
-
 async function openLocalSettingsJson() {
-  const configPath = getConfigPath();
-  const localPath = path.join(configPath, 'settings.json');
+  const configPath = authorizeRoot(getConfigPath(), 'BC Dev Toolset configuration directory');
+  const localPath = resolveWithinRoot(configPath, 'settings.json');
 
   fs.mkdirSync(configPath, { recursive: true });
-  writeJsonIfMissing(localPath, getDefaultLocalSettings());
+  writeJsonIfMissing(configPath, localPath, getDefaultLocalSettings());
   ensureDefaultLocalConfiguration(localPath);
 
   await vscode.window.showTextDocument(vscode.Uri.file(localPath));
@@ -2146,29 +2027,13 @@ async function showObjectIdRangeVisualizationData() {
   panel.webview.html = html;
 }
 
-function ensureBcDevToolsetGitIgnore(basePath) {
-  const gitIgnorePath = path.join(basePath, '.gitignore');
-  const ignoredFolder = '.bcdevtoolset/';
-  const currentContent = fs.existsSync(gitIgnorePath) ? fs.readFileSync(gitIgnorePath, 'utf8') : '';
-  const ignoredEntries = currentContent
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('#'));
-
-  if (ignoredEntries.includes(ignoredFolder) || ignoredEntries.includes('.bcdevtoolset')) {
+function writeJsonIfMissing(authorizedRoot, filePath, value) {
+  const validatedPath = assertWithinRoot(authorizedRoot, filePath);
+  if (fs.existsSync(validatedPath)) { // nosemgrep -- containment checked against authorizedRoot
     return;
   }
 
-  const separator = currentContent && !currentContent.endsWith('\n') ? '\n' : '';
-  fs.writeFileSync(gitIgnorePath, `${currentContent}${separator}${ignoredFolder}\n`, 'utf8');
-}
-
-function writeJsonIfMissing(filePath, value) {
-  if (fs.existsSync(filePath)) {
-    return;
-  }
-
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(validatedPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8'); // nosemgrep -- containment checked against authorizedRoot
 }
 
 async function runOperation() {
@@ -2242,11 +2107,6 @@ function getOperations(toolsetPath) {
 }
 
 async function executeOperation(operation, toolsetPath) {
-  if (operation.command === 'initializeWorkspace') {
-    await initializeWorkspace();
-    return;
-  }
-
   if (operation.command === 'openLocalSettingsJson') {
     await openLocalSettingsJson();
     return;
@@ -2395,7 +2255,8 @@ function buildMcpCapturedPowerShellCommand(operationCommand, transcriptPath, res
 }
 
 function createMcpCapturePaths(operationId) {
-  const directoryPath = path.join(os.tmpdir(), 'bc-dev-toolset-mcp');
+  const temporaryRoot = authorizeRoot(os.tmpdir(), 'Operating system temporary directory');
+  const directoryPath = resolveWithinRoot(temporaryRoot, 'bc-dev-toolset-mcp');
   fs.mkdirSync(directoryPath, { recursive: true });
   const id = `${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${operationId}`;
   return {
@@ -2459,12 +2320,14 @@ async function waitForMcpCaptureResult(operation, terminalName, capture, options
 }
 
 function readMcpCaptureResult(operation, terminalName, capture) {
-  if (!fs.existsSync(capture.resultPath)) {
+  const resultPath = assertMcpCapturePath(capture.resultPath);
+  const transcriptPath = assertMcpCapturePath(capture.transcriptPath);
+  if (!fs.existsSync(resultPath)) {
     return undefined;
   }
 
-  const result = JSON.parse(fs.readFileSync(capture.resultPath, 'utf8'));
-  const output = cleanPowerShellTranscript(readTextFileIfExists(capture.transcriptPath));
+  const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const output = cleanPowerShellTranscript(readTextFileIfExists(transcriptPath));
   const exitCode = typeof result.exitCode === 'number' ? result.exitCode : 1;
   return {
     status: exitCode === 0 ? 'completed' : 'failed',
@@ -2480,7 +2343,12 @@ function readMcpCaptureResult(operation, terminalName, capture) {
 }
 
 function readTextFileIfExists(filePath) {
-  return fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
+  const validatedPath = assertMcpCapturePath(filePath);
+  return fs.existsSync(validatedPath) ? fs.readFileSync(validatedPath, 'utf8') : '';
+}
+
+function assertMcpCapturePath(filePath) {
+  return assertWithinRoot(resolveWithinRoot(os.tmpdir(), 'bc-dev-toolset-mcp'), filePath);
 }
 
 function cleanPowerShellTranscript(value) {
