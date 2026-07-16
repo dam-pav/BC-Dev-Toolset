@@ -2029,11 +2029,11 @@ async function showObjectIdRangeVisualizationData() {
 
 function writeJsonIfMissing(authorizedRoot, filePath, value) {
   const validatedPath = assertWithinRoot(authorizedRoot, filePath);
-  if (fs.existsSync(validatedPath)) {
+  if (fs.existsSync(validatedPath)) { // nosemgrep -- containment checked against authorizedRoot
     return;
   }
 
-  fs.writeFileSync(validatedPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(validatedPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8'); // nosemgrep -- containment checked against authorizedRoot
 }
 
 async function runOperation() {
