@@ -33,7 +33,7 @@ Use this to prepare the workstation for the toolset. This operation is intended 
 
 ### 2. Initialize workspace
 
-Run `BC Dev Toolset: Initialize Workspace`.
+Run `BC Dev Toolset: Initialize Workspace`. The PowerShell operation asks for the workspace name when a workspace file needs to be created; the opened folder name is suggested by default. MCP clients can supply `workspaceName` directly or answer the `initializeWorkspace.workspaceName` prompt.
 
 This initializes your current project. You will actually do this for every project you start.
 

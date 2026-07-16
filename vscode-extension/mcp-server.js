@@ -653,6 +653,13 @@ function getOperationToolInputSchema(operation) {
     }
   };
 
+  if (operation.id === 'initializeWorkspace') {
+    properties.workspaceName = {
+      type: 'string',
+      description: 'Name for a new workspace. Defaults to the base folder name.'
+    };
+  }
+
   if (isTestOperation(operation)) {
     properties.testContainerSelection = {
       anyOf: [
@@ -852,6 +859,9 @@ function isContainerBackupOperation(operation) {
 
 function getOperationPromptAnswers(operation, args = {}) {
   const promptAnswers = {};
+  if (operation.id === 'initializeWorkspace' && String(args.workspaceName || '').trim()) {
+    promptAnswers['initializeWorkspace.workspaceName'] = String(args.workspaceName).trim();
+  }
   if (isTestOperation(operation)) {
     promptAnswers['selectIndex.Select.the.container.configuration.to.execute.tests.in.'] = normalizePromptAliasAnswer(args.testContainerSelection, '1');
     promptAnswers['tests.executeInContainer'] = normalizePromptAliasAnswer(args.executeTestsInContainer, 'yes');

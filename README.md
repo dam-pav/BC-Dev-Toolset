@@ -225,7 +225,7 @@ It is best that the paths are relative to the workspace root, the location of th
 Starting a new workspace should be easy.
 
 1. Define a *project.code-workspace* file and replace *project* with a proper name. **Choose the name carefully. If you work on multiple workspaces it can save you a lot of guesswork** The name of the project will become the default name for your Docker container. Your repository might already include such a file.
-   You can create the workspace from VS Code, but creating it manually works just as well. You can also skip this step in which case the file will be created automatically by the toolset initialization.
+   You can create the workspace from VS Code, but creating it manually works just as well. You can also skip this step; toolset initialization will ask for a workspace name (suggesting the base folder name) and create the file automatically.
 2. I do recommend to add **`launch.json`** to *.gitignore*. These files are personalized per developer and managed by the toolset.
 3. You can now create your first Docker container.
 

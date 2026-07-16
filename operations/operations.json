@@ -2,7 +2,7 @@
   {
     "id": "initializeWorkspace",
     "title": "Initialize Workspace",
-    "command": "initializeWorkspace",
+    "script": "operations/InitializeWorkspace.ps1",
     "category": "Workspace"
   },
   {
