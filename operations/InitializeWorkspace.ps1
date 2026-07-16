@@ -56,8 +56,18 @@ function Add-BcDevToolsetGitIgnore {
     Add-Content -LiteralPath $gitIgnorePath -Value ''
 }
 
-$workspaceRoot = (Get-Item -LiteralPath $env:BCDEVTOOLSET_WORKSPACE_PATH).FullName
-$workspaceFile = if ([string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_WORKSPACE_FILE)) { $null } else { Get-Item -LiteralPath $env:BCDEVTOOLSET_WORKSPACE_FILE -ErrorAction Stop }
+$workspaceRoot = (Get-Item -LiteralPath ([System.IO.Path]::GetFullPath($env:BCDEVTOOLSET_WORKSPACE_PATH))).FullName
+$workspaceFile = if ([string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_WORKSPACE_FILE)) {
+    $null
+} else {
+    $explicitWorkspaceFile = if ([System.IO.Path]::IsPathRooted($env:BCDEVTOOLSET_WORKSPACE_FILE)) {
+        [System.IO.Path]::GetFullPath($env:BCDEVTOOLSET_WORKSPACE_FILE)
+    } else {
+        [System.IO.Path]::GetFullPath((Join-Path $workspaceRoot $env:BCDEVTOOLSET_WORKSPACE_FILE))
+    }
+    # An explicitly supplied workspace file is an authorized external file for CLI compatibility.
+    Get-Item -LiteralPath $explicitWorkspaceFile -ErrorAction Stop
+}
 
 if ($null -eq $workspaceFile) {
     $workspaceFiles = @(Get-ChildItem -LiteralPath $workspaceRoot -Filter '*.code-workspace' -File)

@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { authorizeRoot, resolveWithinRoot } = require('./path-security');
 
 const protocolVersion = 2;
 const legacyStateFileName = 'vscode-bridge.json';
@@ -58,39 +59,42 @@ function isProcessAlive(pid) {
 function writeOwnedState(stateDirectory, state) {
   const error = validateState(state);
   if (error) throw new Error(`Cannot write MCP bridge state: ${error}.`);
-  fs.mkdirSync(stateDirectory, { recursive: true });
-  const statePath = path.join(stateDirectory, `${state.instanceId}.json`);
-  const temporaryPath = `${statePath}.${process.pid}.tmp`;
+  const authorizedStateDirectory = authorizeRoot(stateDirectory, 'MCP bridge state directory');
+  fs.mkdirSync(authorizedStateDirectory, { recursive: true });
+  const statePath = resolveWithinRoot(authorizedStateDirectory, `${state.instanceId}.json`);
+  const temporaryPath = resolveWithinRoot(authorizedStateDirectory, `${state.instanceId}.json.${process.pid}.tmp`);
   fs.writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
   fs.renameSync(temporaryPath, statePath);
   return statePath;
 }
 
 function cleanupStates(stateDirectory, { ownedInstanceId = '' } = {}) {
-  if (!fs.existsSync(stateDirectory)) return [];
+  const authorizedStateDirectory = authorizeRoot(stateDirectory, 'MCP bridge state directory');
+  if (!fs.existsSync(authorizedStateDirectory)) return [];
   const removed = [];
-  for (const name of fs.readdirSync(stateDirectory)) {
-    const filePath = path.join(stateDirectory, name);
+  for (const name of fs.readdirSync(authorizedStateDirectory)) {
+    const validatedStatePath = resolveWithinRoot(authorizedStateDirectory, name);
     if (name === legacyStateFileName || name.endsWith('.tmp')) {
-      fs.rmSync(filePath, { force: true }); removed.push(filePath); continue;
+      fs.rmSync(validatedStatePath, { force: true }); removed.push(validatedStatePath); continue;
     }
     if (!name.endsWith('.json')) continue;
     try {
-      const state = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      const state = JSON.parse(fs.readFileSync(validatedStatePath, 'utf8'));
       const alive = isProcessAlive(state.extensionHostPid);
       const stale = validateState(state) || state.instanceId === ownedInstanceId || !alive;
-      if (stale) { fs.rmSync(filePath, { force: true }); removed.push(filePath); }
-    } catch (error) { fs.rmSync(filePath, { force: true }); removed.push(filePath); }
+      if (stale) { fs.rmSync(validatedStatePath, { force: true }); removed.push(validatedStatePath); }
+    } catch (error) { fs.rmSync(validatedStatePath, { force: true }); removed.push(validatedStatePath); }
   }
   return removed;
 }
 
 function discoverState(stateDirectory, workingDirectory) {
-  if (!stateDirectory || !fs.existsSync(stateDirectory)) throw new Error('No BC Dev Toolset bridge instances are registered.');
+  const authorizedStateDirectory = authorizeRoot(stateDirectory, 'MCP bridge state directory');
+  if (!fs.existsSync(authorizedStateDirectory)) throw new Error('No BC Dev Toolset bridge instances are registered.');
   const matches = [];
-  for (const name of fs.readdirSync(stateDirectory).filter((item) => item.endsWith('.json') && item !== legacyStateFileName)) {
+  for (const name of fs.readdirSync(authorizedStateDirectory).filter((item) => item.endsWith('.json') && item !== legacyStateFileName)) {
     try {
-      const state = JSON.parse(fs.readFileSync(path.join(stateDirectory, name), 'utf8'));
+      const state = JSON.parse(fs.readFileSync(resolveWithinRoot(authorizedStateDirectory, name), 'utf8'));
       if (!validateState(state) && isProcessAlive(state.extensionHostPid) && workspaceOwnsPath(state.workspace, workingDirectory)) matches.push(state);
     } catch (error) { /* Invalid state is ignored and cleaned by the extension host. */ }
   }

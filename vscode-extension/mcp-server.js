@@ -6,11 +6,12 @@ const childProcess = require('child_process');
 const http = require('http');
 const os = require('os');
 const bridgeIdentity = require('./mcp-bridge-identity');
+const { authorizeRoot, resolveWithinRoot } = require('./path-security');
 
 const defaultProtocolVersion = '2025-11-25';
-const toolsetPath = process.env.BCDEVTOOLSET_MCP_TOOLSET_PATH || path.resolve(__dirname, '..');
-const operationsPath = path.join(toolsetPath, 'operations', 'operations.json');
-const bridgePath = path.join(toolsetPath, 'Invoke-BcDevToolsetOperation.ps1');
+const toolsetPath = authorizeRoot(process.env.BCDEVTOOLSET_MCP_TOOLSET_PATH || path.resolve(__dirname, '..'), 'BC Dev Toolset MCP toolset path');
+const operationsPath = resolveWithinRoot(toolsetPath, 'operations', 'operations.json');
+const bridgePath = resolveWithinRoot(toolsetPath, 'Invoke-BcDevToolsetOperation.ps1');
 const defaultWorkspacePath = process.env.BCDEVTOOLSET_MCP_WORKSPACE_PATH || process.cwd();
 const defaultWorkspaceFile = process.env.BCDEVTOOLSET_MCP_WORKSPACE_FILE || '';
 const defaultWorkspaceContext = parseJsonEnvironmentValue(process.env.BCDEVTOOLSET_MCP_WORKSPACE_CONTEXT);
