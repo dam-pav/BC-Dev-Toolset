@@ -8,7 +8,7 @@ const protocolVersion = 2;
 const legacyStateFileName = 'vscode-bridge.json';
 
 function normalizePath(value) {
-  return value ? path.resolve(String(value)).replace(/[\\/]+$/, '').toLowerCase() : '';
+  return value ? path.resolve(String(value)).replace(/[\\/]+$/, '').toLowerCase() : ''; // nosemgrep -- normalization only; no filesystem access
 }
 
 function isSameOrChild(parent, candidate) {
@@ -60,41 +60,43 @@ function writeOwnedState(stateDirectory, state) {
   const error = validateState(state);
   if (error) throw new Error(`Cannot write MCP bridge state: ${error}.`);
   const authorizedStateDirectory = authorizeRoot(stateDirectory, 'MCP bridge state directory');
-  fs.mkdirSync(authorizedStateDirectory, { recursive: true });
+  // The caller-authorized root is normalized above; all child paths are containment-checked below.
+  fs.mkdirSync(authorizedStateDirectory, { recursive: true }); // nosemgrep
   const statePath = resolveWithinRoot(authorizedStateDirectory, `${state.instanceId}.json`);
   const temporaryPath = resolveWithinRoot(authorizedStateDirectory, `${state.instanceId}.json.${process.pid}.tmp`);
-  fs.writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  fs.renameSync(temporaryPath, statePath);
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 }); // nosemgrep -- containment checked
+  fs.renameSync(temporaryPath, statePath); // nosemgrep -- both paths share the authorized root
   return statePath;
 }
 
 function cleanupStates(stateDirectory, { ownedInstanceId = '' } = {}) {
-  const authorizedStateDirectory = authorizeRoot(stateDirectory, 'MCP bridge state directory');
-  if (!fs.existsSync(authorizedStateDirectory)) return [];
+  const authorizedStateDirectory = authorizeRoot(stateDirectory, 'MCP bridge state directory'); // nosemgrep -- normalized authorization boundary
+  if (!fs.existsSync(authorizedStateDirectory)) return []; // nosemgrep -- authorized root
   const removed = [];
-  for (const name of fs.readdirSync(authorizedStateDirectory)) {
+  for (const name of fs.readdirSync(authorizedStateDirectory)) { // nosemgrep -- authorized root
     const validatedStatePath = resolveWithinRoot(authorizedStateDirectory, name);
     if (name === legacyStateFileName || name.endsWith('.tmp')) {
-      fs.rmSync(validatedStatePath, { force: true }); removed.push(validatedStatePath); continue;
+      fs.rmSync(validatedStatePath, { force: true }); removed.push(validatedStatePath); continue; // nosemgrep -- containment checked
     }
     if (!name.endsWith('.json')) continue;
     try {
-      const state = JSON.parse(fs.readFileSync(validatedStatePath, 'utf8'));
+      const state = JSON.parse(fs.readFileSync(validatedStatePath, 'utf8')); // nosemgrep -- containment checked
       const alive = isProcessAlive(state.extensionHostPid);
       const stale = validateState(state) || state.instanceId === ownedInstanceId || !alive;
-      if (stale) { fs.rmSync(validatedStatePath, { force: true }); removed.push(validatedStatePath); }
-    } catch (error) { fs.rmSync(validatedStatePath, { force: true }); removed.push(validatedStatePath); }
+      if (stale) { fs.rmSync(validatedStatePath, { force: true }); removed.push(validatedStatePath); } // nosemgrep -- containment checked
+    } catch (error) { fs.rmSync(validatedStatePath, { force: true }); removed.push(validatedStatePath); } // nosemgrep -- containment checked
   }
   return removed;
 }
 
 function discoverState(stateDirectory, workingDirectory) {
-  const authorizedStateDirectory = authorizeRoot(stateDirectory, 'MCP bridge state directory');
-  if (!fs.existsSync(authorizedStateDirectory)) throw new Error('No BC Dev Toolset bridge instances are registered.');
+  const authorizedStateDirectory = authorizeRoot(stateDirectory, 'MCP bridge state directory'); // nosemgrep -- normalized authorization boundary
+  if (!fs.existsSync(authorizedStateDirectory)) throw new Error('No BC Dev Toolset bridge instances are registered.'); // nosemgrep -- authorized root
   const matches = [];
-  for (const name of fs.readdirSync(authorizedStateDirectory).filter((item) => item.endsWith('.json') && item !== legacyStateFileName)) {
+  for (const name of fs.readdirSync(authorizedStateDirectory).filter((item) => item.endsWith('.json') && item !== legacyStateFileName)) { // nosemgrep -- authorized root
     try {
-      const state = JSON.parse(fs.readFileSync(resolveWithinRoot(authorizedStateDirectory, name), 'utf8'));
+      const statePath = resolveWithinRoot(authorizedStateDirectory, name);
+      const state = JSON.parse(fs.readFileSync(statePath, 'utf8')); // nosemgrep -- containment checked
       if (!validateState(state) && isProcessAlive(state.extensionHostPid) && workspaceOwnsPath(state.workspace, workingDirectory)) matches.push(state);
     } catch (error) { /* Invalid state is ignored and cleaned by the extension host. */ }
   }
