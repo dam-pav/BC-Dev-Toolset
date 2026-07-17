@@ -163,9 +163,11 @@ function Restore-TestContainerBackupIfExists {
     Write-Host ""
     Write-Host "Restoring SQL backup set to container '$($configuration.container)'." -ForegroundColor Green
     Write-Host "Backup folder: $backupRootPath" -ForegroundColor Gray
-    Restore-DatabasesInBcContainer `
+    $restoreParameters = Get-BcContainerSqlBackupRestoreParameters `
         -containerName $configuration.container `
-        -bakFolder $sharedRestorePath
+        -bakFolder $sharedRestorePath `
+        -backupEntries $backupEntries
+    Restore-DatabasesInBcContainer @restoreParameters
 
     Write-Host "SQL backup set restored to container '$($configuration.container)'." -ForegroundColor Green
 }

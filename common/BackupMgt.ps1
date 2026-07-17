@@ -85,45 +85,125 @@ function Get-SqlBackupSetEntries {
         [string] $backupRootPath
     )
 
+    $backupFiles = @(Get-ChildItem -Path $backupRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue)
+    $classifiedFiles = @($backupFiles | ForEach-Object {
+        if ($_.Name -match '^(?<databaseName>.+)\.(?<databaseRole>app|tenant|database)\.bak$') {
+            [PSCustomObject]@{
+                File = $_
+                ExportedDatabaseName = $Matches.databaseName
+                DatabaseRole = $Matches.databaseRole
+            }
+        }
+        else {
+            Write-Host "Ignoring backup file '$($_.Name)' because it does not follow the '<container>.<database>.app.bak', '<container>.<database>.tenant.bak', or '<container>.<database>.database.bak' naming convention." -ForegroundColor Yellow
+        }
+    })
+
+    $containerPrefix = Get-SqlBackupSetContainerPrefix -classifiedFiles $classifiedFiles
     $entries = @()
-    foreach ($backupFile in @(Get-ChildItem -Path $backupRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue)) {
-        if ($backupFile.Name -match '^(?<databaseName>.+)\.app\.bak$') {
+    foreach ($classifiedFile in $classifiedFiles) {
+        $backupFile = $classifiedFile.File
+        $databaseName = $classifiedFile.ExportedDatabaseName
+        if (-not [string]::IsNullOrEmpty($containerPrefix)) {
+            $databaseName = $databaseName.Substring($containerPrefix.Length)
+        }
+
+        if ($classifiedFile.DatabaseRole -eq "app") {
             $entries += [PSCustomObject]@{
                 SourcePath = $backupFile.FullName
                 SourceFileName = $backupFile.Name
-                DatabaseName = $Matches.databaseName
+                DatabaseName = $databaseName
                 DatabaseRole = "app"
                 HelperFileName = "app.bak"
             }
             continue
         }
 
-        if ($backupFile.Name -match '^(?<databaseName>.+)\.tenant\.bak$') {
+        if ($classifiedFile.DatabaseRole -eq "tenant") {
             $entries += [PSCustomObject]@{
                 SourcePath = $backupFile.FullName
                 SourceFileName = $backupFile.Name
-                DatabaseName = $Matches.databaseName
+                DatabaseName = $databaseName
                 DatabaseRole = "tenant"
-                HelperFileName = "$($Matches.databaseName).bak"
+                HelperFileName = "$databaseName.bak"
             }
             continue
         }
 
-        if ($backupFile.Name -match '^(?<databaseName>.+)\.database\.bak$') {
+        if ($classifiedFile.DatabaseRole -eq "database") {
             $entries += [PSCustomObject]@{
                 SourcePath = $backupFile.FullName
                 SourceFileName = $backupFile.Name
-                DatabaseName = $Matches.databaseName
+                DatabaseName = $databaseName
                 DatabaseRole = "database"
                 HelperFileName = "database.bak"
             }
-            continue
         }
-
-        Write-Host "Ignoring backup file '$($backupFile.Name)' because it does not follow the '<container>.<database>.app.bak', '<container>.<database>.tenant.bak', or '<container>.<database>.database.bak' naming convention." -ForegroundColor Yellow
     }
 
     return $entries
+}
+
+function Get-SqlBackupSetContainerPrefix {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [AllowEmptyCollection()]
+        [array] $classifiedFiles
+    )
+
+    # Container exports contain an application (or single-tenant) backup and prefix every
+    # database name with the same container name. Service backups do not share that prefix.
+    $hasPrimaryDatabase = ($classifiedFiles.DatabaseRole -contains "app") -or ($classifiedFiles.DatabaseRole -contains "database")
+    if ($classifiedFiles.Count -lt 2 -or -not $hasPrimaryDatabase) {
+        return ""
+    }
+
+    $firstName = [string]$classifiedFiles[0].ExportedDatabaseName
+    $containerPrefix = ""
+    for ($index = 0; $index -lt $firstName.Length; $index++) {
+        if ($firstName[$index] -ne '.') {
+            continue
+        }
+
+        $candidatePrefix = $firstName.Substring(0, $index + 1)
+        $allNamesMatch = @($classifiedFiles | Where-Object {
+            $exportedName = [string]$_.ExportedDatabaseName
+            $exportedName.Length -le $candidatePrefix.Length -or
+                -not $exportedName.StartsWith($candidatePrefix, [System.StringComparison]::OrdinalIgnoreCase)
+        }).Count -eq 0
+        if ($allNamesMatch) {
+            $containerPrefix = $candidatePrefix
+        }
+    }
+
+    return $containerPrefix
+}
+
+function Get-BcContainerSqlBackupRestoreParameters {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $containerName,
+        [Parameter(Mandatory=$true)]
+        [string] $bakFolder,
+        [Parameter(Mandatory=$true)]
+        [AllowEmptyCollection()]
+        [array] $backupEntries
+    )
+
+    $restoreParameters = @{
+        containerName = $containerName
+        bakFolder = $bakFolder
+    }
+    $tenantIds = @($backupEntries |
+        Where-Object { $_.DatabaseRole -eq "tenant" } |
+        Select-Object -ExpandProperty DatabaseName -Unique)
+    if ($tenantIds.Count -gt 0) {
+        # Supplying tenant IDs avoids BcContainerHelper querying the BC service before
+        # the restore. This allows retries when an earlier failed restore left it stopped.
+        $restoreParameters.tenant = $tenantIds
+    }
+
+    return $restoreParameters
 }
 
 function Get-BcContainerDatabaseBackupMap {
@@ -147,7 +227,7 @@ function Get-BcContainerDatabaseBackupMap {
             $map += @(Get-NAVTenant -ServerInstance BC | ForEach-Object {
                 [PSCustomObject]@{
                     HelperFileName = "$($_.Id).bak"
-                    ExportFileName = "$($_.DatabaseName).tenant.bak"
+                    ExportFileName = "$($_.Id).tenant.bak"
                 }
             })
 
@@ -403,9 +483,11 @@ function Restore-BcContainerSqlBackupSet {
             continue
         }
 
-        Restore-DatabasesInBcContainer `
+        $restoreParameters = Get-BcContainerSqlBackupRestoreParameters `
             -containerName $configuration.container `
-            -bakFolder $sharedRestorePath
+            -bakFolder $sharedRestorePath `
+            -backupEntries $backupEntries
+        Restore-DatabasesInBcContainer @restoreParameters
 
         Write-Host "SQL backup set restored to container '$($configuration.container)'." -ForegroundColor Green
     }
@@ -796,6 +878,40 @@ function Backup-RemoteSqlDatabases {
     }
 }
 
+function Get-BcServiceSqlBackupRequests {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $serviceDatabaseInfo,
+        [Parameter(Mandatory=$true)]
+        [string] $serverInstance
+    )
+
+    if (-not $serviceDatabaseInfo.Multitenant) {
+        return @([PSCustomObject]@{
+            DatabaseName = $serviceDatabaseInfo.DatabaseName
+            FileName = (Get-SqlBackupFileName -databaseName $serviceDatabaseInfo.DatabaseName -databaseRole "database")
+        })
+    }
+
+    $backupRequests = @([PSCustomObject]@{
+        DatabaseName = $serviceDatabaseInfo.DatabaseName
+        FileName = (Get-SqlBackupFileName -databaseName $serviceDatabaseInfo.DatabaseName -databaseRole "app")
+    })
+    $tenants = @($serviceDatabaseInfo.Tenants)
+    if ($tenants.Count -eq 0) {
+        throw "No tenants found for multitenant service instance '$serverInstance'."
+    }
+
+    foreach ($tenant in $tenants) {
+        $backupRequests += [PSCustomObject]@{
+            DatabaseName = $tenant.DatabaseName
+            FileName = (Get-SqlBackupFileName -databaseName $tenant.Id -databaseRole "tenant")
+        }
+    }
+
+    return $backupRequests
+}
+
 function Export-BcServiceSqlBackupSet {
     Param (
         [Parameter(Mandatory=$true)]
@@ -840,7 +956,6 @@ function Export-BcServiceSqlBackupSet {
         $databaseServer = $serviceDatabaseInfo.DatabaseServer
         $databaseInstance = $serviceDatabaseInfo.DatabaseInstance
         $databaseName = $serviceDatabaseInfo.DatabaseName
-        $multitenant = $serviceDatabaseInfo.Multitenant
 
         if ([string]::IsNullOrWhiteSpace($databaseServer)) {
             $databaseServer = "localhost"
@@ -856,31 +971,9 @@ function Export-BcServiceSqlBackupSet {
             $sqlCredential = New-Object pscredential $configuration.databaseUser, $securePassword
         }
 
-        $backupRequests = @()
-
-        if ($multitenant) {
-            $backupRequests += [PSCustomObject]@{
-                DatabaseName = $databaseName
-                FileName = (Get-SqlBackupFileName -databaseName $databaseName -databaseRole "app")
-            }
-
-            $tenants = @($serviceDatabaseInfo.Tenants)
-            if ($tenants.Count -eq 0) {
-                throw "No tenants found for multitenant service instance '$serverInstance'."
-            }
-
-            foreach ($tenant in $tenants) {
-                $backupRequests += [PSCustomObject]@{
-                    DatabaseName = $tenant.DatabaseName
-                    FileName = (Get-SqlBackupFileName -databaseName $tenant.DatabaseName -databaseRole "tenant")
-                }
-            }
-        } else {
-            $backupRequests += [PSCustomObject]@{
-                DatabaseName = $databaseName
-                FileName = (Get-SqlBackupFileName -databaseName $databaseName -databaseRole "database")
-            }
-        }
+        $backupRequests = @(Get-BcServiceSqlBackupRequests `
+            -serviceDatabaseInfo $serviceDatabaseInfo `
+            -serverInstance $serverInstance)
 
         foreach ($exportRootPath in $exportRootPaths) {
             New-Item -ItemType Directory -Path $exportRootPath -Force | Out-Null
