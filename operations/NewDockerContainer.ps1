@@ -4,9 +4,6 @@ $scriptRoot = (get-item $PSScriptRoot).Parent
 . $scriptRoot/common/WorkspaceMgt.ps1
 . $scriptRoot/common/PublishApps.ps1
 
-# Make sure Docker is running
-Test-DockerProcess
-
 # Initialize context
 $settingsJSON = @{}
 $workspaceJSON = @{}
@@ -15,6 +12,18 @@ Initialize-Context `
     -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
 
+# Validate all apps before prompting for, or making, container changes.
+$appJSON = @{}
+if (-not (Test-WorkspaceApplicationVersions `
+    -scriptPath $scriptRoot `
+    -workspaceJSON $workspaceJSON `
+    -appJSON ([ref]$appJSON))) {
+    return
+}
+
+# Make sure Docker is running
+Test-DockerProcess
+
 # Not exactly related, but can help when switching between builds with different names. Expect prompts.
 Clear-Artifacts -scriptPath $scriptRoot -workspaceJSON $workspaceJSON
 
@@ -22,19 +31,6 @@ Clear-Artifacts -scriptPath $scriptRoot -workspaceJSON $workspaceJSON
 $pullFullArtifact = (Confirm-Option -question "Do you want to perform a complete pull of all artifacts? This will take longer but ensure you have the latest base image and artifacts. Do this if your previous pull attempt resulted in errors during container deployment, such as version mismatches between data and components." -defaultYes:$false -PromptId "newDockerContainer.pullFullArtifact" -Risk "Downloads fresh artifacts and can significantly increase container creation time.")
 if ($pullFullArtifact) {
     Write-Host "All artifacts will be pulled." -ForegroundColor Blue
-}
-
-# Find the first extension setup. Assume all extensions require the same platform version.
-$appJSON = @{}
-foreach ($appPath in $workspaceJSON.folders.path) {
-    Get-AppJSON `
-        -scriptPath $scriptRoot `
-        -appPath $appPath  `
-        -appJSON ([ref]$appJSON)
-
-    if ($appJSON.application) {
-        break
-    } 
 }
 
 # Build a new container

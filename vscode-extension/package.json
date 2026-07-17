@@ -852,7 +852,7 @@
       },
       {
         "command": "bcDevToolset.operation.newDockerContainer",
-        "title": "BC Dev Toolset: Create/Overwrite Docker container based on the first app.json found in the workspace"
+        "title": "BC Dev Toolset: Create/Overwrite Docker container based on the workspace app.json application version"
       },
       {
         "command": "bcDevToolset.operation.updateLaunchJson",
