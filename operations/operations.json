@@ -20,7 +20,7 @@
   },
   {
     "id": "newDockerContainer",
-    "title": "Create/Overwrite Docker container based on the first app.json found in the workspace",
+    "title": "Create/Overwrite Docker container based on the workspace app.json application version",
     "script": "operations/NewDockerContainer.ps1",
     "category": "Container",
     "requiresConfirmation": true

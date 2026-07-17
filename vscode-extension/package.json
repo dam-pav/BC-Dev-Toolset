@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -852,7 +852,7 @@
       },
       {
         "command": "bcDevToolset.operation.newDockerContainer",
-        "title": "BC Dev Toolset: Create/Overwrite Docker container based on the first app.json found in the workspace"
+        "title": "BC Dev Toolset: Create/Overwrite Docker container based on the workspace app.json application version"
       },
       {
         "command": "bcDevToolset.operation.updateLaunchJson",

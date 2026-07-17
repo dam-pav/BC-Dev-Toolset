@@ -106,7 +106,7 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 
 ### Container
 
-- `Create/Overwrite Docker container based on the first app.json found in the workspace`: Creates or recreates a development container using the workspace app metadata. If more than one Container configuration has a non-empty `container` value, choose one configuration or process all qualified configurations; duplicate `container` values abort the operation.
+- `Create/Overwrite Docker container based on the workspace app.json application version`: Creates or recreates a development container using the common `application` version from every workspace app. Mismatched values stop the operation and are reported by app.json path. If more than one Container configuration has a non-empty `container` value, choose one configuration or process all qualified configurations; duplicate `container` values abort the operation.
 - `Update license files in all containers`: Applies the configured license file to container environments.
 - `Update server configuration in all containers`: Applies configured server settings to container environments.
 

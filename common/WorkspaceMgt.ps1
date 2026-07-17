@@ -991,6 +991,62 @@ function Get-AppJSON {
     }
 }
 
+function Test-WorkspaceApplicationVersions {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $workspaceJSON,
+        [Parameter(Mandatory=$true)]
+        [ref] $appJSON
+    )
+
+    $workspaceApps = @()
+    foreach ($workspaceFolderPath in $workspaceJSON.folders.path) {
+        $resolvedAppPath = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $workspaceFolderPath
+        $appFilename = Join-Path $resolvedAppPath "app.json"
+        if (-not (Test-Path -LiteralPath $appFilename -PathType Leaf)) {
+            continue
+        }
+
+        $currentAppJSON = Get-Content -LiteralPath $appFilename | ConvertFrom-Json
+        $applicationVersion = ""
+        if ($null -ne $currentAppJSON.application) {
+            $applicationVersion = [string]$currentAppJSON.application
+        }
+
+        $workspaceApps += [PSCustomObject]@{
+            Path = $appFilename
+            Application = $applicationVersion
+            AppJSON = $currentAppJSON
+        }
+    }
+
+    if ($workspaceApps.Count -eq 0) {
+        $appJSON.Value = [PSCustomObject]@{}
+        return $true
+    }
+
+    $appJSON.Value = $workspaceApps[0].AppJSON
+    $applicationVersions = @($workspaceApps | Group-Object -Property Application)
+    if ($applicationVersions.Count -eq 1) {
+        return $true
+    }
+
+    Write-Host "Create container operation stopped." -ForegroundColor Red
+    Write-Host "All apps in the workspace must use the same 'application' value in app.json." -ForegroundColor Red
+    Write-Host "Discrepancies found:" -ForegroundColor Red
+    foreach ($workspaceApp in $workspaceApps) {
+        $displayVersion = $workspaceApp.Application
+        if ([string]::IsNullOrWhiteSpace($displayVersion)) {
+            $displayVersion = "<missing or empty>"
+        }
+        Write-Host " - '$($workspaceApp.Path)': '$displayVersion'" -ForegroundColor Red
+    }
+    Write-Host "Align the 'application' values and run the operation again." -ForegroundColor Yellow
+    return $false
+}
+
 function Get-PackageParams {
     Param (
         [Parameter(Mandatory=$false)]
