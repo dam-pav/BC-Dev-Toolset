@@ -237,7 +237,7 @@ That said; you can maintain data persistence in a couple of ways. One is to use 
 
 SQL backup operations create and consume a compatible backup set in each Container configuration's *sqlBackupPath*. Different container configurations can use different folders; set the same folder on multiple Container configurations only when sharing the backup set is intentional. When more than one Container configuration has a non-empty *sqlBackupPath*, container backup and restore operations ask which container to use; container backup also offers an option to back up all qualified containers. Missing or stopped containers are reported and skipped.
 
-Backup files are classified by suffix: *\<name\>.app.bak* for the application database, *\<name\>.tenant.bak* for multitenant tenant databases, or *\<name\>.database.bak* for a single-tenant database. Container backups add the container name to the exported file name to avoid collisions when multiple containers share the same internal database names. Regular BC service SQL Server backups use the database name directly.
+Backup files are classified by suffix: *\<name\>.app.bak* for the application database, *\<tenant-id\>.tenant.bak* for multitenant tenant databases, or *\<name\>.database.bak* for a single-tenant database. Container backups add the container name to the exported file name to avoid collisions when multiple containers share the same names. Tenant backup filenames use tenant IDs because *BcContainerHelper* uses those IDs when restoring the databases; the original SQL database names are needed only to select the source databases during backup.
 
 To retrieve bak files from a SQL Server host you will require credentials with the ability to create remote Powershell sessions to the SQL Server host.
 
@@ -245,13 +245,15 @@ You can follow the naming convention manually and prepare a bak file set manuall
 
 ### Backup
 
-Container backups created by the toolset use this naming convention: *<container\>.<database\>.\*.bak*. The container name in the exported file name identifies the backup's origin. Existing *.bak* files in the selected *sqlBackupPath* are replaced when a new backup set is exported, so file name collisions are not preserved across backup runs.
+Container backups created by the toolset use *<container\>.<database\>.app.bak* for the application database, *<container\>.<tenant-id\>.tenant.bak* for tenant databases, and *<container\>.<database\>.database.bak* for a single-tenant database. The container name in the exported file name identifies the backup's origin. Existing *.bak* files in the selected *sqlBackupPath* are replaced when a new backup set is exported, so file name collisions are not preserved across backup runs.
 
-BC service SQL Server backups use the same role suffixes without adding a container name: *<database\>.app.bak*, *<database\>.tenant.bak*, or *<database\>.database.bak*. They are exported to every distinct *sqlBackupPath* configured on Container configurations.
+BC service SQL Server backups use the same role suffixes without adding a container name: *<database\>.app.bak*, *<tenant-id\>.tenant.bak*, or *<database\>.database.bak*. They are exported to every distinct *sqlBackupPath* configured on Container configurations.
+
+> Warning: ALL pre-existing *.bak* files in the target folder will be removed during backup.
 
 ### Restore
 
-Restore is based on the selected folder's content. It looks for \*.app.bak, \*.tenant.bak, and \*.database.bak files and does not require file names to start with the target container name. You can copy a compatible backup set into the target configuration's *sqlBackupPath* and restore it from there.
+Restore is based on the selected folder's content. It looks for \*.app.bak, \*.tenant.bak, and \*.database.bak files and does not require file names to start with the target container name. For a container-exported multitenant set, the shared source-container prefix is removed when the files are staged under the names expected by *BcContainerHelper*. You can copy a compatible backup set into the target configuration's *sqlBackupPath* and restore it from there.
 
 ## Testing
 
