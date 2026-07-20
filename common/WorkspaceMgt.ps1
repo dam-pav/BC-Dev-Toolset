@@ -878,14 +878,9 @@ function Initialize-Context {
     # Initialize host helper folder from settings, with default fallback
     Set-Variable -Name hostHelperFolder -Value (Get-HostHelperFolder $settingsJSONvalue) -Scope Script
 
-    # Add country from code-workspace
-    $country = ''
-    if ($workspaceJSON.value.settings."dam-pav.bcdevtoolset".country) {
-        $country = $workspaceJSON.value.settings."dam-pav.bcdevtoolset".country
-    }
-    if ($country -eq '') {
-        $country = "w1"
-    }
+    # Use the AL extension's workspace region for artifact selection.
+    $country = [string]$workspaceJSON.value.settings.'al.symbolsCountryRegion'
+    if ([string]::IsNullOrWhiteSpace($country)) { $country = 'w1' }
 
     $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name country -Value $country -Force
 
@@ -915,6 +910,45 @@ function Initialize-Context {
     }
     # finally, pass the object
     $settingsJSON.Value = $settingsJSONvalue
+}
+
+function Remove-RedundantAppRegionSettings {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $workspaceJSON
+    )
+
+    $workspaceRegion = [string]$workspaceJSON.settings.'al.symbolsCountryRegion'
+    if ([string]::IsNullOrWhiteSpace($workspaceRegion)) { $workspaceRegion = 'w1' }
+
+    $redundantSettingsPaths = @()
+    foreach ($workspaceFolderPath in $workspaceJSON.folders.path) {
+        $appPath = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $workspaceFolderPath
+        if (-not (Test-Path -LiteralPath (Join-Path $appPath 'app.json') -PathType Leaf)) { continue }
+
+        $appSettingsPath = Join-Path $appPath '.vscode' 'settings.json'
+        if (-not (Test-Path -LiteralPath $appSettingsPath -PathType Leaf)) { continue }
+
+        $appSettings = Get-Content -LiteralPath $appSettingsPath -Raw | ConvertFrom-Json
+        $regionProperty = $appSettings.PSObject.Properties['al.symbolsCountryRegion']
+        if ($null -eq $regionProperty) { continue }
+
+        $appRegion = [string]$regionProperty.Value
+        if ($appRegion -ne $workspaceRegion) {
+            throw "App region '$appRegion' in '$appSettingsPath' does not match workspace region '$workspaceRegion'."
+        }
+
+        $redundantSettingsPaths += $appSettingsPath
+    }
+
+    foreach ($appSettingsPath in $redundantSettingsPaths) {
+        $appSettings = Get-Content -LiteralPath $appSettingsPath -Raw | ConvertFrom-Json
+        $appSettings.PSObject.Properties.Remove('al.symbolsCountryRegion')
+        $appSettings | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $appSettingsPath
+        Write-Host "Removed redundant AL region setting from '$appSettingsPath'." -ForegroundColor Gray
+    }
 }
 
 function Resolve-BcDevToolsetWorkspaceFile {

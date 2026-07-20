@@ -80,5 +80,28 @@ test('workspace initialization recognizes BC apps nested in a workspace folder',
   assert.match(result.stdout, /workspace configuration is ready/i);
   const initializedWorkspace = JSON.parse(fs.readFileSync(workspaceFile, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
   assert.ok(initializedWorkspace.settings['dam-pav.bcdevtoolset']);
+  assert.equal(initializedWorkspace.settings['dam-pav.bcdevtoolset'].selectArtifact, 'Latest');
+  assert.equal(initializedWorkspace.settings['al.symbolsCountryRegion'], 'w1');
+  assert.equal('country' in initializedWorkspace.settings['dam-pav.bcdevtoolset'], false);
   assert.equal(fs.existsSync(settingsPath), true); // nosemgrep -- path is contained by the test-owned workspace root
+});
+
+test('workspace initialization migrates the obsolete country setting to the AL region setting', () => {
+  const workspacePath = authorizeRoot(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-country-migration-')),
+    'Test workspace'
+  );
+  const workspaceFile = resolveWithinRoot(workspacePath, 'sample.code-workspace');
+  fs.writeFileSync(resolveWithinRoot(workspacePath, 'app.json'), '{}\n'); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.writeFileSync(workspaceFile, JSON.stringify({
+    folders: [{ path: '.' }],
+    settings: { 'dam-pav.bcdevtoolset': { country: 'de', selectArtifact: 'Closest' } }
+  })); // nosemgrep -- path is contained by the test-owned workspace root
+
+  const result = runInitializeWorkspace(workspacePath, workspaceFile);
+
+  assert.equal(result.status, 0, result.stderr);
+  const initializedWorkspace = JSON.parse(fs.readFileSync(workspaceFile, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
+  assert.equal(initializedWorkspace.settings['al.symbolsCountryRegion'], 'de');
+  assert.equal('country' in initializedWorkspace.settings['dam-pav.bcdevtoolset'], false);
 });
