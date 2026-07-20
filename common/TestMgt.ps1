@@ -205,7 +205,7 @@ function Get-TestSelectArtifact {
         return $workspaceJSON.settings."dam-pav.bcdevtoolset".selectArtifact
     }
 
-    return "Closest"
+    return "Latest"
 }
 
 function Export-TestContainerBackupSet {
@@ -277,6 +277,10 @@ function New-TestExecutionContainerIfMissing {
     }
 
     Write-Host "Container '$($configuration.container)' does not exist. Creating it before executing tests." -ForegroundColor Yellow
+
+    Remove-RedundantAppRegionSettings `
+        -scriptPath $scriptPath `
+        -workspaceJSON $workspaceJSON
 
     Clear-Artifacts -scriptPath $scriptPath -workspaceJSON $workspaceJSON
 

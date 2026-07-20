@@ -128,9 +128,8 @@ Suggested path:
 
 Scope: workspace-specific configuration, suitable for source control when it contains no secrets.
 
-Examples under `settings.dam-pav.bcdevtoolset`:
+The artifact region uses the AL extension's `settings.al.symbolsCountryRegion` value. Examples under `settings.dam-pav.bcdevtoolset`:
 
-- country
 - app folder conventions
 - workspace environments without secrets
 - team-agreed defaults

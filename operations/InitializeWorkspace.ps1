@@ -161,8 +161,7 @@ if (-not $workspaceJson.PSObject.Properties['settings']) {
 }
 if (-not $workspaceJson.settings.PSObject.Properties['dam-pav.bcdevtoolset']) {
     $workspaceJson.settings | Add-Member -MemberType NoteProperty -Name 'dam-pav.bcdevtoolset' -Value ([ordered]@{
-        country = 'w1'
-        selectArtifact = 'Closest'
+        selectArtifact = 'Latest'
         configurations = @([ordered]@{
             name = 'sample'; serverType = ''; targetType = ''; server = ''; serverInstance = ''; container = ''
             port = ''; environmentType = ''; environmentName = ''; includeTestToolkit = ''; tenant = ''
@@ -170,8 +169,18 @@ if (-not $workspaceJson.settings.PSObject.Properties['dam-pav.bcdevtoolset']) {
             remoteUser = ''; remotePassword = ''
         })
     })
-    $workspaceJson | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $workspaceFile.FullName
 }
+$region = [string]$workspaceJson.settings.'al.symbolsCountryRegion'
+$toolsetSettings = $workspaceJson.settings.'dam-pav.bcdevtoolset'
+if ([string]::IsNullOrWhiteSpace($region) -and $null -ne $toolsetSettings) {
+    $region = [string]$toolsetSettings.country
+}
+if ([string]::IsNullOrWhiteSpace($region)) { $region = 'w1' }
+$workspaceJson.settings | Add-Member -MemberType NoteProperty -Name 'al.symbolsCountryRegion' -Value $region -Force
+if ($null -ne $toolsetSettings) {
+    $toolsetSettings.PSObject.Properties.Remove('country')
+}
+$workspaceJson | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $workspaceFile.FullName
 
 $settingsPath = Join-Path $workspaceRoot '.bcdevtoolset' 'settings.json'
 Build-Settings -settingsPath $settingsPath -workspaceName $workspaceName
