@@ -41,6 +41,37 @@ function Get-AppWorkspaceFolders {
     } | Sort-Object)
 }
 
+function Test-WorkspaceContainsBcApp {
+    param(
+        [string] $RootPath,
+        [System.IO.FileInfo] $WorkspaceFile
+    )
+
+    if ($null -eq $WorkspaceFile) {
+        return @(Get-AppWorkspaceFolders -RootPath $RootPath).Count -gt 0
+    }
+
+    $workspace = Get-Content -LiteralPath $WorkspaceFile.FullName -Raw | ConvertFrom-Json
+    foreach ($folder in @($workspace.folders)) {
+        $folderPath = if ($folder -is [string]) { $folder } else { $folder.path }
+        if ([string]::IsNullOrWhiteSpace($folderPath)) {
+            continue
+        }
+
+        $resolvedFolderPath = if ([System.IO.Path]::IsPathRooted($folderPath)) {
+            [System.IO.Path]::GetFullPath($folderPath)
+        } else {
+            [System.IO.Path]::GetFullPath((Join-Path $WorkspaceFile.DirectoryName $folderPath))
+        }
+        if ((Test-Path -LiteralPath $resolvedFolderPath -PathType Container) -and
+            @(Get-AppWorkspaceFolders -RootPath $resolvedFolderPath).Count -gt 0) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Add-BcDevToolsetGitIgnore {
     param([string] $RootPath)
 
@@ -77,6 +108,12 @@ if ($null -eq $workspaceFile) {
     if ($workspaceFiles.Count -eq 1) {
         $workspaceFile = $workspaceFiles[0]
     }
+}
+
+if (-not (Test-WorkspaceContainsBcApp -RootPath $workspaceRoot -WorkspaceFile $workspaceFile)) {
+    Write-Host 'BC Dev Toolset workspace initialization skipped because the workspace contains no Business Central apps.' -ForegroundColor Yellow
+    Write-Done
+    return
 }
 
 if ($null -eq $workspaceFile) {
