@@ -93,10 +93,10 @@ test('workspace initialization migrates the obsolete country setting to the AL r
   );
   const workspaceFile = resolveWithinRoot(workspacePath, 'sample.code-workspace');
   fs.writeFileSync(resolveWithinRoot(workspacePath, 'app.json'), '{}\n'); // nosemgrep -- path is contained by the test-owned workspace root
-  fs.writeFileSync(workspaceFile, JSON.stringify({
+  fs.writeFileSync(workspaceFile, JSON.stringify({ // nosemgrep -- workspaceFile is resolved within the authorized test-owned workspace root
     folders: [{ path: '.' }],
     settings: { 'dam-pav.bcdevtoolset': { country: 'de', selectArtifact: 'Closest' } }
-  })); // nosemgrep -- path is contained by the test-owned workspace root
+  }));
 
   const result = runInitializeWorkspace(workspacePath, workspaceFile);
 

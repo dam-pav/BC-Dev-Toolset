@@ -19,18 +19,18 @@ function createWorkspace(appRegion, workspaceRegion = 'w1') {
   const vscodePath = resolveWithinRoot(workspacePath, 'App', '.vscode');
   fs.mkdirSync(vscodePath, { recursive: true }); // nosemgrep -- path is contained by the test-owned workspace root
   fs.writeFileSync(resolveWithinRoot(workspacePath, 'App', 'app.json'), '{}\n'); // nosemgrep -- path is contained by the test-owned workspace root
-  fs.writeFileSync(
+  fs.writeFileSync( // nosemgrep -- destination is resolved within the authorized test-owned workspace root
     resolveWithinRoot(workspacePath, 'App', '.vscode', 'settings.json'),
     `${JSON.stringify({ 'al.symbolsCountryRegion': appRegion, 'editor.tabSize': 2 }, null, 2)}\n`
-  ); // nosemgrep -- path is contained by the test-owned workspace root
+  );
   const workspace = {
     folders: [{ path: 'App' }],
     settings: { 'al.symbolsCountryRegion': workspaceRegion }
   };
-  fs.writeFileSync(
+  fs.writeFileSync( // nosemgrep -- destination is resolved within the authorized test-owned workspace root
     resolveWithinRoot(workspacePath, 'sample.code-workspace'),
     `${JSON.stringify(workspace, null, 2)}\n`
-  ); // nosemgrep -- path is contained by the test-owned workspace root
+  );
   return workspacePath;
 }
 
@@ -52,10 +52,10 @@ test('matching app region is removed before container preparation', () => {
   const result = reconcileRegions(workspacePath);
 
   assert.equal(result.status, 0, result.stderr);
-  const settings = JSON.parse(fs.readFileSync(
+  const settings = JSON.parse(fs.readFileSync( // nosemgrep -- source is resolved within the authorized test-owned workspace root
     resolveWithinRoot(workspacePath, 'App', '.vscode', 'settings.json'),
     'utf8'
-  )); // nosemgrep -- path is contained by the test-owned workspace root
+  ));
   assert.equal('al.symbolsCountryRegion' in settings, false);
   assert.equal(settings['editor.tabSize'], 2);
 });
