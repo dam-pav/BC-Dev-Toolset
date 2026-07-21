@@ -389,6 +389,7 @@ Each `configurations` entry can contain:
 - `name`: Distinctive name of the configuration. Mandatory. Entries with an empty name or the name `sample` are ignored.
 - `serverType`: Accepted values are `Container`, `Cloud`, or `OnPrem`. Mandatory.
 - `targetType`: Accepted values are `Dev`, `Test`, `Production`.
+- `autoUpdateLaunchJson`: Optional override controlling whether this entry is included when launch.json files are updated, both manually and after container creation. It applies to all `serverType` values. When omitted, the effective value is `true` if `targetType` is `Dev`, and `false` otherwise.
 - `server`: Valid for `OnPrem`.
 - `serverInstance`: Valid for `OnPrem`.
 - `container`: Docker container name. The default value is the name of the workspace. Valid for `Container`. Create-container processing only includes Container configurations with a non-empty `container` value, and duplicate `container` values abort the operation.

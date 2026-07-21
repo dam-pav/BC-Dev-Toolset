@@ -189,6 +189,7 @@ Each workspace `configuration` entry can contain:
 - `name`: Display name of the target. Entries named `sample` are placeholders and are ignored by operations.
 - `serverType`: Target type. Valid values: `Container`, `Cloud`, `OnPrem`.
 - `targetType`: Intended role of the target. Valid values: `Dev`, `Test`, `Production`.
+- `autoUpdateLaunchJson`: Optional override controlling whether this entry is included when launch.json files are updated, both manually and after container creation. It applies to all `serverType` values. When omitted, the effective value is `true` for `Dev` targets and `false` otherwise.
 - `server`: Business Central server name for `OnPrem`.
 - `serverInstance`: Business Central server instance for `OnPrem`.
 - `container`: Docker container name for `Container`. Create-container processing only includes Container configurations with a non-empty `container` value, and duplicate `container` values abort the operation.

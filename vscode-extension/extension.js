@@ -83,6 +83,7 @@ const configurationFields = [
   { name: 'name', validServerTypes: [] },
   { name: 'serverType', validServerTypes: [] },
   { name: 'targetType', validServerTypes: [] },
+  { name: 'autoUpdateLaunchJson', validServerTypes: [] },
   { name: 'server', validServerTypes: ['OnPrem'] },
   { name: 'serverInstance', validServerTypes: ['OnPrem'] },
   { name: 'container', validServerTypes: ['Container'] },

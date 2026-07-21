@@ -263,6 +263,10 @@
                     ],
                     "description": "Target environment role."
                   },
+                  "autoUpdateLaunchJson": {
+                    "type": "boolean",
+                    "description": "Optional override for whether update launch.json operations include this configuration. Applies to all server types. When omitted, the effective value is true for Dev targets and false otherwise."
+                  },
                   "databaseUser": {
                     "type": "string",
                     "description": "Optional SQL user for database operations."

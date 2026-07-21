@@ -724,6 +724,19 @@ function Ensure-DockerNetwork {
     return $networkInfo.Name
 }
 
+function Test-AutoUpdateLaunchJson {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration
+    )
+
+    if ($configuration.PSObject.Properties['autoUpdateLaunchJson']) {
+        return $configuration.autoUpdateLaunchJson -eq $true
+    }
+
+    return $configuration.targetType -eq "Dev"
+}
+
 function Write-LaunchJSON {
     Param (
         [Parameter(Mandatory=$true)]
@@ -772,7 +785,7 @@ function Write-LaunchJSON {
     }
 
     # Find & Manage Remote Launcher
-    foreach ($remote in $settingsJSON.configurations) {
+    foreach ($remote in $($settingsJSON.configurations | Where-Object { Test-AutoUpdateLaunchJson -configuration $_ })) {
         $configurationValid = $true
         if ($remote.name -eq "") {
             $configurationValid = $false

@@ -115,6 +115,28 @@ test('container creation callers pass workspace context required for OnPrem app 
   }
 });
 
+test('launch.json updates honor explicit values and target-based defaults', () => {
+  const script = `
+    . '${workspaceMgtPath.replaceAll("'", "''")}'
+    $cases = @(
+      [PSCustomObject]@{ serverType = 'Container'; targetType = 'Dev' },
+      [PSCustomObject]@{ serverType = 'Cloud'; targetType = 'Test' },
+      [PSCustomObject]@{ serverType = 'OnPrem'; targetType = 'Production' },
+      [PSCustomObject]@{ serverType = 'Cloud'; targetType = 'Dev'; autoUpdateLaunchJson = $false },
+      [PSCustomObject]@{ serverType = 'OnPrem'; targetType = 'Test'; autoUpdateLaunchJson = $true }
+    )
+    $actual = @($cases | ForEach-Object { Test-AutoUpdateLaunchJson -configuration $_ })
+    $expected = @($true, $false, $false, $false, $true)
+    if ((Compare-Object $expected $actual -SyncWindow 0).Count -ne 0) { exit 2 }
+  `;
+
+  runPowerShell(script);
+
+  const source = fs.readFileSync(workspaceMgtPath, 'utf8');
+  const launchWriter = source.match(/function Write-LaunchJSON[\s\S]*?\n}/)?.[0] ?? '';
+  assert.match(launchWriter, /Test-AutoUpdateLaunchJson -configuration \$_/);
+});
+
 test('assembly extraction uses the Hyper-V-compatible BcContainerHelper copy operation', () => {
   const source = fs.readFileSync(workspaceMgtPath, 'utf8');
   const extractionFunction = source.match(/function Copy-DirectoryFromBcContainer[\s\S]*?\n}/)?.[0] ?? '';
