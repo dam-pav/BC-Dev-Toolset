@@ -12,6 +12,10 @@ Initialize-Context `
     -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
 
+Remove-RedundantAppRegionSettings `
+    -scriptPath $scriptRoot `
+    -workspaceJSON $workspaceJSON
+
 # Validate all apps before prompting for, or making, container changes.
 $appJSON = @{}
 if (-not (Test-WorkspaceApplicationVersions `
@@ -34,7 +38,7 @@ if ($pullFullArtifact) {
 }
 
 # Build a new container
-$selectArtifact = "Closest"
+$selectArtifact = "Latest"
 if ($workspaceJSON.settings."dam-pav.bcdevtoolset".selectArtifact) {
     $selectArtifact = $workspaceJSON.settings."dam-pav.bcdevtoolset".selectArtifact
 }

@@ -177,10 +177,9 @@ The extension uses three settings layers:
 
 ### Workspace settings
 
-These are stored in the workspace file under `dam-pav.bcdevtoolset`.
+These are stored in the workspace file. The AL extension's `al.symbolsCountryRegion` setting selects the Business Central artifact region and defaults to `w1`; the remaining settings are under `dam-pav.bcdevtoolset`.
 
-- `country`: Business Central artifact country code. Default: `w1`.
-- `selectArtifact`: Artifact selection strategy. Default: `Closest`. Common values are `Closest` and `Latest`.
+- `selectArtifact`: Artifact selection strategy. Default: `Latest`. Another common value is `Closest`.
 - `executeTestsInContainerName`: Optional container name used by Test operations. If empty and only one Dev Container configuration exists, tests run there without backup restore or app deployment. If empty, or if the value is not found and multiple Dev Container configurations exist, Test operations ask which configured container to use. If the selected container is missing, it is created and an initial SQL backup set is exported before tests continue.
 - `configurations`: Shared target definitions for the workspace. These are useful when a team wants common environment entries available to everyone.
 

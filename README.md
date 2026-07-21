@@ -307,9 +307,9 @@ to remove the files from git. You will need to commit these changes. Beware, thi
   "settings": {
     "liveServer.settings.multiRootWorkspaceName": "BC-Dev-Toolset",
     "powershell.cwd": "BC-Dev-Toolset",
+    "al.symbolsCountryRegion": "w1",
     "dam-pav.bcdevtoolset": {
-      "country": "w1",
-      "selectArtifact": "Closest",
+      "selectArtifact": "Latest",
       "executeTestsInContainerName": "",
       "configurations":  [
         {
@@ -373,10 +373,10 @@ These are VS Code extension settings. They belong to the developer's VS Code set
 
 ### Workspace settings
 
-These are stored in the `.code-workspace` file under the root attribute `dam-pav.bcdevtoolset`. Use them for shared project settings that should travel with the workspace.
+These are stored in the `.code-workspace` file. The AL region setting is stored directly under `settings`; the remaining toolset settings are under `dam-pav.bcdevtoolset`. Use them for shared project settings that should travel with the workspace.
 
-- `country`: Optional platform country version. The default is `w1`.
-- `selectArtifact`: Artifact selection strategy. Common values are `Closest` and `Latest`.
+- `al.symbolsCountryRegion`: Business Central artifact region. The default is `w1`; this is the same setting used by the AL extension.
+- `selectArtifact`: Artifact selection strategy. The default is `Latest`; another common value is `Closest`.
 - `executeTestsInContainerName`: Optional container name used by Test operations. If empty and only one Dev Container configuration exists, tests run there without backup restore or app deployment. If empty, or if the value is not found and multiple Dev Container configurations exist, Test operations ask which configured container to use. If the selected container is missing, it is created and an initial SQL backup set is exported before tests continue.
 - `configurations`: Shared list of deployment targets for the workspace.
 
