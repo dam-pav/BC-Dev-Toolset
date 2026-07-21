@@ -183,6 +183,420 @@ function Resolve-WorkspaceFolderPath {
     return [System.IO.Path]::GetFullPath($candidatePath)
 }
 
+function Get-WorkspaceOnPremAppPaths {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $workspaceJSON
+    )
+
+    $onPremAppPaths = @()
+    foreach ($workspaceFolderPath in $workspaceJSON.folders.path) {
+        $resolvedAppPath = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $workspaceFolderPath
+        $appFilename = Join-Path $resolvedAppPath 'app.json'
+        if (-not (Test-Path -LiteralPath $appFilename -PathType Leaf)) {
+            continue
+        }
+
+        $currentAppJSON = Get-Content -LiteralPath $appFilename -Raw | ConvertFrom-Json
+        if ([string]$currentAppJSON.target -eq 'OnPrem') {
+            $onPremAppPaths += $resolvedAppPath
+        }
+    }
+
+    return $onPremAppPaths
+}
+
+function Resolve-AssemblyProbingPathsRoot {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $workspaceRootPath,
+        [Parameter(Mandatory=$true)]
+        [string] $configuredRoot
+    )
+
+    $candidatePath = if ([System.IO.Path]::IsPathRooted($configuredRoot)) {
+        $configuredRoot
+    } else {
+        Join-Path $workspaceRootPath $configuredRoot
+    }
+
+    $validatedAssemblyProbingPathsRoot = [System.IO.Path]::GetFullPath($candidatePath)
+    if ([string]::IsNullOrWhiteSpace((Split-Path -Path $validatedAssemblyProbingPathsRoot -Leaf))) {
+        throw "assemblyProbingPathsRoot must identify a folder, not a filesystem root."
+    }
+
+    return $validatedAssemblyProbingPathsRoot
+}
+
+function Resolve-ContainedAssemblyPath {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $validatedRoot,
+        [Parameter(Mandatory=$true)]
+        [string[]] $segments
+    )
+
+    $candidatePath = $validatedRoot
+    foreach ($segment in $segments) {
+        if ([string]::IsNullOrWhiteSpace($segment) -or $segment -in @('.', '..') -or
+            $segment.IndexOfAny([System.IO.Path]::GetInvalidFileNameChars()) -ge 0 -or $segment -match '[/\\]') {
+            throw "Invalid assembly probing path segment '$segment'."
+        }
+        $candidatePath = Join-Path $candidatePath $segment
+    }
+
+    $resolvedPath = [System.IO.Path]::GetFullPath($candidatePath)
+    $relativePath = [System.IO.Path]::GetRelativePath($validatedRoot, $resolvedPath)
+    if ([System.IO.Path]::IsPathRooted($relativePath) -or $relativePath -eq '..' -or $relativePath.StartsWith("..$([System.IO.Path]::DirectorySeparatorChar)")) {
+        throw "Assembly probing path '$resolvedPath' escapes the configured root."
+    }
+
+    return $resolvedPath
+}
+
+function Add-GitIgnoreEntry {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $workspaceRootPath,
+        [Parameter(Mandatory=$true)]
+        [string] $entry
+    )
+
+    $gitIgnorePath = Join-Path $workspaceRootPath '.gitignore'
+    $content = if (Test-Path -LiteralPath $gitIgnorePath -PathType Leaf) { Get-Content -LiteralPath $gitIgnorePath -Raw } else { '' }
+    $entries = @($content -split '\r?\n' | ForEach-Object { $_.Trim() })
+    if ($entry -in $entries) {
+        return
+    }
+
+    $separator = if ($content -and -not $content.EndsWith("`n")) { "`n" } else { '' }
+    Set-Content -LiteralPath $gitIgnorePath -Value "$content$separator$entry`n" -NoNewline
+}
+
+function Update-AssemblyProbingPathsSetting {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $workspaceRootPath,
+        [Parameter(Mandatory=$true)]
+        [string[]] $paths,
+        [Parameter(Mandatory=$false)]
+        [string[]] $pathsToRemove = @()
+    )
+
+    $vscodePath = Join-Path $workspaceRootPath '.vscode'
+    $settingsPath = Join-Path $vscodePath 'settings.json'
+    if (-not (Test-Path -LiteralPath $vscodePath -PathType Container)) {
+        New-Item -ItemType Directory -Path $vscodePath -Force | Out-Null
+    }
+
+    $settings = if (Test-Path -LiteralPath $settingsPath -PathType Leaf) {
+        Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+    } else {
+        [PSCustomObject]@{}
+    }
+    $existingPaths = if ($settings.PSObject.Properties['al.assemblyProbingPaths']) {
+        @($settings.'al.assemblyProbingPaths' | Where-Object { $_ -notin $pathsToRemove })
+    } else { @() }
+    $candidatePaths = @($existingPaths) + @($paths)
+    $managedPaths = @($candidatePaths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+    $settings | Add-Member -MemberType NoteProperty -Name 'al.assemblyProbingPaths' -Value $managedPaths -Force
+    $settings | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $settingsPath
+
+    Add-GitIgnoreEntry -workspaceRootPath $workspaceRootPath -entry '.vscode/settings.json'
+}
+
+function Copy-DirectoryFromBcContainer {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $containerName,
+        [Parameter(Mandatory=$true)]
+        [string] $containerPath,
+        [Parameter(Mandatory=$true)]
+        [string] $localPath
+    )
+
+    $archiveName = "bcdevtoolset-$([guid]::NewGuid().ToString('N')).zip"
+    $containerArchivePath = Join-Path 'C:\Windows\Temp' $archiveName
+    $localArchivePath = Join-Path ([System.IO.Path]::GetTempPath()) $archiveName
+    $stagingPath = "$localPath.bcdevtoolset-$([guid]::NewGuid().ToString('N'))"
+
+    try {
+        Invoke-ScriptInBcContainer -containerName $containerName -usesession:$false -ScriptBlock {
+            param($sourcePath, $archivePath)
+            if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
+                throw "Container directory '$sourcePath' was not found."
+            }
+
+            Add-Type -AssemblyName System.IO.Compression
+            $archiveStream = $null
+            $archive = $null
+            try {
+                $archiveStream = [System.IO.FileStream]::new(
+                    $archivePath,
+                    [System.IO.FileMode]::Create,
+                    [System.IO.FileAccess]::Write,
+                    [System.IO.FileShare]::None)
+                $archive = [System.IO.Compression.ZipArchive]::new(
+                    $archiveStream,
+                    [System.IO.Compression.ZipArchiveMode]::Create,
+                    $false)
+
+                $separator = [System.IO.Path]::DirectorySeparatorChar
+                $sourcePathPrefix = $sourcePath.TrimEnd($separator) + $separator
+                foreach ($file in Get-ChildItem -LiteralPath $sourcePath -File -Recurse) {
+                    $relativePath = $file.FullName.Substring($sourcePathPrefix.Length).Replace($separator, '/')
+                    $entry = $archive.CreateEntry($relativePath, [System.IO.Compression.CompressionLevel]::Fastest)
+                    $sourceStream = $null
+                    $entryStream = $null
+                    try {
+                        $sourceStream = [System.IO.FileStream]::new(
+                            $file.FullName,
+                            [System.IO.FileMode]::Open,
+                            [System.IO.FileAccess]::Read,
+                            ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+                        $entryStream = $entry.Open()
+                        $sourceStream.CopyTo($entryStream)
+                    } finally {
+                        if ($null -ne $entryStream) { $entryStream.Dispose() }
+                        if ($null -ne $sourceStream) { $sourceStream.Dispose() }
+                    }
+                }
+            } finally {
+                if ($null -ne $archive) { $archive.Dispose() }
+                if ($null -ne $archiveStream) { $archiveStream.Dispose() }
+            }
+        } -ArgumentList $containerPath, $containerArchivePath
+
+        Copy-FileFromBcContainer `
+            -containerName $containerName `
+            -containerPath $containerArchivePath `
+            -localPath $localArchivePath
+        Expand-Archive -LiteralPath $localArchivePath -DestinationPath $stagingPath -Force
+        Sync-ExtractedAssemblyDirectory -sourcePath $stagingPath -destinationPath $localPath
+    } finally {
+        if (Test-Path -LiteralPath $localArchivePath) {
+            Remove-Item -LiteralPath $localArchivePath -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $stagingPath) {
+            Remove-Item -LiteralPath $stagingPath -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        try {
+            Invoke-ScriptInBcContainer -containerName $containerName -usesession:$false -ScriptBlock {
+                param($archivePath)
+                Remove-Item -LiteralPath $archivePath -Force -ErrorAction SilentlyContinue
+            } -ArgumentList $containerArchivePath
+        } catch {
+            Write-Host "Could not remove temporary container archive '$containerArchivePath': $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
+}
+
+function Sync-ExtractedAssemblyDirectory {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $sourcePath,
+        [Parameter(Mandatory=$true)]
+        [string] $destinationPath
+    )
+
+    if (-not (Test-Path -LiteralPath $destinationPath -PathType Container)) {
+        Move-Item -LiteralPath $sourcePath -Destination $destinationPath
+        return
+    }
+
+    $sourceRelativePaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($sourceFile in Get-ChildItem -LiteralPath $sourcePath -File -Recurse) {
+        $relativePath = [System.IO.Path]::GetRelativePath($sourcePath, $sourceFile.FullName)
+        $null = $sourceRelativePaths.Add($relativePath)
+        $destinationFile = Join-Path $destinationPath $relativePath
+        $destinationFolder = Split-Path -Parent $destinationFile
+        if (-not (Test-Path -LiteralPath $destinationFolder -PathType Container)) {
+            New-Item -ItemType Directory -Path $destinationFolder -Force | Out-Null
+        }
+
+        $copyRequired = -not (Test-Path -LiteralPath $destinationFile -PathType Leaf)
+        if (-not $copyRequired) {
+            $destinationInfo = Get-Item -LiteralPath $destinationFile
+            $copyRequired = $destinationInfo.Length -ne $sourceFile.Length
+            if (-not $copyRequired) {
+                $copyRequired = (Get-FileHash -LiteralPath $destinationFile -Algorithm SHA256).Hash -ne
+                    (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash
+            }
+        }
+
+        if ($copyRequired) {
+            try {
+                Copy-Item -LiteralPath $sourceFile.FullName -Destination $destinationFile -Force -ErrorAction Stop
+            } catch {
+                throw "Assembly '$destinationFile' changed but is locked by another process. Close the AL language service or VS Code window using this probing path, then retry extraction. $($_.Exception.Message)"
+            }
+        }
+    }
+
+    foreach ($destinationFile in Get-ChildItem -LiteralPath $destinationPath -File -Recurse) {
+        $relativePath = [System.IO.Path]::GetRelativePath($destinationPath, $destinationFile.FullName)
+        if (-not $sourceRelativePaths.Contains($relativePath)) {
+            try {
+                Remove-Item -LiteralPath $destinationFile.FullName -Force -ErrorAction Stop
+            } catch {
+                Write-Host "Obsolete assembly '$($destinationFile.FullName)' is locked and could not be removed. It is no longer part of the extracted container contents." -ForegroundColor Yellow
+            }
+        }
+    }
+
+    Get-ChildItem -LiteralPath $destinationPath -Directory -Recurse |
+        Sort-Object -Property FullName -Descending |
+        ForEach-Object {
+            if (@(Get-ChildItem -LiteralPath $_.FullName -Force).Count -eq 0) {
+                Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+            }
+        }
+}
+
+function Export-ContainerAssemblyProbingPaths {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $containerName,
+        [Parameter(Mandatory=$true)]
+        [string] $validatedRoot,
+        [Parameter(Mandatory=$true)]
+        [string] $workspaceRootPath,
+        [Parameter(Mandatory=$true)]
+        [string[]] $onPremAppPaths
+    )
+
+    $serviceDestination = Resolve-ContainedAssemblyPath -validatedRoot $validatedRoot -segments @($containerName, 'Service')
+    $dotNetDestination = Resolve-ContainedAssemblyPath -validatedRoot $validatedRoot -segments @($containerName, 'DotNet')
+    $containerPaths = Invoke-ScriptInBcContainer -containerName $containerName -usesession:$false -ScriptBlock {
+        $servicePath = Get-ChildItem -LiteralPath 'C:\Program Files\Microsoft Dynamics NAV' -Directory |
+            Sort-Object -Property { if ($_.Name -match '^\d+$') { [int64]$_.Name } else { 0 } } -Descending |
+            ForEach-Object { Join-Path $_.FullName 'Service' } |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Container } |
+            Select-Object -First 1
+        if ([string]::IsNullOrWhiteSpace($servicePath)) {
+            throw 'A Business Central Service assembly folder was not found in the container.'
+        }
+        $dotNetReferencePath = @(
+            (Join-Path $env:ProgramFiles 'dotnet\packs\Microsoft.NETCore.App.Ref')
+            (Join-Path ${env:ProgramFiles(x86)} 'dotnet\packs\Microsoft.NETCore.App.Ref')
+        ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Container) } |
+            Select-Object -First 1
+        $dotNetRuntimePath = if ([string]::IsNullOrWhiteSpace($dotNetReferencePath)) {
+            @(
+                (Join-Path $env:ProgramFiles 'dotnet\shared\Microsoft.NETCore.App')
+                (Join-Path ${env:ProgramFiles(x86)} 'dotnet\shared\Microsoft.NETCore.App')
+            ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_ -PathType Container) } |
+                Select-Object -First 1
+        } else { $null }
+
+        [PSCustomObject]@{
+            Service = $servicePath
+            DotNet = if (-not [string]::IsNullOrWhiteSpace($dotNetReferencePath)) { $dotNetReferencePath } else { $dotNetRuntimePath }
+            DotNetSource = if (-not [string]::IsNullOrWhiteSpace($dotNetReferencePath)) { 'ReferencePack' } elseif (-not [string]::IsNullOrWhiteSpace($dotNetRuntimePath)) { 'RuntimeSharedFramework' } else { 'Missing' }
+        }
+    }
+
+    New-Item -ItemType Directory -Path $serviceDestination -Force | Out-Null
+    Write-Host "Extracting Service assemblies from '$containerName' to '$serviceDestination'." -ForegroundColor Gray
+    Copy-DirectoryFromBcContainer `
+        -containerName $containerName `
+        -containerPath $containerPaths.Service `
+        -localPath $serviceDestination
+    $probingPaths = @($serviceDestination)
+    $pathsToRemove = @()
+    if (-not [string]::IsNullOrWhiteSpace([string]$containerPaths.DotNet)) {
+        if ([string]$containerPaths.DotNetSource -eq 'RuntimeSharedFramework') {
+            Write-Host "Container '$containerName' does not contain Microsoft.NETCore.App.Ref. Falling back to runtime assemblies from '$($containerPaths.DotNet)'." -ForegroundColor Yellow
+        }
+        New-Item -ItemType Directory -Path $dotNetDestination -Force | Out-Null
+        Write-Host "Extracting .NET assemblies from '$containerName' to '$dotNetDestination'." -ForegroundColor Gray
+        Copy-DirectoryFromBcContainer `
+            -containerName $containerName `
+            -containerPath $containerPaths.DotNet `
+            -localPath $dotNetDestination
+        $probingPaths += $dotNetDestination
+    } else {
+        Write-Host "Container '$containerName' contains neither a Microsoft.NETCore.App.Ref targeting pack nor a Microsoft.NETCore.App shared runtime. Service assemblies were extracted without a DotNet probing path." -ForegroundColor Yellow
+        if (Test-Path -LiteralPath $dotNetDestination) {
+            try {
+                Remove-Item -LiteralPath $dotNetDestination -Recurse -Force -ErrorAction Stop
+            } catch {
+                Write-Host "The obsolete DotNet assembly folder '$dotNetDestination' is locked and could not be removed. Its probing-path entry will still be removed." -ForegroundColor Yellow
+            }
+        }
+        $pathsToRemove += $dotNetDestination
+    }
+
+    foreach ($onPremAppPath in $onPremAppPaths) {
+        Update-AssemblyProbingPathsSetting `
+            -workspaceRootPath $onPremAppPath `
+            -paths $probingPaths `
+            -pathsToRemove $pathsToRemove
+    }
+
+    $relativeRoot = [System.IO.Path]::GetRelativePath($workspaceRootPath, $validatedRoot)
+    if (-not [System.IO.Path]::IsPathRooted($relativeRoot) -and $relativeRoot -ne '..' -and -not $relativeRoot.StartsWith("..$([System.IO.Path]::DirectorySeparatorChar)")) {
+        Add-GitIgnoreEntry -workspaceRootPath $workspaceRootPath -entry ($relativeRoot.Replace('\\', '/').TrimEnd('/') + '/')
+    }
+}
+
+function Invoke-ContainerAssemblyExtraction {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $workspaceJSON,
+        [Parameter(Mandatory=$false)]
+        [array] $configurations = @()
+    )
+
+    if ([string]::IsNullOrWhiteSpace([string]$settingsJSON.assemblyProbingPathsRoot)) {
+        Write-Host "Assembly extraction skipped because 'assemblyProbingPathsRoot' is empty." -ForegroundColor Yellow
+        return $false
+    }
+
+    $onPremAppPaths = @(Get-WorkspaceOnPremAppPaths -scriptPath $scriptPath -workspaceJSON $workspaceJSON)
+    if ($onPremAppPaths.Count -eq 0) {
+        Write-Host 'Assembly extraction skipped because the workspace contains no OnPrem apps.' -ForegroundColor Yellow
+        return $false
+    }
+
+    if ($configurations.Count -eq 0) {
+        $configurations = @(Select-DockerContainerConfigurations `
+            -settingsJSON $settingsJSON `
+            -operationName 'assembly extraction' `
+            -allowAll $false)
+    }
+    if ($configurations.Count -eq 0) {
+        return $false
+    }
+
+    $workspaceRootPath = (Get-WorkspaceRootPath -scriptPath $scriptPath).FullName
+    $validatedAssemblyProbingPathsRoot = Resolve-AssemblyProbingPathsRoot `
+        -workspaceRootPath $workspaceRootPath `
+        -configuredRoot ([string]$settingsJSON.assemblyProbingPathsRoot)
+    $extracted = $false
+
+    foreach ($configuration in $configurations) {
+        if (-not (Test-DockerContainerExists -containerName ([string]$configuration.container))) {
+            continue
+        }
+
+        Export-ContainerAssemblyProbingPaths `
+            -containerName ([string]$configuration.container) `
+            -validatedRoot $validatedAssemblyProbingPathsRoot `
+            -workspaceRootPath $workspaceRootPath `
+            -onPremAppPaths $onPremAppPaths
+        $extracted = $true
+    }
+
+    return $extracted
+}
+
 function Test-DockerContainerExists {
     param(
         [Parameter(Mandatory=$true)]
@@ -724,6 +1138,7 @@ function Build-Settings {
         $defaultSettings | Add-Member -MemberType NoteProperty -Name licenseFile -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name certificateFile -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name packageOutputPath -Value ""
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name assemblyProbingPathsRoot -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name dependenciesPaths -Value @()
         $defaultSettings | Add-Member -MemberType NoteProperty -Name recordingsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestResultsPath -Value ""
@@ -746,6 +1161,7 @@ function Build-Settings {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name network -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name hostIP -Value ""
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name updateHosts -Value $true
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name autoExtractAssemblies -Value $false
         $defaultSettings.configurations += $remoteConfiguration
 
         $defaultSettings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
@@ -1352,7 +1768,9 @@ function Select-DockerContainerConfigurations {
         [Parameter(Mandatory=$true)]
         [PSObject] $settingsJSON,
         [Parameter(Mandatory=$true)]
-        [string] $operationName
+        [string] $operationName,
+        [Parameter(Mandatory=$false)]
+        [bool] $allowAll = $true
     )
 
     $qualifiedConfigurations = @(Get-QualifiedDockerContainerConfigurations -settingsJSON $settingsJSON)
@@ -1373,14 +1791,16 @@ function Select-DockerContainerConfigurations {
     foreach ($configuration in $qualifiedConfigurations) {
         $options += "$($configuration.name) ($($configuration.container))"
     }
-    $options += "All qualified containers"
+    if ($allowAll) {
+        $options += "All qualified containers"
+    }
 
     $selectedIndex = Select-IndexFromList `
         -Title "Select container configuration for $($operationName):" `
         -Options $options `
         -DefaultIndex 0
 
-    if ($selectedIndex -eq ($options.Count - 1)) {
+    if ($allowAll -and $selectedIndex -eq ($options.Count - 1)) {
         return $qualifiedConfigurations
     }
 
@@ -1396,6 +1816,8 @@ function New-DockerContainer {
         [PSObject] $appJSON,
         [Parameter(Mandatory=$true)]
         [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $workspaceJSON,
         [Parameter(Mandatory=$true)]
         [string] $selectArtifact,
         [Parameter(Mandatory=$true)]
@@ -1651,6 +2073,14 @@ Import-NAVServerLicense -LicenseFile '$escapedContainerLicenseFile' -ServerInsta
                 Write-Host "SQL backup restore detected. The license will be imported before NAV user setup because BcContainerHelper skips -licenseFile for restored bakFolder databases." -ForegroundColor Yellow
             }
             New-BcContainer @Parameters
+
+            if ($configuration.PSObject.Properties['autoExtractAssemblies'] -and $configuration.autoExtractAssemblies -eq $true) {
+                Invoke-ContainerAssemblyExtraction `
+                    -scriptPath $scriptPath `
+                    -settingsJSON $settingsJSON `
+                    -workspaceJSON $workspaceJSON `
+                    -configurations @($configuration) | Out-Null
+            }
         }
 
         Write-Host "The docker instance $($configuration.container) should be ready." -ForegroundColor Green

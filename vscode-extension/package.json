@@ -50,6 +50,7 @@
     "onCommand:bcDevToolset.operation.updatePowerShell",
     "onCommand:bcDevToolset.operation.clearAppArtifacts",
     "onCommand:bcDevToolset.operation.newDockerContainer",
+    "onCommand:bcDevToolset.operation.extractContainerAssemblies",
     "onCommand:bcDevToolset.operation.updateLaunchJson",
     "onCommand:bcDevToolset.operation.updateBcLicenseContainer",
     "onCommand:bcDevToolset.operation.showActiveLicenses",
@@ -409,6 +410,11 @@
                           ],
                           "default": true,
                           "description": "Whether New-BcContainer should update the host machine's hosts file. Defaults to true when omitted."
+                        },
+                        "autoExtractAssemblies": {
+                          "type": "boolean",
+                          "default": false,
+                          "description": "Whether Service and .NET assemblies are extracted automatically after this container is built. Manual extraction ignores this setting."
                         }
                       }
                     }
@@ -665,6 +671,11 @@
                           "not": {},
                           "errorMessage": "Field \"updateHosts\" is not valid when \"serverType\" is not \"Container\".",
                           "doNotSuggest": true
+                        },
+                        "autoExtractAssemblies": {
+                          "not": {},
+                          "errorMessage": "Field \"autoExtractAssemblies\" is not valid when \"serverType\" is not \"Container\".",
+                          "doNotSuggest": true
                         }
                       }
                     }
@@ -853,6 +864,10 @@
       {
         "command": "bcDevToolset.operation.newDockerContainer",
         "title": "BC Dev Toolset: Create/Overwrite Docker container based on the workspace app.json application version"
+      },
+      {
+        "command": "bcDevToolset.operation.extractContainerAssemblies",
+        "title": "BC Dev Toolset: Extract assembly probing paths from Docker container"
       },
       {
         "command": "bcDevToolset.operation.updateLaunchJson",

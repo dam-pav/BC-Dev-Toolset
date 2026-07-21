@@ -300,6 +300,7 @@ function New-TestExecutionContainerIfMissing {
         -scriptPath $scriptPath `
         -appJSON $appJSON `
         -settingsJSON $testSettings `
+        -workspaceJSON $workspaceJSON `
         -selectArtifact $selectArtifact `
         -pullFullArtifact $pullFullArtifact
 
