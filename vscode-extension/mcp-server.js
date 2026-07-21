@@ -608,6 +608,11 @@ function getOperationToolAliases(operationId) {
         'create or recreate the development container',
         'create a Business Central Docker container'
       ];
+    case 'extractContainerAssemblies':
+      return [
+        'extract assembly probing paths from a Business Central container',
+        'copy Business Central and .NET assemblies from a container'
+      ];
     case 'invokeTests':
       return [
         'run AL test tool tests',
