@@ -406,12 +406,13 @@ Each `configurations` entry can contain:
 - `hostIP`: Optional `host.containerhelper.internal` IP address passed to `New-BcContainer`. Valid for `Container`.
 - `updateHosts`: Optional switch controlling whether `New-BcContainer` updates the host machine's hosts file. Defaults to `true` when omitted. Valid for `Container`.
 - `autoExtractAssemblies`: Boolean controlling whether assembly extraction runs automatically after this container is built. Defaults to `false`. Valid only for `Container`; manual extraction ignores it.
+- `autoRestoreBackup`: Boolean controlling whether container creation tries to initialize the container from a compatible backup set in `sqlBackupPath`. Defaults to `false`. Valid only for `Container`; manual restore ignores it.
 - `macAddress`: Optional container MAC address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Use Docker's colon-delimited MAC address format, for example `02:42:ac:11:00:02`.
 - `IP`: Optional static container IP address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Leave empty to let the selected network assign the address, for example through DHCP.
 - `dns`: Optional DNS value passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. `HostDNS` adds the host DNS servers; explicit DNS server values are also allowed. Use a comma-delimited string for multiple DNS servers, for example `8.8.8.8,1.1.1.1`.
 - `databaseUser`: Optional SQL authentication user for regular SQL Server backup operations. If empty, Windows authentication is used.
 - `databasePassword`: Optional SQL authentication password for regular SQL Server backup operations.
-- `sqlBackupPath`: Local folder used by SQL backup operations for this configuration. Valid only for `Container`. Container backup, restore, and new-container initialization use the path from the selected Container configuration. BC service SQL Server backups export into the configured Container backup folders.
+- `sqlBackupPath`: Local folder used by SQL backup operations for this configuration. Valid only for `Container`. Container backup and manual restore use the path from the selected Container configuration; new-container initialization uses it only when `autoRestoreBackup` is `true`. BC service SQL Server backups export into the configured Container backup folders.
 - `remoteUser`: Optional PowerShell remoting user for remote SQL Server backup operations. If empty, the current Windows identity is used.
 - `remotePassword`: Optional PowerShell remoting password for remote SQL Server backup operations.
 - `serverConfiguration`: List of `KeyName` and `KeyValue` pairs.

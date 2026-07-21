@@ -178,3 +178,23 @@ test('automatic extraction requires a boolean Container configuration flag while
   assert.doesNotMatch(manualOperation, /autoExtractAssemblies/);
   assert.match(source, /operationName 'assembly extraction'\s*`\s*-allowAll \$false/);
 });
+
+test('automatic backup restore requires a boolean Container configuration flag while manual restore ignores it', () => {
+  const schema = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'schemas', 'bcdevtoolset-settings.schema.json'), 'utf8'));
+  const containerRule = schema.definitions.configuration.allOf.find((rule) => rule.if?.properties?.serverType?.const === 'Container');
+  assert.deepEqual(containerRule.then.properties.autoRestoreBackup, {
+    type: 'boolean',
+    default: false,
+    description: 'Whether container creation tries to initialize the container from a compatible SQL backup set at sqlBackupPath. Manual restore ignores this setting.'
+  });
+
+  const nonContainerRule = schema.definitions.configuration.allOf.find((rule) =>
+    rule.if?.not?.properties?.serverType?.const === 'Container' && rule.then?.properties?.autoRestoreBackup);
+  assert.ok(nonContainerRule);
+
+  const source = fs.readFileSync(workspaceMgtPath, 'utf8');
+  const containerCreationFunction = source.match(/function New-DockerContainer[\s\S]*?\n}/)?.[0] ?? '';
+  assert.match(containerCreationFunction, /autoRestoreBackup'\] -and \$configuration\.autoRestoreBackup -eq \$true[\s\S]*?Get-SqlBackupRootPath[\s\S]*?\$Parameters\.bakFolder/);
+  const manualOperation = fs.readFileSync(path.join(repositoryRoot, 'operations', 'RestoreBcContainerDatabases.ps1'), 'utf8');
+  assert.doesNotMatch(manualOperation, /autoRestoreBackup/);
+});

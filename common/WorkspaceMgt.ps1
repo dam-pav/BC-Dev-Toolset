@@ -2023,7 +2023,7 @@ function New-DockerContainer {
             }
         }
             
-        if (-not $testmode) {
+        if (-not $testmode -and $configuration.PSObject.Properties['autoRestoreBackup'] -and $configuration.autoRestoreBackup -eq $true) {
             $backupRootPath = Get-SqlBackupRootPath `
                 -scriptPath $scriptPath `
                 -sqlBackupPath $configuration.sqlBackupPath

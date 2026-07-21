@@ -74,6 +74,7 @@
           "network": "",
           "hostIP": "",
           "updateHosts": true,
+          "autoRestoreBackup": false,
           "autoExtractAssemblies": false
         }
       ],
@@ -264,6 +265,11 @@
                 "type": "boolean",
                 "default": false,
                 "description": "Whether Service and .NET assemblies are extracted automatically after this container is built. Manual extraction ignores this setting."
+              },
+              "autoRestoreBackup": {
+                "type": "boolean",
+                "default": false,
+                "description": "Whether container creation tries to initialize the container from a compatible SQL backup set at sqlBackupPath. Manual restore ignores this setting."
               }
             }
           }
@@ -524,6 +530,11 @@
               "autoExtractAssemblies": {
                 "not": {},
                 "errorMessage": "Field \"autoExtractAssemblies\" is not valid when \"serverType\" is not \"Container\".",
+                "doNotSuggest": true
+              },
+              "autoRestoreBackup": {
+                "not": {},
+                "errorMessage": "Field \"autoRestoreBackup\" is not valid when \"serverType\" is not \"Container\".",
                 "doNotSuggest": true
               }
             }
