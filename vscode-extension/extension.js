@@ -1329,47 +1329,7 @@ function getWorkspaceBasePath() {
     return path.dirname(vscode.workspace.workspaceFile.fsPath);
   }
 
-  const workspaceFolders = vscode.workspace.workspaceFolders || [];
-  if (workspaceFolders.length > 1) {
-    return getCommonParentPath(workspaceFolders.map((folder) => folder.uri.fsPath));
-  }
-
-  const workspacePath = getWorkspacePath();
-  const workspaceFiles = getWorkspaceFilesInDirectory(workspacePath);
-  if (workspaceFiles.length === 1) {
-    return workspacePath;
-  }
-
-  if (fs.existsSync(path.join(workspacePath, 'app.json'))) {
-    return path.dirname(workspacePath);
-  }
-
-  return workspacePath;
-}
-
-function getCommonParentPath(paths) {
-  if (paths.length === 0) {
-    return '';
-  }
-
-  let commonPath = path.resolve(paths[0]);
-  for (const candidate of paths.slice(1)) {
-    const resolvedCandidate = path.resolve(candidate);
-    while (!isSameOrParentPath(commonPath, resolvedCandidate)) {
-      const parentPath = path.dirname(commonPath);
-      if (parentPath === commonPath) {
-        return commonPath;
-      }
-      commonPath = parentPath;
-    }
-  }
-
-  return commonPath;
-}
-
-function isSameOrParentPath(parentPath, candidatePath) {
-  const relativePath = path.relative(parentPath, candidatePath);
-  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+  return getWorkspacePath();
 }
 
 function getConfigPath() {
@@ -1398,21 +1358,7 @@ function resolveWorkspaceBasePath(value) {
 }
 
 function getWorkspaceFileName() {
-  if (vscode.workspace.workspaceFile) {
-    return vscode.workspace.workspaceFile.fsPath;
-  }
-
-  const workspaceFolders = vscode.workspace.workspaceFolders || [];
-  if (workspaceFolders.length === 1) {
-    const openedFolderWorkspaceFiles = getWorkspaceFilesInDirectory(workspaceFolders[0].uri.fsPath);
-    if (openedFolderWorkspaceFiles.length === 1) {
-      return openedFolderWorkspaceFiles[0];
-    }
-  }
-
-  const workspaceBasePath = getWorkspaceBasePath();
-  const workspaceFiles = getWorkspaceFilesInDirectory(workspaceBasePath);
-  return workspaceFiles.length === 1 ? workspaceFiles[0] : '';
+  return vscode.workspace.workspaceFile ? vscode.workspace.workspaceFile.fsPath : '';
 }
 
 function getOptionalWorkspaceFileName() {
@@ -1478,16 +1424,6 @@ function getMcpWorkspaceSettings() {
     'al.enableCodeActions': alConfiguration.get('enableCodeActions'),
     'al.compilationOptions': alConfiguration.get('compilationOptions') || {}
   };
-}
-
-function getWorkspaceFilesInDirectory(directoryPath) {
-  if (!directoryPath || !fs.existsSync(directoryPath)) {
-    return [];
-  }
-
-  return fs.readdirSync(directoryPath)
-    .filter((fileName) => fileName.endsWith('.code-workspace'))
-    .map((fileName) => path.join(directoryPath, fileName));
 }
 
 function getDefaultLocalSettings() {
