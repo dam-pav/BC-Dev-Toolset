@@ -48,6 +48,7 @@ $success = New-DockerContainer `
     -scriptPath $scriptRoot `
     -appJSON $appJSON `
     -settingsJSON $settingsJSON `
+    -workspaceJSON $workspaceJSON `
     -selectArtifact $selectArtifact `
     -pullFullArtifact $pullFullArtifact
 

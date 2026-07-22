@@ -107,6 +107,7 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 ### Container
 
 - `Create/Overwrite Docker container based on the workspace app.json application version`: Creates or recreates a development container using the common `application` version from every workspace app. Mismatched values stop the operation and are reported by app.json path. If more than one Container configuration has a non-empty `container` value, choose one configuration or process all qualified configurations; duplicate `container` values abort the operation.
+- `Extract assembly probing paths from Docker container`: Extracts Service and .NET assemblies from an existing configured container. It prefers the `Microsoft.NETCore.App.Ref` targeting pack and falls back to the `Microsoft.NETCore.App` shared runtime. If multiple containers are configured, the operation asks which one to use. The create-container operation also runs this step after building a configuration whose `autoExtractAssemblies` value is `true`. Extraction requires `assemblyProbingPathsRoot` and at least one workspace app targeting `OnPrem`; manual extraction ignores `autoExtractAssemblies`.
 - `Update license files in all containers`: Applies the configured license file to container environments.
 - `Update server configuration in all containers`: Applies configured server settings to container environments.
 
@@ -187,6 +188,7 @@ Each workspace `configuration` entry can contain:
 - `name`: Display name of the target. Entries named `sample` are placeholders and are ignored by operations.
 - `serverType`: Target type. Valid values: `Container`, `Cloud`, `OnPrem`.
 - `targetType`: Intended role of the target. Valid values: `Dev`, `Test`, `Production`.
+- `autoUpdateLaunchJson`: Optional override controlling whether this entry is included when launch.json files are updated, both manually and after container creation. It applies to all `serverType` values. When omitted, the effective value is `true` for `Dev` targets and `false` otherwise.
 - `server`: Business Central server name for `OnPrem`.
 - `serverInstance`: Business Central server instance for `OnPrem`.
 - `container`: Docker container name for `Container`. Create-container processing only includes Container configurations with a non-empty `container` value, and duplicate `container` values abort the operation.
@@ -203,12 +205,14 @@ Each workspace `configuration` entry can contain:
 - `network`: Optional Docker network passed to `New-BcContainer` for `Container` targets. Suggested Windows container network values include `NAT`, `transparent`, `l2bridge`, `l2tunnel`, `overlay`, and `none`; custom Docker network names are also allowed. For suggested network names, the toolset verifies that the Docker network exists with the expected driver and creates missing creatable networks, for example `docker network create -d transparent transparent`. Custom network setup is left to the user. Use a transparent network when the container should appear on the LAN with a real address.
 - `hostIP`: Optional `host.containerhelper.internal` IP address passed to `New-BcContainer`.
 - `updateHosts`: Optional switch controlling whether `New-BcContainer` updates the host machine's hosts file. Defaults to `true` when omitted. Valid for `Container`.
+- `autoExtractAssemblies`: Boolean controlling whether assembly extraction runs automatically after this container is built. Defaults to `false`. Valid only for `Container`; the manual extraction operation ignores it.
+- `autoRestoreBackup`: Boolean controlling whether container creation tries to initialize the container from a compatible backup set in `sqlBackupPath`. Defaults to `false`. Valid only for `Container`; manual restore ignores it.
 - `macAddress`: Optional container MAC address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Use Docker's colon-delimited MAC address format, for example `02:42:ac:11:00:02`.
 - `IP`: Optional static container IP address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Leave empty to let the selected network assign the address, for example through DHCP.
 - `dns`: Optional DNS value passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. `HostDNS` adds the host DNS servers; explicit DNS server values are also allowed. Use a comma-delimited string for multiple DNS servers, for example `8.8.8.8,1.1.1.1`.
 - `databaseUser`: Optional SQL user for database operations.
 - `databasePassword`: Optional SQL password for database operations.
-- `sqlBackupPath`: Folder used for SQL backup files for this configuration. Valid only for `Container`; container backup, restore, and new-container initialization use the path from the selected Container configuration. BC service SQL Server backups export into the configured Container backup folders.
+- `sqlBackupPath`: Folder used for SQL backup files for this configuration. Valid only for `Container`; container backup and manual restore use the path from the selected Container configuration, while new-container initialization uses it only when `autoRestoreBackup` is `true`. BC service SQL Server backups export into the configured Container backup folders.
 - `remoteUser`: Optional PowerShell remoting user.
 - `remotePassword`: Optional PowerShell remoting password.
 - `serverConfiguration`: Additional Business Central server configuration entries as `KeyName` and `KeyValue` pairs.
@@ -220,6 +224,7 @@ These are stored in `.bcdevtoolset/settings.json` and are intended for developer
 - `licenseFile`: Path to the Business Central license file.
 - `certificateFile`: Path to the certificate file used by local operations and runtime packaging.
 - `packageOutputPath`: Folder where generated packages are written.
+- `assemblyProbingPathsRoot`: Host folder where container Service and .NET assemblies are extracted for workspaces containing an `OnPrem` app. The extraction prefers the `Microsoft.NETCore.App.Ref` targeting pack and falls back to the `Microsoft.NETCore.App` shared runtime when necessary. Relative values are resolved from the workspace root; each container receives separate `Service` and `DotNet` subfolders. Their absolute paths are added only to the `.vscode/settings.json` files of apps that target `OnPrem`.
 - `dependenciesPaths`: Folders containing dependency `.app` packages, or direct `.zip` file paths.
 - `dependenciesPath`: Deprecated legacy single folder containing dependency app packages. It is still read for compatibility, but users should migrate to `dependenciesPaths`.
 - `recordingsPath`: Folder containing page scripting recordings.

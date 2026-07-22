@@ -26,6 +26,12 @@
     "requiresConfirmation": true
   },
   {
+    "id": "extractContainerAssemblies",
+    "title": "Extract assembly probing paths from Docker container",
+    "script": "operations/ExtractContainerAssemblies.ps1",
+    "category": "Container"
+  },
+  {
     "id": "updateLaunchJson",
     "title": "Update launch.json files in all apps in the workspace",
     "script": "operations/UpdateLaunchJson.ps1",
