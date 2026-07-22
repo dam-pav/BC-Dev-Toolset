@@ -306,7 +306,8 @@ function New-TestExecutionContainerIfMissing {
         -settingsJSON $testSettings `
         -workspaceJSON $workspaceJSON `
         -selectArtifact $selectArtifact `
-        -pullFullArtifact $pullFullArtifact
+        -pullFullArtifact $pullFullArtifact `
+        -honorAutoRestoreBackup $true
 
     if ($success -ne $true) {
         throw "Container '$($configuration.container)' could not be created."
@@ -371,7 +372,9 @@ function Initialize-TestExecutionContainer {
         return $testSettings
     }
 
-    if ($containerWasCreated) {
+    if (-not (Test-AutoRestoreBackup -configuration $configuration)) {
+        Write-Host "Skipping automatic SQL backup restore because autoRestoreBackup is false for '$containerName'." -ForegroundColor Gray
+    } elseif ($containerWasCreated) {
         Write-Host "Skipping SQL backup restore because the backup set was just created from the new container." -ForegroundColor Gray
     } else {
         Restore-TestContainerBackupIfExists `

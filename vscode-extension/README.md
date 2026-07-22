@@ -180,7 +180,7 @@ The extension uses three settings layers:
 These are stored in the workspace file. The AL extension's `al.symbolsCountryRegion` setting selects the Business Central artifact region and defaults to `w1`; the remaining settings are under `dam-pav.bcdevtoolset`.
 
 - `selectArtifact`: Artifact selection strategy. Default: `Latest`. Another common value is `Closest`.
-- `executeTestsInContainerName`: Optional container name used by Test operations. If empty and only one Dev Container configuration exists, tests run there without backup restore or app deployment. If empty, or if the value is not found and multiple Dev Container configurations exist, Test operations ask which configured container to use. If the selected container is missing, it is created and an initial SQL backup set is exported before tests continue.
+- `executeTestsInContainerName`: Optional container name used by Test operations. It can be set in local `.bcdevtoolset/settings.json`; a non-empty local value takes priority over the shared workspace setting. If empty and only one Dev Container configuration exists, tests run there without backup restore or app deployment. If empty, or if the value is not found and multiple Dev Container configurations exist, Test operations ask which configured container to use. If the selected container is missing, it is created and an initial SQL backup set is exported before tests continue.
 - `configurations`: Shared target definitions for the workspace. These are useful when a team wants common environment entries available to everyone.
 
 Each workspace `configuration` entry can contain:
@@ -206,7 +206,7 @@ Each workspace `configuration` entry can contain:
 - `hostIP`: Optional `host.containerhelper.internal` IP address passed to `New-BcContainer`.
 - `updateHosts`: Optional switch controlling whether `New-BcContainer` updates the host machine's hosts file. Defaults to `true` when omitted. Valid for `Container`.
 - `autoExtractAssemblies`: Boolean controlling whether assembly extraction runs automatically after this container is built. Defaults to `false`. Valid only for `Container`; the manual extraction operation ignores it.
-- `autoRestoreBackup`: Boolean controlling whether container creation tries to initialize the container from a compatible backup set in `sqlBackupPath`. Defaults to `false`. Valid only for `Container`; manual restore ignores it.
+- `autoRestoreBackup`: Boolean controlling whether container creation and Test operations automatically restore a compatible backup set from `sqlBackupPath`. Defaults to `true` when omitted; set it explicitly to `false` to disable automatic restore. Valid only for `Container`; manual restore ignores it.
 - `macAddress`: Optional container MAC address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Use Docker's colon-delimited MAC address format, for example `02:42:ac:11:00:02`.
 - `IP`: Optional static container IP address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Leave empty to let the selected network assign the address, for example through DHCP.
 - `dns`: Optional DNS value passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. `HostDNS` adds the host DNS servers; explicit DNS server values are also allowed. Use a comma-delimited string for multiple DNS servers, for example `8.8.8.8,1.1.1.1`.

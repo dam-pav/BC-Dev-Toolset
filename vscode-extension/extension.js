@@ -79,37 +79,6 @@ const runtimeDirectories = [
   'visualization'
 ];
 
-const configurationFields = [
-  { name: 'name', validServerTypes: [] },
-  { name: 'serverType', validServerTypes: [] },
-  { name: 'targetType', validServerTypes: [] },
-  { name: 'autoUpdateLaunchJson', validServerTypes: [] },
-  { name: 'server', validServerTypes: ['OnPrem'] },
-  { name: 'serverInstance', validServerTypes: ['OnPrem'] },
-  { name: 'container', validServerTypes: ['Container'] },
-  { name: 'port', validServerTypes: ['OnPrem'] },
-  { name: 'environmentType', validServerTypes: ['Container', 'Cloud'] },
-  { name: 'environmentName', validServerTypes: ['Cloud'] },
-  { name: 'includeTestToolkit', validServerTypes: ['Container'] },
-  { name: 'tenant', validServerTypes: ['Cloud', 'OnPrem'] },
-  { name: 'authentication', validServerTypes: ['Container', 'OnPrem'] },
-  { name: 'bcUser', validServerTypes: ['Container'] },
-  { name: 'bcPassword', validServerTypes: ['Container'] },
-  { name: 'admin', validServerTypes: ['Container'] },
-  { name: 'password', validServerTypes: ['Container'] },
-  { name: 'network', validServerTypes: ['Container'] },
-  { name: 'hostIP', validServerTypes: ['Container'] },
-  { name: 'updateHosts', validServerTypes: ['Container'] },
-  { name: 'macAddress', validServerTypes: ['Container'], requiredNetwork: 'transparent' },
-  { name: 'IP', validServerTypes: ['Container'], requiredNetwork: 'transparent' },
-  { name: 'dns', validServerTypes: ['Container'], requiredNetwork: 'transparent' },
-  { name: 'databaseUser', validServerTypes: [] },
-  { name: 'databasePassword', validServerTypes: [] },
-  { name: 'remoteUser', validServerTypes: [] },
-  { name: 'remotePassword', validServerTypes: [] },
-  { name: 'serverConfiguration', validServerTypes: [] }
-];
-
 function activate(context) {
   extensionContext = context;
   outputChannel = vscode.window.createOutputChannel('BC Dev Toolset');
@@ -1482,16 +1451,7 @@ function provideSettingsCompletionItems(document, position) {
     return [item];
   }
 
-  const propertyCompletionContext = getConfigurationPropertyCompletionContext(document, position);
-  if (!propertyCompletionContext) {
-    return undefined;
-  }
-
-  const existingProperties = getExistingJsonObjectProperties(propertyCompletionContext.objectText);
-  return configurationFields
-    .filter((field) => isConfigurationFieldAllowed(field, propertyCompletionContext.serverType, propertyCompletionContext.network))
-    .filter((field) => !existingProperties.has(field.name))
-    .map((field, index) => createConfigurationPropertyCompletionItem(field.name, propertyCompletionContext.range, index));
+  return undefined;
 }
 
 function isBcDevToolsetSettingsDocument(document) {
@@ -1521,27 +1481,6 @@ function getMacAddressCompletionContext(document, position) {
   return undefined;
 }
 
-function getConfigurationPropertyCompletionContext(document, position) {
-  const linePrefix = document.lineAt(position.line).text.slice(0, position.character);
-  const propertyMatch = linePrefix.match(/^(\s*)"?[A-Za-z]*$/);
-  const propertyStart = new vscode.Position(position.line, propertyMatch ? propertyMatch[1].length : position.character);
-  if (!propertyMatch || !isJsonPropertyPosition(document, propertyStart)) {
-    return undefined;
-  }
-
-  const objectContext = getEnclosingJsonObjectContext(document, position);
-  if (!objectContext || !isInsideConfigurationsArray(document.getText(), objectContext.start)) {
-    return undefined;
-  }
-
-  return {
-    objectText: objectContext.text,
-    range: new vscode.Range(propertyStart, position),
-    serverType: getJsonStringPropertyValue(objectContext.text, 'serverType'),
-    network: getJsonStringPropertyValue(objectContext.text, 'network')
-  };
-}
-
 function isMacAddressAllowedForCurrentConfiguration(document, position) {
   const objectContext = getEnclosingJsonObjectContext(document, position);
   if (!objectContext || !isInsideConfigurationsArray(document.getText(), objectContext.start)) {
@@ -1557,33 +1496,6 @@ function getJsonStringPropertyValue(objectText, propertyName) {
   const escapedPropertyName = propertyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const propertyMatch = objectText.match(new RegExp(`"${escapedPropertyName}"\\s*:\\s*"([^"]*)"`));
   return propertyMatch ? propertyMatch[1] : undefined;
-}
-
-function isConfigurationFieldAllowed(field, serverType, network) {
-  if (serverType !== undefined && field.validServerTypes.length > 0 && !field.validServerTypes.includes(serverType)) {
-    return false;
-  }
-
-  return !field.requiredNetwork || network === field.requiredNetwork;
-}
-
-function getExistingJsonObjectProperties(objectText) {
-  return new Set(Array.from(objectText.matchAll(/"([^"]+)"\s*:/g), (match) => match[1]));
-}
-
-function createConfigurationPropertyCompletionItem(fieldName, range, index) {
-  const item = new vscode.CompletionItem(fieldName, vscode.CompletionItemKind.Property);
-  item.range = range;
-  item.sortText = String(index).padStart(4, '0');
-
-  if (fieldName === 'macAddress') {
-    item.detail = 'Insert macAddress with a random locally administered MAC address';
-    item.insertText = `"macAddress": "${generateLocalMacAddress()}"`;
-  } else {
-    item.insertText = `"${fieldName}": `;
-  }
-
-  return item;
 }
 
 function getEnclosingJsonObjectContext(document, position) {
@@ -1729,12 +1641,6 @@ function findMatchingObjectEnd(text, objectStart) {
   }
 
   return -1;
-}
-
-function isJsonPropertyPosition(document, propertyStart) {
-  const prefix = document.getText(new vscode.Range(new vscode.Position(0, 0), propertyStart));
-  const previousSignificantCharacter = prefix.trimEnd().slice(-1);
-  return previousSignificantCharacter === '{' || previousSignificantCharacter === ',';
 }
 
 function generateLocalMacAddress() {
