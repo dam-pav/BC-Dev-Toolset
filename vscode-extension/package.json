@@ -274,6 +274,10 @@
                           ],
                           "description": "Business Central environment type."
                         },
+                        "multitenant": {
+                          "type": "boolean",
+                          "description": "Explicit multitenant mode passed to New-BcContainer. When omitted, Create Docker container infers the mode from a compatible backup set; if the backup does not determine the mode, the parameter is omitted and BcContainerHelper decides. Creation aborts when an explicit value conflicts with the backup type."
+                        },
                         "includeTestToolkit": {
                           "type": [
                             "string",
@@ -524,6 +528,11 @@
                         "includeTestToolkit": {
                           "not": {},
                           "errorMessage": "Field \"includeTestToolkit\" is not valid when \"serverType\" is not \"Container\".",
+                          "doNotSuggest": true
+                        },
+                        "multitenant": {
+                          "not": {},
+                          "errorMessage": "Field \"multitenant\" is not valid when \"serverType\" is not \"Container\".",
                           "doNotSuggest": true
                         },
                         "bcUser": {

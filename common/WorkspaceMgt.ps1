@@ -750,6 +750,58 @@ function Test-AutoRestoreBackup {
     return $true
 }
 
+function Test-ConfigurationMultitenant {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration
+    )
+
+    if ($configuration.PSObject.Properties['multitenant']) {
+        return $configuration.multitenant -eq $true
+    }
+
+    return $null
+}
+
+function Resolve-ContainerMultitenantMode {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration,
+        [Parameter(Mandatory=$false)]
+        [AllowEmptyCollection()]
+        [array] $backupEntries = @()
+    )
+
+    $configuredMode = Test-ConfigurationMultitenant -configuration $configuration
+    $hasExplicitMode = $null -ne $configuration.PSObject.Properties['multitenant']
+    $hasApplicationBackup = @($backupEntries | Where-Object { $_.DatabaseRole -eq 'app' }).Count -gt 0
+    $hasSingleDatabaseBackup = @($backupEntries | Where-Object { $_.DatabaseRole -eq 'database' }).Count -gt 0
+
+    if ($hasApplicationBackup -and $hasSingleDatabaseBackup) {
+        throw "Cannot create container '$($configuration.container)': SQL backup folder contains both multitenant application (*.app.bak) and single-tenant database (*.database.bak) backups. Keep only one compatible backup set."
+    }
+
+    if ($hasApplicationBackup) {
+        if ($hasExplicitMode -and -not $configuredMode) {
+            throw "Cannot create container '$($configuration.container)': configuration '$($configuration.name)' explicitly sets multitenant to false, but sqlBackupPath contains a multitenant application (*.app.bak) backup. Set multitenant to true, remove the setting to infer it from the backup, or use a single-tenant (*.database.bak) backup."
+        }
+        return $true
+    }
+
+    if ($hasSingleDatabaseBackup) {
+        if ($hasExplicitMode -and $configuredMode) {
+            throw "Cannot create container '$($configuration.container)': configuration '$($configuration.name)' explicitly sets multitenant to true, but sqlBackupPath contains a single-tenant database (*.database.bak) backup. Set multitenant to false, remove the setting to infer it from the backup, or use a multitenant (*.app.bak) backup set."
+        }
+        return $false
+    }
+
+    if ($hasExplicitMode) {
+        return $configuredMode
+    }
+
+    return $null
+}
+
 function Write-LaunchJSON {
     Param (
         [Parameter(Mandatory=$true)]
@@ -2098,6 +2150,11 @@ function New-DockerContainer {
             shortcuts = $settingsJSON.shortcuts
             }
 
+        $resolvedMultitenantMode = Resolve-ContainerMultitenantMode -configuration $configuration
+        if ($null -ne $resolvedMultitenantMode) {
+            $Parameters.multitenant = $resolvedMultitenantMode
+        }
+
         $updateHosts = -not ($configuration.PSObject.Properties['updateHosts'] -and ([string]$configuration.updateHosts).Trim().ToLowerInvariant() -eq 'false')
         if ($updateHosts) {
             if (Repair-HostsFilePermissions) {
@@ -2149,6 +2206,14 @@ function New-DockerContainer {
                 $backupEntries = @(Get-SqlBackupSetEntries -backupRootPath $backupRootPath)
                 $appBackupEntries = @($backupEntries | Where-Object { $_.DatabaseRole -eq 'app' })
                 $databaseBackupEntries = @($backupEntries | Where-Object { $_.DatabaseRole -eq 'database' })
+                $resolvedMultitenantMode = Resolve-ContainerMultitenantMode `
+                    -configuration $configuration `
+                    -backupEntries $backupEntries
+                if ($null -ne $resolvedMultitenantMode) {
+                    $Parameters.multitenant = $resolvedMultitenantMode
+                } else {
+                    $Parameters.Remove('multitenant')
+                }
                 if ($appBackupEntries.Count -gt 0) {
                     $Parameters.bakFolder = Copy-SqlBackupSetToSharedFolder `
                         -containerName $configuration.container `
@@ -2161,7 +2226,6 @@ function New-DockerContainer {
                         -containerName $configuration.container `
                         -backupRootPath $backupRootPath `
                         -sharedFolderName "NewContainer"
-                    $Parameters.multitenant = $false
 
                     Write-Host "New single-tenant container will be initialized from SQL backup set '$backupRootPath'." -ForegroundColor Green
                 } elseif ($backupEntries.Count -gt 0) {
