@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { afterEach, test } = require('node:test');
 
 const { __test: mcpServer } = require('../mcp-server');
@@ -95,11 +97,15 @@ test('lists prompt answer tool before operation tools', () => {
   );
 });
 
-test('operation tool descriptions point pending prompts to answer tool', () => {
+test('operation tool descriptions explain preflight and resumable prompt answers', () => {
   const newDockerContainerTool = mcpServer.getTools().find((tool) => tool.name === 'bc_dev_toolset_new_docker_container');
 
-  assert.match(newDockerContainerTool.description, /This starts a new operation/);
-  assert.match(newDockerContainerTool.description, /bc_dev_toolset_answer_operation_prompt/);
+  assert.match(newDockerContainerTool.description, /without execute:true/);
+  assert.match(newDockerContainerTool.description, /resumes the same pending operation/);
+  assert.equal(newDockerContainerTool.inputSchema.properties.execute.type, 'boolean');
+  assert.equal(newDockerContainerTool.inputSchema.properties.clearTranslationFiles.type, 'boolean');
+  assert.equal(newDockerContainerTool.inputSchema.properties.clearAppFiles.type, 'boolean');
+  assert.equal(newDockerContainerTool.inputSchema.properties.pullFullArtifact.type, 'boolean');
 });
 
 test('pre-supplies testing prompt answers for test operations', () => {
@@ -115,6 +121,24 @@ test('pre-supplies testing prompt answers for test operations', () => {
 
 test('does not pre-supply testing prompt answers for non-test operations', () => {
   assert.deepEqual(mcpServer.getOperationPromptAnswers({ id: 'newDockerContainer' }, {}), {});
+});
+
+test('maps every declared operation input to its canonical PowerShell prompt id', () => {
+  const operation = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'operations', 'operations.json'), 'utf8'))
+    .find((candidate) => candidate.id === 'newDockerContainer');
+
+  assert.deepEqual(
+    mcpServer.getOperationPromptAnswers(operation, {
+      clearTranslationFiles: false,
+      clearAppFiles: false,
+      pullFullArtifact: true
+    }),
+    {
+      'clearArtifacts.translationFiles': false,
+      'clearArtifacts.appFiles': false,
+      'newDockerContainer.pullFullArtifact': true
+    }
+  );
 });
 
 test('exposes the workspace name on the initialization MCP tool', () => {

@@ -73,7 +73,7 @@ PowerShell-backed operations still run in the visible `BC Dev Toolset: <PowerShe
 
 Some operations require confirmation before they start. If an operation asks a supported question while running, the visible terminal shows the question and the operation pauses. The agent may answer low-risk operational questions when it has enough context, but sensitive prompts and destructive user decisions still require you to choose. Operations started from the Command Palette keep the normal terminal behavior and can always be answered directly in the terminal.
 
-MCP operation tools also accept a `promptAnswers` object keyed by prompt ID. Agents can use it to pre-supply known answers when the decision is already clear. Test operations expose `testContainerSelection`, `executeTestsInContainer`, and `pullFullArtifact` inputs and automatically pre-supply routine defaults; container backup operations expose `containerSelection` for the target container choice.
+MCP operations with declared inputs use a non-mutating preflight call first: omit `execute: true` to receive all known questions together, then call the same tool with `execute: true` and the named answers. MCP operation tools also accept a `promptAnswers` object keyed by prompt ID for conditional prompts. Calling the same operation with answers while it is waiting resumes the existing session and retains all supplied answers for later prompts; it does not restart the operation. Sensitive decisions remain in the visible terminal.
 
 You do not need to know the MCP tool names for normal use. Ask the agent for the BC Dev Toolset action you want, and the MCP server exposes focused operation tools for the agent to choose from.
 
@@ -180,7 +180,7 @@ The extension uses three settings layers:
 These are stored in the workspace file. The AL extension's `al.symbolsCountryRegion` setting selects the Business Central artifact region and defaults to `w1`; the remaining settings are under `dam-pav.bcdevtoolset`.
 
 - `selectArtifact`: Artifact selection strategy. Default: `Latest`. Another common value is `Closest`.
-- `executeTestsInContainerName`: Optional container name used by Test operations. It can be set in local `.bcdevtoolset/settings.json`; a non-empty local value takes priority over the shared workspace setting. If empty and only one Dev Container configuration exists, tests run there without backup restore or app deployment. If empty, or if the value is not found and multiple Dev Container configurations exist, Test operations ask which configured container to use. If the selected container is missing, it is created and an initial SQL backup set is exported before tests continue.
+- `executeTestsInContainerName`: Optional container name used by Test operations. It can be set in local `.bcdevtoolset/settings.json`; a non-empty local value takes priority over the shared workspace setting. Container configurations with `includeTestToolkit` set to `true` are eligible regardless of `targetType`. If empty and only one eligible Container configuration exists, tests run there without backup restore or app deployment. If empty, or if the value is not found and multiple eligible Container configurations exist, Test operations ask which configured container to use. If the selected container is missing, it is created and an initial SQL backup set is exported before tests continue.
 - `configurations`: Shared target definitions for the workspace. These are useful when a team wants common environment entries available to everyone.
 
 Each workspace `configuration` entry can contain:

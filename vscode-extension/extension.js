@@ -33,7 +33,7 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 4;
+const mcpServerDefinitionRevision = 5;
 
 const directOperationIds = [
   'invokeTests',
@@ -441,6 +441,14 @@ function answerWaitingMcpPromptFromPromptAnswers(operationId, promptAnswers) {
       };
     }
 
+    // Keep every answer supplied on the resumed operation call. The active
+    // prompt consumes its answer below; later prompts in the same operation
+    // are then answered by getMcpAutomaticPromptAnswer without another tool
+    // lookup or terminal round-trip.
+    session.promptAnswers = {
+      ...normalizeMcpPromptAnswers(session.promptAnswers),
+      ...normalizedPromptAnswers
+    };
     session.resolvePrompt({ answer: normalizedAnswer, answeredBy: 'mcp-promptAnswers-operation-call' });
     session.resolvePrompt = undefined;
     return {

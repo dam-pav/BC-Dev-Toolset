@@ -3,7 +3,10 @@
     "id": "initializeWorkspace",
     "title": "Initialize Workspace",
     "script": "operations/InitializeWorkspace.ps1",
-    "category": "Workspace"
+    "category": "Workspace",
+    "promptInputs": [
+      { "promptId": "initializeWorkspace.workspaceName", "inputName": "workspaceName", "type": "text", "question": "Enter a name for the new workspace", "conditional": true }
+    ]
   },
   {
     "id": "openLocalSettingsJson",
@@ -16,6 +19,10 @@
     "title": "Clear App and translation artifacts",
     "script": "operations/ClearAppArtifacts.ps1",
     "category": "Workspace",
+    "promptInputs": [
+      { "promptId": "clearArtifacts.translationFiles", "inputName": "clearTranslationFiles", "type": "confirm", "question": "Do you want to clear the translation files?" },
+      { "promptId": "clearArtifacts.appFiles", "inputName": "clearAppFiles", "type": "confirm", "question": "Do you want to clear all APP files? You will need to download symbols for all projects." }
+    ],
     "requiresConfirmation": true
   },
   {
@@ -23,6 +30,11 @@
     "title": "Create/Overwrite Docker container based on the workspace app.json application version",
     "script": "operations/NewDockerContainer.ps1",
     "category": "Container",
+    "promptInputs": [
+      { "promptId": "clearArtifacts.translationFiles", "inputName": "clearTranslationFiles", "type": "confirm", "question": "Do you want to clear the translation files?" },
+      { "promptId": "clearArtifacts.appFiles", "inputName": "clearAppFiles", "type": "confirm", "question": "Do you want to clear all APP files? You will need to download symbols for all projects." },
+      { "promptId": "newDockerContainer.pullFullArtifact", "inputName": "pullFullArtifact", "type": "confirm", "question": "Do you want to perform a complete pull of all artifacts?" }
+    ],
     "requiresConfirmation": true
   },
   {
@@ -35,7 +47,10 @@
     "id": "updateLaunchJson",
     "title": "Update launch.json files in all apps in the workspace",
     "script": "operations/UpdateLaunchJson.ps1",
-    "category": "Workspace"
+    "category": "Workspace",
+    "promptInputs": [
+      { "promptId": "updateLaunchJson.clearExisting", "inputName": "clearExistingLaunchJson", "type": "confirm", "question": "Do you want to clear existing launch.json files so that only new settings remain?" }
+    ]
   },
   {
     "id": "updateBcLicenseContainer",
@@ -59,7 +74,10 @@
     "id": "backupBcContainerDatabases",
     "title": "Create and export SQL backup set from Docker container",
     "script": "operations/BackupBcContainerDatabases.ps1",
-    "category": "Backup"
+    "category": "Backup",
+    "promptInputs": [
+      { "promptId": "selectIndex.Select.container.for.SQL.backup.export.", "inputName": "containerSelection", "type": "choice", "question": "Select a container configuration for SQL backup export. Runtime choices are displayed by the operation.", "conditional": true }
+    ]
   },
   {
     "id": "backupBcServiceDatabases",
@@ -72,19 +90,37 @@
     "title": "Restore SQL backup set to Docker container",
     "script": "operations/RestoreBcContainerDatabases.ps1",
     "category": "Backup",
+    "promptInputs": [
+      { "promptId": "selectIndex.Select.container.for.SQL.backup.restore.", "inputName": "containerSelection", "type": "choice", "question": "Select a container configuration for SQL backup restore. Runtime choices are displayed by the operation.", "conditional": true },
+      { "promptId": "backup.restoreBackupSet", "type": "confirm", "question": "Confirm restoration of the selected backup set. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+    ],
     "requiresConfirmation": true
   },
   {
     "id": "invokeTests",
     "title": "Run AL test tool tests",
     "script": "operations/Invoke-Tests.ps1",
-    "category": "Tests"
+    "category": "Tests",
+    "promptInputs": [
+      { "promptId": "selectIndex.Select.the.container.configuration.to.execute.tests.in.", "inputName": "testContainerSelection", "type": "choice", "question": "Select the container configuration in which to execute tests.", "conditional": true },
+      { "promptId": "tests.executeInContainer", "inputName": "executeTestsInContainer", "type": "confirm", "question": "Do you want to execute tests in the selected container?" },
+      { "promptId": "clearArtifacts.translationFiles", "inputName": "clearTranslationFiles", "type": "confirm", "question": "Do you want to clear translation files if a test container must be created?", "conditional": true },
+      { "promptId": "clearArtifacts.appFiles", "inputName": "clearAppFiles", "type": "confirm", "question": "Do you want to clear APP files if a test container must be created?", "conditional": true },
+      { "promptId": "tests.createMissingContainer.pullFullArtifact", "inputName": "pullFullArtifact", "type": "confirm", "question": "Do you want a complete artifact pull if a test container must be created?", "conditional": true }
+    ]
   },
   {
     "id": "invokePageScriptTests",
     "title": "Run page script tests",
     "script": "operations/Invoke-PageScriptTests.ps1",
-    "category": "Tests"
+    "category": "Tests",
+    "promptInputs": [
+      { "promptId": "selectIndex.Select.the.container.configuration.to.execute.tests.in.", "inputName": "testContainerSelection", "type": "choice", "question": "Select the container configuration in which to execute tests.", "conditional": true },
+      { "promptId": "tests.executeInContainer", "inputName": "executeTestsInContainer", "type": "confirm", "question": "Do you want to execute page script tests in the selected container?" },
+      { "promptId": "clearArtifacts.translationFiles", "inputName": "clearTranslationFiles", "type": "confirm", "question": "Do you want to clear translation files if a test container must be created?", "conditional": true },
+      { "promptId": "clearArtifacts.appFiles", "inputName": "clearAppFiles", "type": "confirm", "question": "Do you want to clear APP files if a test container must be created?", "conditional": true },
+      { "promptId": "tests.createMissingContainer.pullFullArtifact", "inputName": "pullFullArtifact", "type": "confirm", "question": "Do you want a complete artifact pull if a test container must be created?", "conditional": true }
+    ]
   },
   {
     "id": "publishDependencies2Docker",
@@ -102,20 +138,34 @@
     "id": "publishApps2Docker",
     "title": "Publish all apps in the workspace to Docker container",
     "script": "operations/PublishApps2Docker.ps1",
-    "category": "Publish"
+    "category": "Publish",
+    "promptInputs": [
+      { "promptId": "publishApps2Docker.publishAsNormalApps", "inputName": "publishAsNormalApps", "type": "confirm", "question": "Do you want to publish apps as normal apps (not Dev)?" },
+      { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+    ]
   },
   {
     "id": "publishApps2Production",
     "title": "Publish all apps in the workspace to production environments",
     "script": "operations/PublishApps2Production.ps1",
     "category": "Publish",
+    "promptInputs": [
+      { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+    ],
     "requiresConfirmation": true
   },
   {
     "id": "publishApps2Test",
     "title": "Publish all apps in the workspace to test environments",
     "script": "operations/PublishApps2Test.ps1",
-    "category": "Publish"
+    "category": "Publish",
+    "promptInputs": [
+      { "promptId": "publishApps2Test.publishAsNormalApps", "inputName": "publishAsNormalApps", "type": "confirm", "question": "Do you want to publish apps as normal apps (not Dev)?" },
+      { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+    ]
   },
   {
     "id": "createRuntimePackage",
@@ -127,20 +177,32 @@
     "id": "publishRuntimeApps2Docker",
     "title": "Publish runtime packages (stored) to the existing container",
     "script": "operations/PublishRuntimeApps2Docker.ps1",
-    "category": "Runtime"
+    "category": "Runtime",
+    "promptInputs": [
+      { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+    ]
   },
   {
     "id": "publishRuntimeApps2Production",
     "title": "Publish runtime packages (stored) to production environments",
     "script": "operations/PublishRuntimeApps2Production.ps1",
     "category": "Runtime",
+    "promptInputs": [
+      { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+    ],
     "requiresConfirmation": true
   },
   {
     "id": "publishRuntimeApps2Test",
     "title": "Publish runtime packages (stored) to test environments",
     "script": "operations/PublishRuntimeApps2Test.ps1",
-    "category": "Runtime"
+    "category": "Runtime",
+    "promptInputs": [
+      { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+    ]
   },
   {
     "id": "unpublishDockerApps",
@@ -173,6 +235,9 @@
     "title": "Install/Update Prerequisites",
     "script": "operations/initPrerequisites.bat",
     "category": "Prerequisites",
+    "promptInputs": [
+      { "promptId": "initPrerequisites.runtimeUpgradeDecisions", "type": "confirm", "question": "Prerequisite upgrade questions depend on installed versions and run in the elevated terminal. Review and answer those user decisions there.", "conditional": true, "agentAllowed": false }
+    ],
     "requiresConfirmation": true
   },
   {
