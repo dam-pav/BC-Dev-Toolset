@@ -215,7 +215,8 @@ test('exposes and maps the Add Test Toolkit container selection', () => {
   assert.ok(tool);
   assert.equal(tool.inputSchema.properties.containerSelection.type, 'string');
 
-  const operation = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'operations', 'operations.json'), 'utf8'))
+  const operation = JSON.parse(fs.readFileSync( // nosemgrep -- fixed segments resolve to a repository-owned test fixture beneath __dirname
+    path.join(__dirname, '..', '..', 'operations', 'operations.json'), 'utf8'))
     .find((candidate) => candidate.id === 'addTestToolkitToBcContainer');
   assert.deepEqual(
     mcpServer.getOperationPromptAnswers(operation, { containerSelection: '2' }),
