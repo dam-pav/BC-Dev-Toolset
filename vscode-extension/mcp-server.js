@@ -620,6 +620,11 @@ function getOperationToolAliases(operationId) {
         'extract assembly probing paths from a Business Central container',
         'copy Business Central and .NET assemblies from a container'
       ];
+    case 'addTestToolkitToBcContainer':
+      return [
+        'add the Business Central Test Toolkit to an existing container',
+        'import the Test Toolkit into a configured container'
+      ];
     case 'invokeTests':
       return [
         'run AL test tool tests',

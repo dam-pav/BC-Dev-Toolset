@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.4.7",
+  "version": "1.4.8",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -51,6 +51,7 @@
     "onCommand:bcDevToolset.operation.clearAppArtifacts",
     "onCommand:bcDevToolset.operation.newDockerContainer",
     "onCommand:bcDevToolset.operation.extractContainerAssemblies",
+    "onCommand:bcDevToolset.operation.addTestToolkitToBcContainer",
     "onCommand:bcDevToolset.operation.updateLaunchJson",
     "onCommand:bcDevToolset.operation.updateBcLicenseContainer",
     "onCommand:bcDevToolset.operation.showActiveLicenses",
@@ -751,6 +752,10 @@
       {
         "command": "bcDevToolset.operation.extractContainerAssemblies",
         "title": "BC Dev Toolset: Extract assembly probing paths from Docker container"
+      },
+      {
+        "command": "bcDevToolset.operation.addTestToolkitToBcContainer",
+        "title": "BC Dev Toolset: Add Test Toolkit to existing container"
       },
       {
         "command": "bcDevToolset.operation.updateLaunchJson",

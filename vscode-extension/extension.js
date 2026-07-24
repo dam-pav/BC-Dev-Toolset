@@ -33,7 +33,7 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 5;
+const mcpServerDefinitionRevision = 6;
 
 const directOperationIds = [
   'invokeTests',
@@ -46,6 +46,7 @@ const directOperationIds = [
   'clearAppArtifacts',
   'newDockerContainer',
   'extractContainerAssemblies',
+  'addTestToolkitToBcContainer',
   'updateLaunchJson',
   'updateBcLicenseContainer',
   'showActiveLicenses',
