@@ -82,6 +82,24 @@ test('passes tenant IDs to BcContainerHelper so a stopped service can be restore
   });
 });
 
+test('uses the direct backup-file restore path for a stopped single-tenant service', () => {
+  const script = [
+    `. ${quotePowerShell(backupMgtPath)}`,
+    "$entries = @([pscustomobject]@{ DatabaseName='CRONUS'; DatabaseRole='database'; HelperFileName='database.bak' })",
+    "Get-BcContainerSqlBackupRestoreParameters -containerName 'OTPtest' -bakFolder 'C:\\restore' -backupEntries $entries | ConvertTo-Json -Compress"
+  ].join('; ');
+  const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8'
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    bakFile: 'C:\\restore\\database.bak',
+    containerName: 'OTPtest',
+    databaseName: 'CRONUS'
+  });
+});
+
 test('uses tenant IDs for service backup filenames while retaining source database names', () => {
   const script = [
     `. ${quotePowerShell(backupMgtPath)}`,
