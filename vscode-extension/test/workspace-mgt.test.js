@@ -227,6 +227,52 @@ test('automatic backup restore requires a boolean Container configuration flag w
   assert.doesNotMatch(manualOperation, /autoRestoreBackup/);
 });
 
+test('Add Test Toolkit operation selects one configured container and aborts invalid selections', () => {
+  const operations = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'operations', 'operations.json'), 'utf8'));
+  const operation = operations.find(({ id }) => id === 'addTestToolkitToBcContainer');
+  assert.equal(operation.title, 'Add Test Toolkit to existing container');
+  assert.equal(operation.category, 'Container');
+  assert.equal(operation.script, 'operations/AddTestToolkitToBcContainer.ps1');
+  assert.equal(operation.promptInputs[0].inputName, 'containerSelection');
+
+  const output = runPowerShell(`
+    . '${workspaceMgtPath.replaceAll("'", "''")}'
+    $script:selection = '2'
+    $script:importedContainers = @()
+    function Request-BcDevToolsetMcpPrompt { return $script:selection }
+    function Import-TestToolkitToBcContainer { param([string] $containerName); $script:importedContainers += $containerName }
+    $settings = [PSCustomObject]@{
+      configurations = @(
+        [PSCustomObject]@{ serverType = 'Cloud'; container = 'ignored' },
+        [PSCustomObject]@{ serverType = 'Container'; container = 'first' },
+        [PSCustomObject]@{ serverType = 'Container'; container = 'second' }
+      )
+    }
+    $valid = Add-TestToolkitToConfiguredContainer -settingsJSON $settings
+    $script:selection = ''
+    $empty = Add-TestToolkitToConfiguredContainer -settingsJSON $settings
+    $script:selection = '3'
+    $invalid = Add-TestToolkitToConfiguredContainer -settingsJSON $settings
+    [PSCustomObject]@{
+      valid = $valid
+      empty = $empty
+      invalid = $invalid
+      importedContainers = $script:importedContainers
+    } | ConvertTo-Json -Compress
+  `);
+  const result = JSON.parse(output.split(/\r?\n/).at(-1));
+
+  assert.equal(result.valid, true);
+  assert.equal(result.empty, false);
+  assert.equal(result.invalid, false);
+  assert.deepEqual(result.importedContainers, ['second']);
+
+  const packageJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'package.json'), 'utf8'));
+  assert.ok(packageJson.activationEvents.includes('onCommand:bcDevToolset.operation.addTestToolkitToBcContainer'));
+  assert.ok(packageJson.contributes.commands.some(({ command }) =>
+    command === 'bcDevToolset.operation.addTestToolkitToBcContainer'));
+});
+
 test('local executeTestsInContainerName is supported and takes priority over the workspace value', () => {
   const schema = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'schemas', 'bcdevtoolset-settings.schema.json'), 'utf8'));
   assert.deepEqual(schema.properties.executeTestsInContainerName, {

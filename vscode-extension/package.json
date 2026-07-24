@@ -51,6 +51,7 @@
     "onCommand:bcDevToolset.operation.clearAppArtifacts",
     "onCommand:bcDevToolset.operation.newDockerContainer",
     "onCommand:bcDevToolset.operation.extractContainerAssemblies",
+    "onCommand:bcDevToolset.operation.addTestToolkitToBcContainer",
     "onCommand:bcDevToolset.operation.updateLaunchJson",
     "onCommand:bcDevToolset.operation.updateBcLicenseContainer",
     "onCommand:bcDevToolset.operation.showActiveLicenses",
@@ -748,6 +749,10 @@
       {
         "command": "bcDevToolset.operation.extractContainerAssemblies",
         "title": "BC Dev Toolset: Extract assembly probing paths from Docker container"
+      },
+      {
+        "command": "bcDevToolset.operation.addTestToolkitToBcContainer",
+        "title": "BC Dev Toolset: Add Test Toolkit to existing container"
       },
       {
         "command": "bcDevToolset.operation.updateLaunchJson",

@@ -1238,6 +1238,62 @@ function Select-IndexFromList {
         Write-Host "Invalid selection. Please enter a number between 1 and $($Options.Count)." -ForegroundColor Red
     }
 }
+function Add-TestToolkitToConfiguredContainer {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON
+    )
+
+    $configurations = @($settingsJSON.configurations | Where-Object {
+        $_.serverType -eq "Container"
+    })
+
+    if ($configurations.Count -eq 0) {
+        Write-Host "No Container configurations found. Add Test Toolkit operation aborted." -ForegroundColor Yellow
+        return $false
+    }
+
+    $title = "Select the container configuration to add Test Toolkit to:"
+    Write-Host ""
+    Write-Host $title -ForegroundColor Blue
+    for ($i = 0; $i -lt $configurations.Count; $i++) {
+        Write-Host ("[{0}] {1}" -f ($i + 1), $configurations[$i].container)
+    }
+
+    $prompt = "Select an option [1..{0}]: " -f $configurations.Count
+    $selection = Request-BcDevToolsetMcpPrompt `
+        -PromptId "selectIndex.Select.the.container.configuration.to.add.Test.Toolkit.to." `
+        -Type 'choice' `
+        -Question $prompt `
+        -Choices @(1..$configurations.Count | ForEach-Object { "$_" }) `
+        -Risk "Selects the existing container that will receive the Business Central Test Toolkit." `
+        -AgentAllowed $true
+
+    if ($null -eq $selection) {
+        $selection = Read-Host -Prompt $prompt
+    } else {
+        Write-Host "Answer received through MCP: $selection" -ForegroundColor Green
+    }
+
+    $selectedNumber = 0
+    if ([string]::IsNullOrWhiteSpace($selection) -or
+        -not [int]::TryParse($selection, [ref]$selectedNumber) -or
+        $selectedNumber -lt 1 -or
+        $selectedNumber -gt $configurations.Count) {
+        Write-Host "Invalid or empty selection. Add Test Toolkit operation aborted." -ForegroundColor Yellow
+        return $false
+    }
+
+    $containerName = [string]$configurations[$selectedNumber - 1].container
+    if ([string]::IsNullOrWhiteSpace($containerName)) {
+        Write-Host "The selected configuration has an empty container value. Add Test Toolkit operation aborted." -ForegroundColor Yellow
+        return $false
+    }
+
+    Import-TestToolkitToBcContainer -containerName $containerName
+    Write-Host "Test Toolkit added to container '$containerName'." -ForegroundColor Green
+    return $true
+}
 function Initialize-Context {
     Param (
         [Parameter(Mandatory=$true)]

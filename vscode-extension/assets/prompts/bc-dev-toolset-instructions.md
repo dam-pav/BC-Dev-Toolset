@@ -9,6 +9,7 @@ When working with Business Central AL projects, use the **BC Dev Toolset** MCP s
 | Category | Operations |
 |----------|-----------|
 | **Container** | `bc_dev_toolset_new_docker_container` — Create/overwrite Docker container |
+| **Container** | `bc_dev_toolset_add_test_toolkit_to_bc_container` — Add Test Toolkit to an existing container |
 | **Container** | `bc_dev_toolset_show_active_licenses` — Show active container licenses |
 | **Container** | `bc_dev_toolset_update_launch_json` — Update launch.json files |
 | **Publishing** | `bc_dev_toolset_publish_apps2_docker` — Publish apps to Docker |

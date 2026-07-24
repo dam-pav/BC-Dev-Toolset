@@ -208,6 +208,20 @@ test('maps backup container selection aliases to prompt answers', () => {
   );
 });
 
+test('exposes and maps the Add Test Toolkit container selection', () => {
+  const tool = mcpServer.getTools().find((candidate) =>
+    candidate.name === 'bc_dev_toolset_add_test_toolkit_to_bc_container');
+  assert.ok(tool);
+  assert.equal(tool.inputSchema.properties.containerSelection.type, 'string');
+
+  const operation = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'operations', 'operations.json'), 'utf8'))
+    .find((candidate) => candidate.id === 'addTestToolkitToBcContainer');
+  assert.deepEqual(
+    mcpServer.getOperationPromptAnswers(operation, { containerSelection: '2' }),
+    { 'selectIndex.Select.the.container.configuration.to.add.Test.Toolkit.to.': '2' }
+  );
+});
+
 test('does not map empty backup container selection aliases', () => {
   assert.deepEqual(
     mcpServer.getOperationPromptAnswers(

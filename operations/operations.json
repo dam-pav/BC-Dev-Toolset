@@ -44,6 +44,15 @@
     "category": "Container"
   },
   {
+    "id": "addTestToolkitToBcContainer",
+    "title": "Add Test Toolkit to existing container",
+    "script": "operations/AddTestToolkitToBcContainer.ps1",
+    "category": "Container",
+    "promptInputs": [
+      { "promptId": "selectIndex.Select.the.container.configuration.to.add.Test.Toolkit.to.", "inputName": "containerSelection", "type": "choice", "question": "Select the existing Container configuration to add Test Toolkit to." }
+    ]
+  },
+  {
     "id": "updateLaunchJson",
     "title": "Update launch.json files in all apps in the workspace",
     "script": "operations/UpdateLaunchJson.ps1",
