@@ -262,7 +262,7 @@ The Tests group contains two operations:
 - *Run AL test tool tests* runs Business Central AL test tool tests with *Run-TestsInBcContainer*.
 - *Run page script tests* runs page scripting recordings from *recordingsPath* and writes results to *pageScriptTestResultsPath*.
 
-Both operations execute against a Container configuration with *includeTestToolkit* set to `true`, regardless of its *targetType*. If only one eligible Container configuration exists and *executeTestsInContainerName* is empty, tests run in that container as-is: no backup restore and no app deployment are performed.
+Both operations run in a Docker container selected from configurations whose *serverType* is `Container`, whose *includeTestToolkit* value is `true`, and whose *container* value is not empty. The configuration's *targetType* can be `Dev`, `Test`, or `Production`; it does not affect eligibility. If only one eligible Container configuration exists and *executeTestsInContainerName* is empty, tests run in that container as-is: no backup restore and no app deployment are performed.
 
 If *executeTestsInContainerName* is set, or if multiple eligible Container configurations are available, the operation resolves the configured container name or asks which configured container to use. It then asks for explicit confirmation before running tests in that container.
 
@@ -301,12 +301,10 @@ to remove the files from git. You will need to commit these changes. Beware, thi
       "path": "Project/App"
     },
 	{
-      "path": "BC-Dev-Toolset"
+      "path": "Project/Test-App"
     }
   ],
   "settings": {
-    "liveServer.settings.multiRootWorkspaceName": "BC-Dev-Toolset",
-    "powershell.cwd": "BC-Dev-Toolset",
     "al.symbolsCountryRegion": "w1",
     "dam-pav.bcdevtoolset": {
       "selectArtifact": "Latest",
@@ -339,9 +337,9 @@ to remove the files from git. You will need to commit these changes. Beware, thi
         },
         {
           "name": "Test environment",
-                  "serverType": "Cloud",
-                  "environmentName": "TEST",
-                  "tenant": "tenants-guid-comes-here"
+          "serverType": "Cloud",
+          "environmentName": "TEST",
+          "tenant": "tenants-guid-comes-here"
         }
       ]
     }
@@ -368,7 +366,7 @@ These are VS Code extension settings. They belong to the developer's VS Code set
 - `bcDevToolset.toolsetPath`: Overrides the central BC-Dev-Toolset runtime location.
 - `bcDevToolset.powershellExecutable`: PowerShell executable used to run operations.
 - `bcDevToolset.localSettingsPath`: Workspace-relative path to the local settings file.
-- `bcDevToolset.shortcuts`: Decide where you want Docker to place shortcuts for the new containers it creates. Can be *None*, *Desktop* or *StartMenu*. While Docker's default is *Desktop*, the toolsets's default is *None*.
+- `bcDevToolset.shortcuts`: Controls where BcContainerHelper places shortcuts for newly created containers. Can be *None*, *Desktop* or *StartMenu*. While BcContainerHelper's default is *Desktop*, BC Dev Toolset's default is *None*.
 - `bcDevToolset.hostHelperFolder`: Overrides default BcContainerHelper host helper folder used by runtime operations.
 
 ### Workspace settings

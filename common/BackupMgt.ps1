@@ -192,8 +192,17 @@ function Get-BcContainerSqlBackupRestoreParameters {
 
     $restoreParameters = @{
         containerName = $containerName
-        bakFolder = $bakFolder
     }
+    $databaseEntries = @($backupEntries | Where-Object { $_.DatabaseRole -eq "database" })
+    if ($databaseEntries.Count -eq 1 -and $backupEntries.Count -eq 1) {
+        # The bakFile path avoids BcContainerHelper calling Set-NavServerInstance -Stop
+        # unconditionally. That command fails when a previous restore left the service stopped.
+        $restoreParameters.bakFile = Join-Path $bakFolder $databaseEntries[0].HelperFileName
+        $restoreParameters.databaseName = $databaseEntries[0].DatabaseName
+        return $restoreParameters
+    }
+
+    $restoreParameters.bakFolder = $bakFolder
     $tenantIds = @($backupEntries |
         Where-Object { $_.DatabaseRole -eq "tenant" } |
         Select-Object -ExpandProperty DatabaseName -Unique)
@@ -204,6 +213,43 @@ function Get-BcContainerSqlBackupRestoreParameters {
     }
 
     return $restoreParameters
+}
+
+function Restore-BcContainerSqlBackupEntries {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $containerName,
+        [Parameter(Mandatory=$true)]
+        [string] $bakFolder,
+        [Parameter(Mandatory=$true)]
+        [AllowEmptyCollection()]
+        [array] $backupEntries
+    )
+
+    $restoreParameters = Get-BcContainerSqlBackupRestoreParameters `
+        -containerName $containerName `
+        -bakFolder $bakFolder `
+        -backupEntries $backupEntries
+
+    if ($restoreParameters.ContainsKey("bakFile")) {
+        $restoreParameters.databaseName = Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
+            $customConfigFile = Join-Path (Get-Item "C:\Program Files\Microsoft Dynamics NAV\*\Service").FullName "CustomSettings.config"
+            [xml]$customConfig = [System.IO.File]::ReadAllText($customConfigFile)
+            $server = Get-NAVServerInstance -ServerInstance BC
+            if ($server.State -ne "Stopped") {
+                Set-NAVServerInstance -ServerInstance BC -Stop | Out-Null
+            }
+            return $customConfig.SelectSingleNode("//appSettings/add[@key='DatabaseName']").Value
+        }
+    }
+
+    Restore-DatabasesInBcContainer @restoreParameters
+
+    if ($restoreParameters.ContainsKey("bakFile")) {
+        Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
+            Set-NAVServerInstance -ServerInstance BC -Start
+        }
+    }
 }
 
 function Get-BcContainerDatabaseBackupMap {
@@ -483,11 +529,10 @@ function Restore-BcContainerSqlBackupSet {
             continue
         }
 
-        $restoreParameters = Get-BcContainerSqlBackupRestoreParameters `
+        Restore-BcContainerSqlBackupEntries `
             -containerName $configuration.container `
             -bakFolder $sharedRestorePath `
             -backupEntries $backupEntries
-        Restore-DatabasesInBcContainer @restoreParameters
 
         Write-Host "SQL backup set restored to container '$($configuration.container)'." -ForegroundColor Green
     }
