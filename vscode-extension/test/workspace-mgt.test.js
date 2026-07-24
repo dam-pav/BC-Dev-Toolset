@@ -244,7 +244,8 @@ test('local executeTestsInContainerName is supported and takes priority over the
 });
 
 test('test operations allow Container configurations of every target type when the test toolkit is included', () => {
-  const testManagement = fs.readFileSync(path.join(repositoryRoot, 'common', 'TestMgt.ps1'), 'utf8');
+  const testManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'common', 'TestMgt.ps1'), 'utf8');
   const configurationSelector = testManagement.match(/function Get-TestContainerConfigurations[\s\S]*?\n}/)?.[0] ?? '';
 
   assert.match(configurationSelector, /\$_.serverType -eq "Container"/);
