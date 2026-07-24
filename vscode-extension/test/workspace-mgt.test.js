@@ -258,7 +258,8 @@ test('container creation supports an optional explicit multitenant mode', () => 
   const settingsBuilder = source.match(/function Build-Settings[\s\S]*?\n}/)?.[0] ?? '';
   assert.doesNotMatch(settingsBuilder, /-Name multitenant/);
 
-  const extensionSource = fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
+  const extensionSource = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
   const defaultLocalConfiguration = extensionSource.match(/function getDefaultLocalConfiguration\(\)[\s\S]*?\n}/)?.[0] ?? '';
   assert.doesNotMatch(defaultLocalConfiguration, /multitenant:/);
   assert.equal(Object.hasOwn(schema.properties.configurations.default[0], 'multitenant'), false);
