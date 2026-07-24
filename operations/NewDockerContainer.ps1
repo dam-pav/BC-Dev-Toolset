@@ -50,7 +50,8 @@ $success = New-DockerContainer `
     -settingsJSON $settingsJSON `
     -workspaceJSON $workspaceJSON `
     -selectArtifact $selectArtifact `
-    -pullFullArtifact $pullFullArtifact
+    -pullFullArtifact $pullFullArtifact `
+    -honorAutoRestoreBackup $true
 
 
 if ($success -eq $true) {

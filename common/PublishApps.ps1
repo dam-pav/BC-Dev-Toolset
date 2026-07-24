@@ -94,7 +94,10 @@ function Publish-Dependencies {
             switch ($configuration.serverType) {
                 'Cloud' { 
                     if ($authContext.value.AccessToken) {
-                        $renewAuthContext = Confirm-Option "Do you want to request a new Authentication context?"
+                        $renewAuthContext = Confirm-Option `
+                            -question "Do you want to request a new Authentication context?" `
+                            -PromptId "publishApps.renewAuthenticationContext" `
+                            -Risk "Requests a fresh authentication context after the current context failed."
                     } else {
                         $renewAuthContext = $true
                     }
@@ -244,7 +247,10 @@ function Publish-Apps {
             switch ($configuration.serverType) {
                 'Cloud' { 
                     if ($authContext.value.AccessToken) {
-                        $renewAuthContext = Confirm-Option "Do you want to request a new Authentication context?"
+                        $renewAuthContext = Confirm-Option `
+                            -question "Do you want to request a new Authentication context?" `
+                            -PromptId "publishApps.renewAuthenticationContext" `
+                            -Risk "Requests a fresh authentication context after the current context failed."
                     } else {
                         $renewAuthContext = $true
                     }

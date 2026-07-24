@@ -234,7 +234,7 @@ function getServerInstructions() {
     'Before answering questions about the active VS Code workspace, workspace file, workspace folders, AL project path, app.json location, .code-workspace settings, local .bcdevtoolset settings path, or AL settings such as assembly probing paths, call bc_dev_toolset_get_workspace or read bcdevtoolset://workspace/current. Do not infer the workspace by scanning parent folders unless this tool/resource is unavailable.',
     'PowerShell-backed operations require the VS Code terminal bridge and run visibly in the BC Dev Toolset terminal. If the bridge is unavailable, report that the BC Dev Toolset VS Code extension must be active instead of falling back to manual PowerShell.',
     'Use bc_dev_toolset_show_active_licenses for requests about the current container license. Use bc_dev_toolset_new_docker_container for creating or recreating containers.',
-    'When an operation returns status "waiting_for_input", you MUST call bc_dev_toolset_answer_operation_prompt with the sessionId and the user\'s answer. Do not retry the original operation. Do not start a different operation tool to answer a prompt. Do not ask the user to type in the terminal unless the prompt is sensitive or says autonomous agent decisions are not allowed. The answer is relayed through MCP to the running script.'
+    'Operations with declared inputs use two phases: call the operation tool without execute:true to receive all declared questions without starting it, then call the same tool with execute:true and the named answers. If an unexpected conditional prompt still returns waiting_for_input and the dedicated answer tool is unavailable, call the same operation tool with promptAnswers; the existing session resumes and retains answers for later prompts. Use bc_dev_toolset_answer_operation_prompt when it is available. Sensitive or agent-disallowed prompts must be answered by the user in the terminal.'
   ].join('\n');
 }
 
@@ -581,7 +581,14 @@ function getOperationToolDescription(operation) {
   const confirmationText = operation.requiresConfirmation
     ? ' This operation changes state and requires confirm: true.'
     : '';
-  return `BC Dev Toolset: ${operation.title}. Category: ${operation.category}.${aliasText}${confirmationText} This starts a new operation. Do not use this tool to answer a pending operation prompt; when a result says waiting_for_input, use bc_dev_toolset_answer_operation_prompt with the returned sessionId instead.`;
+  const preflightText = getOperationPromptInputs(operation).length > 0
+    ? ' Call without execute:true to return every declared input decision without starting the operation; then call again with execute:true and the answers.'
+    : '';
+  return `BC Dev Toolset: ${operation.title}. Category: ${operation.category}.${aliasText}${confirmationText}${preflightText} A repeated call with promptAnswers resumes the same pending operation and retains answers for later prompts; it does not restart it.`;
+}
+
+function getOperationPromptInputs(operation) {
+  return Array.isArray(operation && operation.promptInputs) ? operation.promptInputs : [];
 }
 
 function getOperationToolAliases(operationId) {
@@ -656,8 +663,24 @@ function getOperationToolInputSchema(operation) {
           { type: 'number' }
         ]
       }
+    },
+    execute: {
+      type: 'boolean',
+      description: getOperationPromptInputs(operation).length > 0
+        ? 'Set true after reviewing the preflight decisions to start the operation. Omit or set false to return all declared questions without starting it.'
+        : 'Optional execution flag; operations without declared prompt inputs execute normally.'
     }
   };
+
+  for (const promptInput of getOperationPromptInputs(operation)) {
+    if (!promptInput.inputName || properties[promptInput.inputName]) {
+      continue;
+    }
+    properties[promptInput.inputName] = {
+      ...(promptInput.inputSchema || { type: promptInput.type === 'confirm' ? 'boolean' : 'string' }),
+      description: `${promptInput.question}${promptInput.conditional ? ' This question is conditional and may not be reached at runtime.' : ''}`
+    };
+  }
 
   if (operation.id === 'initializeWorkspace') {
     properties.workspaceName = {
@@ -771,6 +794,24 @@ async function runOperation(args, progress) {
     return textResult(`BC Dev Toolset operation '${operationId}' is handled by the VS Code extension UI and is not available through MCP.`, true);
   }
 
+  const promptInputs = getOperationPromptInputs(operation);
+  const missingPromptInputs = promptInputs.filter((promptInput) => (
+    promptInput.inputName &&
+    !promptInput.conditional &&
+    !Object.prototype.hasOwnProperty.call(args, promptInput.inputName)
+  ));
+  if (promptInputs.length > 0 && (args.execute !== true || missingPromptInputs.length > 0)) {
+    return textResult(JSON.stringify({
+      status: 'input_required',
+      operationId: operation.id,
+      instruction: missingPromptInputs.length > 0 && args.execute === true
+        ? 'Required decisions are missing. Review all questions together, then call this same tool with execute: true and every required named answer. No operation was started.'
+        : 'Review all questions together, ask the user for decisions that cannot be made safely, then call this same tool with execute: true and the named answers. Questions without an inputName must be answered by the user in the visible terminal if reached. No operation was started.',
+      missingInputs: missingPromptInputs.map((promptInput) => promptInput.inputName),
+      questions: promptInputs
+    }, null, 2));
+  }
+
   if (operation.requiresConfirmation && args.confirm !== true) {
     return textResult(`BC Dev Toolset operation '${operationId}' requires confirmation. Call again with confirm: true to run it.`, true);
   }
@@ -865,6 +906,11 @@ function isContainerBackupOperation(operation) {
 
 function getOperationPromptAnswers(operation, args = {}) {
   const promptAnswers = {};
+  for (const promptInput of getOperationPromptInputs(operation)) {
+    if (promptInput.inputName && Object.prototype.hasOwnProperty.call(args, promptInput.inputName)) {
+      promptAnswers[promptInput.promptId] = args[promptInput.inputName];
+    }
+  }
   if (operation.id === 'initializeWorkspace' && String(args.workspaceName || '').trim()) {
     promptAnswers['initializeWorkspace.workspaceName'] = String(args.workspaceName).trim();
   }

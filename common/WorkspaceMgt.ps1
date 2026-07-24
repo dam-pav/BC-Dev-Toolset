@@ -737,6 +737,19 @@ function Test-AutoUpdateLaunchJson {
     return $configuration.targetType -eq "Dev"
 }
 
+function Test-AutoRestoreBackup {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration
+    )
+
+    if ($configuration.PSObject.Properties['autoRestoreBackup']) {
+        return $configuration.autoRestoreBackup -eq $true
+    }
+
+    return $true
+}
+
 function Write-LaunchJSON {
     Param (
         [Parameter(Mandatory=$true)]
@@ -1156,6 +1169,7 @@ function Build-Settings {
         $defaultSettings | Add-Member -MemberType NoteProperty -Name recordingsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestResultsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestHeaded -Value "false"
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
 
         # add container configuration
@@ -1171,9 +1185,7 @@ function Build-Settings {
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name bcUser -Value "admin"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name bcPassword -Value "P@ssw0rd"
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name network -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name hostIP -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name updateHosts -Value $true
+        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name autoRestoreBackup -Value $true
         $remoteConfiguration | Add-Member -MemberType NoteProperty -Name autoExtractAssemblies -Value $false
         $defaultSettings.configurations += $remoteConfiguration
 
@@ -1313,8 +1325,8 @@ function Initialize-Context {
 
     $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name country -Value $country -Force
 
-    $executeTestsInContainerName = ""
-    if ($workspaceJSON.value.settings."dam-pav.bcdevtoolset".executeTestsInContainerName) {
+    $executeTestsInContainerName = [string]$settingsJSONvalue.executeTestsInContainerName
+    if ([string]::IsNullOrWhiteSpace($executeTestsInContainerName) -and $workspaceJSON.value.settings."dam-pav.bcdevtoolset".executeTestsInContainerName) {
         $executeTestsInContainerName = $workspaceJSON.value.settings."dam-pav.bcdevtoolset".executeTestsInContainerName
     }
     $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value $executeTestsInContainerName -Force
@@ -1868,7 +1880,9 @@ function New-DockerContainer {
         [Parameter(Mandatory=$true)]
         [string] $selectArtifact,
         [Parameter(Mandatory=$true)]
-        [bool] $pullFullArtifact
+        [bool] $pullFullArtifact,
+        [Parameter(Mandatory=$false)]
+        [bool] $honorAutoRestoreBackup = $false
     )
     
     $selectedConfigurations = @(Select-DockerContainerConfigurations `
@@ -2070,7 +2084,7 @@ function New-DockerContainer {
             }
         }
             
-        if (-not $testmode -and $configuration.PSObject.Properties['autoRestoreBackup'] -and $configuration.autoRestoreBackup -eq $true) {
+        if (-not $testmode -and $honorAutoRestoreBackup -and (Test-AutoRestoreBackup -configuration $configuration)) {
             $backupRootPath = Get-SqlBackupRootPath `
                 -scriptPath $scriptPath `
                 -sqlBackupPath $configuration.sqlBackupPath
@@ -2119,6 +2133,9 @@ Import-NAVServerLicense -LicenseFile '$escapedContainerLicenseFile' -ServerInsta
                 )
                 Write-Host "SQL backup restore detected. The license will be imported before NAV user setup because BcContainerHelper skips -licenseFile for restored bakFolder databases." -ForegroundColor Yellow
             }
+        }
+
+        if (-not $testmode) {
             New-BcContainer @Parameters
 
             if ($configuration.PSObject.Properties['autoExtractAssemblies'] -and $configuration.autoExtractAssemblies -eq $true) {

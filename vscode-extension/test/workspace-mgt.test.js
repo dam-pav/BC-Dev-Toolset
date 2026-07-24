@@ -206,8 +206,8 @@ test('automatic backup restore requires a boolean Container configuration flag w
   const containerRule = schema.definitions.configuration.allOf.find((rule) => rule.if?.properties?.serverType?.const === 'Container');
   assert.deepEqual(containerRule.then.properties.autoRestoreBackup, {
     type: 'boolean',
-    default: false,
-    description: 'Whether container creation tries to initialize the container from a compatible SQL backup set at sqlBackupPath. Manual restore ignores this setting.'
+    default: true,
+    description: 'Whether Create Docker container and Test operations automatically restore a compatible SQL backup set from sqlBackupPath. Defaults to true when omitted. Manual restore operations ignore this setting.'
   });
 
   const nonContainerRule = schema.definitions.configuration.allOf.find((rule) =>
@@ -216,7 +216,68 @@ test('automatic backup restore requires a boolean Container configuration flag w
 
   const source = fs.readFileSync(workspaceMgtPath, 'utf8');
   const containerCreationFunction = source.match(/function New-DockerContainer[\s\S]*?\n}/)?.[0] ?? '';
-  assert.match(containerCreationFunction, /autoRestoreBackup'\] -and \$configuration\.autoRestoreBackup -eq \$true[\s\S]*?Get-SqlBackupRootPath[\s\S]*?\$Parameters\.bakFolder/);
+  assert.match(source, /function Test-AutoRestoreBackup[\s\S]*?return \$configuration\.autoRestoreBackup -eq \$true[\s\S]*?return \$true/);
+  assert.match(containerCreationFunction, /\$honorAutoRestoreBackup -and \(Test-AutoRestoreBackup -configuration \$configuration\)[\s\S]*?Get-SqlBackupRootPath[\s\S]*?\$Parameters\.bakFolder/);
+  const createContainerOperation = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'operations', 'NewDockerContainer.ps1'), 'utf8');
+  assert.match(createContainerOperation, /New-DockerContainer[\s\S]*?-honorAutoRestoreBackup \$true/);
+  const testManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'common', 'TestMgt.ps1'), 'utf8');
+  assert.match(testManagement, /New-DockerContainer[\s\S]*?-honorAutoRestoreBackup \$true/);
+  assert.match(testManagement, /if \(-not \(Test-AutoRestoreBackup -configuration \$configuration\)\)[\s\S]*?Skipping automatic SQL backup restore/);
   const manualOperation = fs.readFileSync(path.join(repositoryRoot, 'operations', 'RestoreBcContainerDatabases.ps1'), 'utf8');
   assert.doesNotMatch(manualOperation, /autoRestoreBackup/);
+});
+
+test('local executeTestsInContainerName is supported and takes priority over the workspace value', () => {
+  const schema = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'schemas', 'bcdevtoolset-settings.schema.json'), 'utf8'));
+  assert.deepEqual(schema.properties.executeTestsInContainerName, {
+    type: 'string',
+    default: '',
+    description: 'Optional container name used by Test operations. A non-empty local value takes priority over the shared workspace setting.'
+  });
+
+  const source = fs.readFileSync(workspaceMgtPath, 'utf8');
+  assert.match(source, /\$executeTestsInContainerName = \[string\]\$settingsJSONvalue\.executeTestsInContainerName/);
+  assert.match(source, /IsNullOrWhiteSpace\(\$executeTestsInContainerName\)[\s\S]*?workspaceJSON\.value\.settings\."dam-pav\.bcdevtoolset"\.executeTestsInContainerName/);
+  assert.match(source, /Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value ""/);
+});
+
+test('test operations allow Container configurations of every target type when the test toolkit is included', () => {
+  const testManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'common', 'TestMgt.ps1'), 'utf8');
+  const configurationSelector = testManagement.match(/function Get-TestContainerConfigurations[\s\S]*?\n}/)?.[0] ?? '';
+
+  assert.match(configurationSelector, /\$_.serverType -eq "Container"/);
+  assert.match(configurationSelector, /\$_.includeTestToolkit -eq "true"/);
+  assert.doesNotMatch(configurationSelector, /targetType/);
+  assert.doesNotMatch(testManagement, /Dev container configurations|Dev Container configurations/);
+});
+
+test('new local configurations omit optional Docker networking settings', () => {
+  const source = fs.readFileSync(workspaceMgtPath, 'utf8');
+  const settingsBuilder = source.match(/function Build-Settings[\s\S]*?\n}/)?.[0] ?? '';
+  assert.doesNotMatch(settingsBuilder, /-Name (?:network|hostIP|updateHosts)\b/);
+
+  const schema = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'schemas', 'bcdevtoolset-settings.schema.json'), 'utf8'));
+  const defaultConfiguration = schema.properties.configurations.default[0];
+  assert.equal(Object.hasOwn(defaultConfiguration, 'network'), false);
+  assert.equal(Object.hasOwn(defaultConfiguration, 'hostIP'), false);
+  assert.equal(Object.hasOwn(defaultConfiguration, 'updateHosts'), false);
+
+  const containerRule = schema.definitions.configuration.allOf.find((rule) =>
+    rule.if?.properties?.serverType?.const === 'Container');
+  assert.ok(containerRule);
+  for (const propertyName of ['network', 'hostIP', 'updateHosts']) {
+    assert.ok(containerRule.then.properties[propertyName]);
+    assert.equal(JSON.stringify(schema).split(`"${propertyName}"`).length - 1, 1);
+  }
+});
+
+test('custom settings completion augments macAddress values without duplicating schema properties', () => {
+  const extensionSource = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
+  const completionProvider = extensionSource.match(/function provideSettingsCompletionItems[\s\S]*?\n}/)?.[0] ?? '';
+  assert.match(completionProvider, /CompletionItemKind\.Value/);
+  assert.doesNotMatch(completionProvider, /CompletionItemKind\.Property|configurationFields/);
 });

@@ -37,7 +37,7 @@ function Get-TestContainerConfigurations {
     )
 
     return @($settingsJSON.configurations | Where-Object {
-        $_.targetType -eq "Dev" -and $_.serverType -eq "Container" -and -not [string]::IsNullOrWhiteSpace($_.container)
+        $_.serverType -eq "Container" -and $_.includeTestToolkit -eq "true" -and -not [string]::IsNullOrWhiteSpace($_.container)
     })
 }
 
@@ -62,14 +62,14 @@ function Select-TestContainerConfiguration {
 
     $configurations = @(Get-TestContainerConfigurations -settingsJSON $settingsJSON)
     if ($configurations.Count -eq 0) {
-        throw "No Dev Container configurations with a non-empty container value found. Cannot execute tests."
+        throw "No Container configurations with includeTestToolkit set to true and a non-empty container value found. Cannot execute tests."
     }
 
     $configuredContainerName = Get-ExecuteTestsInContainerName -settingsJSON $settingsJSON
     if ($configurations.Count -eq 1) {
         $configuration = $configurations[0]
         if ([string]::IsNullOrWhiteSpace($configuredContainerName)) {
-            Write-Host "Only one Dev container configuration is available and executeTestsInContainerName is empty. Tests will run in '$($configuration.container)' without backup restore or app deployment." -ForegroundColor Blue
+            Write-Host "Only one container configuration is available and executeTestsInContainerName is empty. Tests will run in '$($configuration.container)' without backup restore or app deployment." -ForegroundColor Blue
             return [PSCustomObject]@{
                 Configuration = $configuration
                 PrepareContainer = $false
@@ -77,7 +77,7 @@ function Select-TestContainerConfiguration {
         }
 
         if ($configuration.container -ne $configuredContainerName) {
-            Write-Host "The configured executeTestsInContainerName value '$configuredContainerName' was not found among Dev container configurations." -ForegroundColor Red
+            Write-Host "The configured executeTestsInContainerName value '$configuredContainerName' was not found among Container configurations with includeTestToolkit set to true." -ForegroundColor Red
         }
 
         return [PSCustomObject]@{
@@ -95,7 +95,7 @@ function Select-TestContainerConfiguration {
             }
         }
 
-        Write-Host "The configured executeTestsInContainerName value '$configuredContainerName' was not found among Dev container configurations." -ForegroundColor Red
+        Write-Host "The configured executeTestsInContainerName value '$configuredContainerName' was not found among Container configurations with includeTestToolkit set to true." -ForegroundColor Red
     }
 
     $options = @()
@@ -306,7 +306,8 @@ function New-TestExecutionContainerIfMissing {
         -settingsJSON $testSettings `
         -workspaceJSON $workspaceJSON `
         -selectArtifact $selectArtifact `
-        -pullFullArtifact $pullFullArtifact
+        -pullFullArtifact $pullFullArtifact `
+        -honorAutoRestoreBackup $true
 
     if ($success -ne $true) {
         throw "Container '$($configuration.container)' could not be created."
@@ -371,7 +372,9 @@ function Initialize-TestExecutionContainer {
         return $testSettings
     }
 
-    if ($containerWasCreated) {
+    if (-not (Test-AutoRestoreBackup -configuration $configuration)) {
+        Write-Host "Skipping automatic SQL backup restore because autoRestoreBackup is false for '$containerName'." -ForegroundColor Gray
+    } elseif ($containerWasCreated) {
         Write-Host "Skipping SQL backup restore because the backup set was just created from the new container." -ForegroundColor Gray
     } else {
         Restore-TestContainerBackupIfExists `
