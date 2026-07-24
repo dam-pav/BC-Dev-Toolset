@@ -124,7 +124,8 @@ test('does not pre-supply testing prompt answers for non-test operations', () =>
 });
 
 test('maps every declared operation input to its canonical PowerShell prompt id', () => {
-  const operation = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'operations', 'operations.json'), 'utf8'))
+  const operation = JSON.parse(fs.readFileSync( // nosemgrep -- fixed segments resolve to a repository-owned test fixture beneath __dirname
+    path.join(__dirname, '..', '..', 'operations', 'operations.json'), 'utf8'))
     .find((candidate) => candidate.id === 'newDockerContainer');
 
   assert.deepEqual(
