@@ -193,6 +193,7 @@ Each workspace `configuration` entry can contain:
 - `server`: Business Central server name for `OnPrem`.
 - `serverInstance`: Business Central server instance for `OnPrem`.
 - `container`: Docker container name for `Container`. Create-container processing only includes Container configurations with a non-empty `container` value, and duplicate `container` values abort the operation.
+- `multitenant`: Explicit container mode passed to `New-BcContainer` by the Create container operation. When omitted, creation infers the mode from a compatible backup set. If neither the setting nor the backup determines the mode, the parameter is omitted and BcContainerHelper decides. An explicit value has priority; creation aborts with an explanation if it conflicts with the detected `*.app.bak` or `*.database.bak` backup type. Valid only for `Container`.
 - `port`: Service port for `OnPrem`.
 - `environmentType`: Environment kind. Valid values: `Sandbox`, `OnPrem`.
 - `environmentName`: Business Central environment name for `Cloud`.

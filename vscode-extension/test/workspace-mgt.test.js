@@ -228,6 +228,76 @@ test('automatic backup restore requires a boolean Container configuration flag w
   const manualOperation = fs.readFileSync(path.join(repositoryRoot, 'operations', 'RestoreBcContainerDatabases.ps1'), 'utf8');
   assert.doesNotMatch(manualOperation, /autoRestoreBackup/);
 });
+
+test('container creation supports an optional explicit multitenant mode', () => {
+  const script = `
+    . '${workspaceMgtPath.replaceAll("'", "''")}'
+    $implicit = Test-ConfigurationMultitenant -configuration ([PSCustomObject]@{ serverType = 'Container' })
+    if ($null -ne $implicit) { exit 2 }
+    if (-not (Test-ConfigurationMultitenant -configuration ([PSCustomObject]@{ serverType = 'Container'; multitenant = $true }))) { exit 3 }
+    if (Test-ConfigurationMultitenant -configuration ([PSCustomObject]@{ serverType = 'Container'; multitenant = $false })) { exit 4 }
+  `;
+  runPowerShell(script);
+
+  const schema = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'schemas', 'bcdevtoolset-settings.schema.json'), 'utf8'));
+  const containerRule = schema.definitions.configuration.allOf.find((rule) => rule.if?.properties?.serverType?.const === 'Container');
+  assert.deepEqual(containerRule.then.properties.multitenant, {
+    type: 'boolean',
+    description: 'Explicit multitenant mode passed to New-BcContainer. When omitted, Create Docker container infers the mode from a compatible backup set; if the backup does not determine the mode, the parameter is omitted and BcContainerHelper decides. Creation aborts when an explicit value conflicts with the backup type.'
+  });
+
+  const nonContainerRule = schema.definitions.configuration.allOf.find((rule) =>
+    rule.if?.not?.properties?.serverType?.const === 'Container' && rule.then?.properties?.multitenant);
+  assert.ok(nonContainerRule);
+
+  const source = fs.readFileSync(workspaceMgtPath, 'utf8');
+  const containerCreationFunction = source.match(/function New-DockerContainer[\s\S]*?\n}/)?.[0] ?? '';
+  assert.match(containerCreationFunction, /\$resolvedMultitenantMode = Resolve-ContainerMultitenantMode -configuration \$configuration[\s\S]*?\$Parameters\.multitenant = \$resolvedMultitenantMode/);
+  assert.doesNotMatch(containerCreationFunction, /multitenant = \(Test-ConfigurationMultitenant/);
+  assert.match(containerCreationFunction, /\$resolvedMultitenantMode = Resolve-ContainerMultitenantMode[\s\S]*?-backupEntries \$backupEntries[\s\S]*?\$Parameters\.multitenant = \$resolvedMultitenantMode/);
+  const settingsBuilder = source.match(/function Build-Settings[\s\S]*?\n}/)?.[0] ?? '';
+  assert.doesNotMatch(settingsBuilder, /-Name multitenant/);
+
+  const extensionSource = fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
+  const defaultLocalConfiguration = extensionSource.match(/function getDefaultLocalConfiguration\(\)[\s\S]*?\n}/)?.[0] ?? '';
+  assert.doesNotMatch(defaultLocalConfiguration, /multitenant:/);
+  assert.equal(Object.hasOwn(schema.properties.configurations.default[0], 'multitenant'), false);
+});
+
+test('explicit multitenant mode wins and conflicting backup types abort creation', () => {
+  const script = `
+    . '${workspaceMgtPath.replaceAll("'", "''")}'
+    $appBackup = @([PSCustomObject]@{ DatabaseRole = 'app' })
+    $databaseBackup = @([PSCustomObject]@{ DatabaseRole = 'database' })
+    $implicit = [PSCustomObject]@{ name = 'Local'; container = 'test' }
+    $undecided = Resolve-ContainerMultitenantMode -configuration $implicit -backupEntries @()
+    if ($null -ne $undecided) { exit 2 }
+    if (-not (Resolve-ContainerMultitenantMode -configuration $implicit -backupEntries $appBackup)) { exit 2 }
+    if (Resolve-ContainerMultitenantMode -configuration $implicit -backupEntries $databaseBackup) { exit 3 }
+
+    $explicitMulti = [PSCustomObject]@{ name = 'Local'; container = 'test'; multitenant = $true }
+    $explicitSingle = [PSCustomObject]@{ name = 'Local'; container = 'test'; multitenant = $false }
+    if (-not (Resolve-ContainerMultitenantMode -configuration $explicitMulti -backupEntries @())) { exit 4 }
+    if (Resolve-ContainerMultitenantMode -configuration $explicitSingle -backupEntries @()) { exit 5 }
+
+    $explicitMultiConflict = ''
+    try { Resolve-ContainerMultitenantMode -configuration $explicitMulti -backupEntries $databaseBackup | Out-Null }
+    catch { $explicitMultiConflict = $_.Exception.Message }
+    if ($explicitMultiConflict -notmatch 'explicitly sets multitenant to true') { exit 6 }
+
+    $explicitSingleConflict = ''
+    try { Resolve-ContainerMultitenantMode -configuration $explicitSingle -backupEntries $appBackup | Out-Null }
+    catch { $explicitSingleConflict = $_.Exception.Message }
+    if ($explicitSingleConflict -notmatch 'explicitly sets multitenant to false') { exit 7 }
+
+    $mixedBackupConflict = ''
+    try { Resolve-ContainerMultitenantMode -configuration $implicit -backupEntries @($appBackup + $databaseBackup) | Out-Null }
+    catch { $mixedBackupConflict = $_.Exception.Message }
+    if ($mixedBackupConflict -notmatch 'both multitenant application') { exit 8 }
+  `;
+  runPowerShell(script);
+});
+
 test('Add Test Toolkit operation selects one configured container and aborts invalid selections', () => {
   const operations = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'operations', 'operations.json'), 'utf8'));
   const operation = operations.find(({ id }) => id === 'addTestToolkitToBcContainer');
