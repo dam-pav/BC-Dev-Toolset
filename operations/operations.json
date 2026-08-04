@@ -26,6 +26,12 @@
     "requiresConfirmation": true
   },
   {
+    "id": "buildAllApps",
+    "title": "Build all apps in the workspace",
+    "script": "operations/BuildAllApps.ps1",
+    "category": "Workspace"
+  },
+  {
     "id": "newDockerContainer",
     "title": "Create/Overwrite Docker container based on the workspace app.json application version",
     "script": "operations/NewDockerContainer.ps1",
