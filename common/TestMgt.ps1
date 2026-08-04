@@ -335,7 +335,8 @@ function Initialize-TestExecutionContainer {
         [Parameter(Mandatory=$true)]
         [PSObject] $settingsJSON,
         [Parameter(Mandatory=$true)]
-        [PSObject] $workspaceJSON
+        [PSObject] $workspaceJSON,
+        [switch] $BuildAppsBeforeDeployment
     )
 
     $selection = Select-TestContainerConfiguration -settingsJSON $settingsJSON
@@ -379,6 +380,12 @@ function Initialize-TestExecutionContainer {
         Restore-TestContainerBackupIfExists `
             -scriptPath $scriptPath `
             -configuration $configuration
+    }
+
+    if ($BuildAppsBeforeDeployment) {
+        Write-Host ""
+        Write-Host "Building all workspace apps before deployment." -ForegroundColor Green
+        & (Join-Path $scriptPath 'operations/BuildAllApps.ps1') -SkipOperationUI
     }
 
     Write-Host ""

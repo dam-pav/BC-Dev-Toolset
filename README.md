@@ -259,7 +259,7 @@ Restore is based on the selected folder's content. It looks for \*.app.bak, \*.t
 
 The Tests group contains two operations:
 
-- *Run AL test tool tests* runs Business Central AL test tool tests with *Run-TestsInBcContainer*.
+- *Run AL test tool tests* builds all workspace apps in dependency order before deploying them, then runs Business Central AL test tool tests with *Run-TestsInBcContainer*.
 - *Run page script tests* runs page scripting recordings from *recordingsPath* and writes results to *pageScriptTestResultsPath*.
 
 Both operations run in a Docker container selected from configurations whose *serverType* is `Container`, whose *includeTestToolkit* value is `true`, and whose *container* value is not empty. The configuration's *targetType* can be `Dev`, `Test`, or `Production`; it does not affect eligibility. If only one eligible Container configuration exists and *executeTestsInContainerName* is empty, tests run in that container as-is: no backup restore and no app deployment are performed.

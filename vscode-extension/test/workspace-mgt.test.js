@@ -370,6 +370,25 @@ test('test operations allow Container configurations of every target type when t
   assert.doesNotMatch(testManagement, /Dev container configurations|Dev Container configurations/);
 });
 
+test('AL test runs build every workspace app before deployment', () => {
+  const testManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'common', 'TestMgt.ps1'), 'utf8');
+  const initializeContainer = testManagement.match(/function Initialize-TestExecutionContainer[\s\S]*?\n}/)?.[0] ?? '';
+  const invokeTestsOperation = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'operations', 'Invoke-Tests.ps1'), 'utf8');
+  const pageScriptOperation = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'operations', 'Invoke-PageScriptTests.ps1'), 'utf8');
+  const buildOperation = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'operations', 'BuildAllApps.ps1'), 'utf8');
+
+  assert.match(invokeTestsOperation, /Initialize-TestExecutionContainer[\s\S]*?-BuildAppsBeforeDeployment/);
+  assert.doesNotMatch(pageScriptOperation, /-BuildAppsBeforeDeployment/);
+  assert.match(initializeContainer, /BuildAllApps\.ps1'\) -SkipOperationUI/);
+  assert.ok(initializeContainer.indexOf('BuildAllApps.ps1') < initializeContainer.indexOf('Publish-Dependencies'));
+  assert.ok(initializeContainer.indexOf('BuildAllApps.ps1') < initializeContainer.indexOf('Publish-Apps'));
+  assert.match(buildOperation, /\[switch\] \$SkipOperationUI/);
+});
+
 test('new local configurations omit optional Docker networking settings', () => {
   const source = fs.readFileSync(workspaceMgtPath, 'utf8');
   const settingsBuilder = source.match(/function Build-Settings[\s\S]*?\n}/)?.[0] ?? '';
