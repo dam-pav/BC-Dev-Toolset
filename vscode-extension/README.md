@@ -102,6 +102,7 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 - `Initialize Workspace`: Creates the baseline BC Dev Toolset workspace structure and default settings content for the current workspace.
 - `Open Local Settings (JSON)`: Opens `.bcdevtoolset/settings.json` for the current workspace.
 - `Clear App and translation artifacts`: Removes generated app and translation artifacts from the workspace.
+- `Build all apps in the workspace`: Uses Microsoft ALTool to compile each AL project in dependency order. Every app builds against an isolated copy of its own package cache plus freshly built packages for its declared workspace dependencies, preserving project cache isolation.
 - `Update launch.json files in all apps in the workspace`: Refreshes launch configurations for all apps in the workspace.
 
 ### Container
