@@ -28,7 +28,6 @@ if ($null -eq $testSettingsJSON) {
 }
 
 Invoke-Tests `
-    -settingsJSON $testSettingsJSON `
-    -targetType "Dev"
+    -settingsJSON $testSettingsJSON
 
 Write-Done

@@ -389,6 +389,20 @@ test('AL test runs build every workspace app before deployment', () => {
   assert.match(buildOperation, /\[switch\] \$SkipOperationUI/);
 });
 
+test('test operations target the selected environment without a targetType group filter', () => {
+  const testManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'common', 'TestMgt.ps1'), 'utf8');
+  const invokeTestsOperation = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'operations', 'Invoke-Tests.ps1'), 'utf8');
+  const pageScriptOperation = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'operations', 'Invoke-PageScriptTests.ps1'), 'utf8');
+  const initializeContainer = testManagement.match(/function Initialize-TestExecutionContainer[\s\S]*?\n}/)?.[0] ?? '';
+
+  assert.doesNotMatch(initializeContainer, /-targetType\s+"Dev"/);
+  assert.doesNotMatch(invokeTestsOperation, /-targetType\s+"Dev"/);
+  assert.doesNotMatch(pageScriptOperation, /-targetType\s+"Dev"/);
+});
+
 test('new local configurations omit optional Docker networking settings', () => {
   const source = fs.readFileSync(workspaceMgtPath, 'utf8');
   const settingsBuilder = source.match(/function Build-Settings[\s\S]*?\n}/)?.[0] ?? '';
