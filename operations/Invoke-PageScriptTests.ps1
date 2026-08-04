@@ -27,7 +27,6 @@ if ($null -eq $testSettingsJSON) {
 }
 
 Invoke-PageScriptTests `
-    -settingsJSON $testSettingsJSON `
-    -targetType "Dev"
+    -settingsJSON $testSettingsJSON
 
 Write-Done

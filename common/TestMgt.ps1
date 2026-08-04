@@ -335,7 +335,8 @@ function Initialize-TestExecutionContainer {
         [Parameter(Mandatory=$true)]
         [PSObject] $settingsJSON,
         [Parameter(Mandatory=$true)]
-        [PSObject] $workspaceJSON
+        [PSObject] $workspaceJSON,
+        [switch] $BuildAppsBeforeDeployment
     )
 
     $selection = Select-TestContainerConfiguration -settingsJSON $settingsJSON
@@ -381,11 +382,16 @@ function Initialize-TestExecutionContainer {
             -configuration $configuration
     }
 
+    if ($BuildAppsBeforeDeployment) {
+        Write-Host ""
+        Write-Host "Building all workspace apps before deployment." -ForegroundColor Green
+        & (Join-Path $scriptPath 'operations/BuildAllApps.ps1') -SkipOperationUI
+    }
+
     Write-Host ""
     Write-Host "Deploying dependencies to '$containerName'." -ForegroundColor Green
     Publish-Dependencies `
-        -settingsJSON $testSettings `
-        -targetType "Dev"
+        -settingsJSON $testSettings
 
     Write-Host ""
     Write-Host "Deploying all workspace apps to '$containerName'." -ForegroundColor Green
@@ -393,7 +399,6 @@ function Initialize-TestExecutionContainer {
         -scriptPath $scriptPath `
         -settingsJSON $testSettings `
         -workspaceJSON $workspaceJSON `
-        -targetType "Dev" `
         -publishAsDev $true
 
     return $testSettings
@@ -403,12 +408,16 @@ function Invoke-Tests {
     Param (
         [Parameter(Mandatory=$true)]
         [PSObject] $settingsJSON,
-        [Parameter(Mandatory=$true)]
         [ValidateSet("Dev", "Test", "Production")]
         [string] $targetType
     )
 
-    foreach ($configuration in $($settingsJSON.configurations | Where-Object  { $_.targetType -eq $targetType })) {
+    $targetConfigurations = @($settingsJSON.configurations)
+    if (-not [string]::IsNullOrWhiteSpace($targetType)) {
+        $targetConfigurations = @($targetConfigurations | Where-Object { $_.targetType -eq $targetType })
+    }
+
+    foreach ($configuration in $targetConfigurations) {
         Write-Host "Running tests on '$($configuration.name)'." -ForegroundColor Blue
         switch ($configuration.serverType) {
             'Container' {
@@ -444,7 +453,6 @@ function Invoke-PageScriptTests {
     Param (
         [Parameter(Mandatory=$true)]
         [PSObject] $settingsJSON,
-        [Parameter(Mandatory=$true)]
         [ValidateSet("Dev", "Test", "Production")]
         [string] $targetType
     )
@@ -493,7 +501,12 @@ function Invoke-PageScriptTests {
         return
     }
 
-    foreach ($configuration in $($settingsJSON.configurations | Where-Object  { $_.targetType -eq $targetType })) {
+    $targetConfigurations = @($settingsJSON.configurations)
+    if (-not [string]::IsNullOrWhiteSpace($targetType)) {
+        $targetConfigurations = @($targetConfigurations | Where-Object { $_.targetType -eq $targetType })
+    }
+
+    foreach ($configuration in $targetConfigurations) {
         Write-Host "Running page script tests on '$($configuration.name)'." -ForegroundColor Blue
         
         $baseUrl = $null

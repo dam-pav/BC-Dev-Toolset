@@ -1,4 +1,10 @@
-Clear-Host
+Param (
+    [switch] $SkipOperationUI
+)
+
+if (-not $SkipOperationUI) {
+    Clear-Host
+}
 
 $scriptPath = (Get-Item $PSScriptRoot).Parent
 . $scriptPath/common/WorkspaceMgt.ps1
@@ -273,4 +279,6 @@ try {
     }
 }
 
-Write-Done
+if (-not $SkipOperationUI) {
+    Write-Done
+}

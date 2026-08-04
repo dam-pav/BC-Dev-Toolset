@@ -36,7 +36,6 @@ function Publish-Dependencies {
     Param (
         [Parameter(Mandatory=$true)]
         [PSObject] $settingsJSON,
-        [Parameter(Mandatory=$true)]
         [ValidateSet("Dev", "Test", "Production")]
         [string] $targetType,
         [ref] $authContext
@@ -88,7 +87,13 @@ function Publish-Dependencies {
         }
     }
     
-    foreach ($configuration in $($settingsJSON.configurations | Where-Object { $_.targetType -eq $targetType })) {
+    $targetConfigurations = @($settingsJSON.configurations)
+    if (-not [string]::IsNullOrWhiteSpace($targetType)) {
+        $targetConfigurations = @($targetConfigurations | Where-Object { $_.targetType -eq $targetType })
+    }
+
+    foreach ($configuration in $targetConfigurations) {
+        $effectiveTargetType = if ([string]::IsNullOrWhiteSpace($targetType)) { $configuration.targetType } else { $targetType }
         Write-Host "Deploying dependencies to '$($configuration.name)'." -ForegroundColor Blue
         if ($appList.length -gt 0) {
             switch ($configuration.serverType) {
@@ -122,7 +127,7 @@ function Publish-Dependencies {
 
                     Write-Host ""
                     Write-Host "Running " -ForegroundColor green -NoNewline
-                    if ($targetType -eq 'Dev') {
+                    if ($effectiveTargetType -eq 'Dev') {
                         $params.appFile = $appList
                         Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
                         Write-Host ":" -ForegroundColor green
@@ -193,7 +198,6 @@ function Publish-Apps {
         [PSObject] $settingsJSON,
         [Parameter(Mandatory=$true)]
         [PSObject] $workspaceJSON,
-        [Parameter(Mandatory=$true)]
         [ValidateSet("Dev", "Test", "Production")]
         [string] $targetType,
         [Parameter(Mandatory=$true)]
@@ -206,11 +210,16 @@ function Publish-Apps {
     $sortedApps = (Get-SortedApps -workspaceJSON $workspaceJSON)
     $appList = @()
 
-    if (($targetType -eq 'Production') -and ($publishAsDev -eq $true)) {
-        throw "Publishing as Dev is not supported for Production targets."
+    $targetConfigurations = @($settingsJSON.configurations)
+    if (-not [string]::IsNullOrWhiteSpace($targetType)) {
+        $targetConfigurations = @($targetConfigurations | Where-Object { $_.targetType -eq $targetType })
     }
 
-    foreach ($configuration in $($settingsJSON.configurations | Where-Object  { $_.targetType -eq $targetType })) {
+    foreach ($configuration in $targetConfigurations) {
+        $effectiveTargetType = if ([string]::IsNullOrWhiteSpace($targetType)) { $configuration.targetType } else { $targetType }
+        if (($effectiveTargetType -eq 'Production') -and ($publishAsDev -eq $true)) {
+            throw "Publishing as Dev is not supported for Production targets."
+        }
         Write-Host "Deploying apps to '$($configuration.name)'." -ForegroundColor Blue
         foreach ($App in $sortedApps) {
             Write-Host "Preparing '$($App.Name)' for deployment." -ForegroundColor Blue

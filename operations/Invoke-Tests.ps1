@@ -19,7 +19,8 @@ Initialize-Context `
 $testSettingsJSON = Initialize-TestExecutionContainer `
     -scriptPath $scriptRoot `
     -settingsJSON $settingsJSON `
-    -workspaceJSON $workspaceJSON
+    -workspaceJSON $workspaceJSON `
+    -BuildAppsBeforeDeployment
 
 if ($null -eq $testSettingsJSON) {
     Write-Done
@@ -27,7 +28,6 @@ if ($null -eq $testSettingsJSON) {
 }
 
 Invoke-Tests `
-    -settingsJSON $testSettingsJSON `
-    -targetType "Dev"
+    -settingsJSON $testSettingsJSON
 
 Write-Done
