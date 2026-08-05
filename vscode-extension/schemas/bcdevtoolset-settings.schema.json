@@ -291,6 +291,18 @@
                 ],
                 "description": "Optional DNS value passed to New-BcContainer. Use only with a transparent network. BcContainerHelper recognizes HostDNS; explicit DNS server values are also allowed."
               },
+              "memoryLimit": {
+                "type": "string",
+                "pattern": "^(?:|[1-9][0-9]*[mMgG])$",
+                "patternErrorMessage": "Use a positive whole-number memory size ending in M or G, for example 16384M or 16G.",
+                "description": "Optional Hyper-V/container memory limit passed directly to New-BcContainer, for example 16G. When omitted or empty, BcContainerHelper chooses its default."
+              },
+              "sqlMemoryLimit": {
+                "type": "string",
+                "pattern": "^(?:|[1-9][0-9]*[mMgG]|(?:100|[1-9][0-9]?)%)$",
+                "patternErrorMessage": "Use a positive whole-number size ending in M or G, or a percentage from 1% through 100%; for example 2G or 25%.",
+                "description": "Optional SQL Server memory limit passed directly to New-BcContainer, for example 2G or 25%. When omitted or empty, BcContainerHelper chooses its default."
+              },
               "autoExtractAssemblies": {
                 "type": "boolean",
                 "default": false,
@@ -475,6 +487,16 @@
               "autoRestoreBackup": {
                 "not": {},
                 "errorMessage": "Field \"autoRestoreBackup\" is not valid when \"serverType\" is not \"Container\".",
+                "doNotSuggest": true
+              },
+              "memoryLimit": {
+                "not": {},
+                "errorMessage": "Field \"memoryLimit\" is not valid when \"serverType\" is not \"Container\".",
+                "doNotSuggest": true
+              },
+              "sqlMemoryLimit": {
+                "not": {},
+                "errorMessage": "Field \"sqlMemoryLimit\" is not valid when \"serverType\" is not \"Container\".",
                 "doNotSuggest": true
               }
             }
