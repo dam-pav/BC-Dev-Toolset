@@ -34,6 +34,31 @@ function getBackupEntries(fileNames) {
   }
 }
 
+function assessSystemApplicationUpgrade({ platformVersion, databaseVersion, installedApps, packageApps }) {
+  const script = [
+    `. ${quotePowerShell(backupMgtPath)}`,
+    `$installedApps = ConvertFrom-Json ${quotePowerShell(JSON.stringify(installedApps))}`,
+    `$packageApps = ConvertFrom-Json ${quotePowerShell(JSON.stringify(packageApps))}`,
+    `Get-BcSystemApplicationUpgradeAssessment -platformVersion ${quotePowerShell(platformVersion)} -databaseApplicationVersion ${quotePowerShell(databaseVersion)} -installedApps @($installedApps) -packageApps @($packageApps) | ConvertTo-Json -Depth 5 -Compress`
+  ].join('; ');
+  const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8'
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
+
+const microsoftAppNames = ['System Application', 'Base Application', 'Application'];
+
+function versionedApps(version, includePaths = false) {
+  return microsoftAppNames.map((Name) => ({
+    Name,
+    Version: version,
+    ...(includePaths ? { Path: `C:\\Applications\\${Name}.app` } : {})
+  }));
+}
+
 test('removes a shared container prefix when staging a multitenant backup set', () => {
   const entries = getBackupEntries([
     'OTPtest.CRONUS.app.bak',
@@ -116,4 +141,87 @@ test('uses tenant IDs for service backup filenames while retaining source databa
     { DatabaseName: 'BC Tenant North', FileName: 'north.tenant.bak' },
     { DatabaseName: 'BC Tenant South', FileName: 'south.tenant.bak' }
   ]);
+});
+
+test('accepts a same-major restored database split when container packages match the platform', () => {
+  const assessment = assessSystemApplicationUpgrade({
+    platformVersion: '23.0.31371.0',
+    databaseVersion: '23.0.12831.0',
+    installedApps: versionedApps('23.0.12034.12841'),
+    packageApps: versionedApps('23.5.16502.31399', true)
+  });
+
+  assert.equal(assessment.SplitDetected, true);
+  assert.equal(assessment.Viable, true);
+  assert.equal(assessment.TargetVersion, '23.5.16502.31399');
+  assert.equal(assessment.Apps.length, 3);
+});
+
+test('does not attempt an upgrade when restored system components are already aligned', () => {
+  const assessment = assessSystemApplicationUpgrade({
+    platformVersion: '23.5.16502.31399',
+    databaseVersion: '23.5.16502.31399',
+    installedApps: versionedApps('23.5.16502.31399'),
+    packageApps: versionedApps('23.5.16502.31399', true)
+  });
+
+  assert.equal(assessment.SplitDetected, false);
+  assert.equal(assessment.Viable, false);
+  assert.match(assessment.Reason, /already match/i);
+});
+
+test('rejects downgrade, cross-major, and mismatched-package upgrade assessments', () => {
+  const downgrade = assessSystemApplicationUpgrade({
+    platformVersion: '23.5.16502.31399',
+    databaseVersion: '23.6.0.0',
+    installedApps: versionedApps('23.6.0.0'),
+    packageApps: versionedApps('23.5.16502.31399', true)
+  });
+  assert.equal(downgrade.Viable, false);
+  assert.match(downgrade.Reason, /newer than/i);
+
+  const crossMajor = assessSystemApplicationUpgrade({
+    platformVersion: '24.1.0.0',
+    databaseVersion: '23.5.0.0',
+    installedApps: versionedApps('23.5.0.0'),
+    packageApps: versionedApps('24.1.0.0', true)
+  });
+  assert.equal(crossMajor.Viable, false);
+  assert.match(crossMajor.Reason, /major version/i);
+
+  const mismatchedPackages = versionedApps('23.5.16502.31399', true);
+  mismatchedPackages[1].Version = '23.4.0.0';
+  const mismatch = assessSystemApplicationUpgrade({
+    platformVersion: '23.5.16502.31399',
+    databaseVersion: '23.0.0.0',
+    installedApps: versionedApps('23.0.0.0'),
+    packageApps: mismatchedPackages
+  });
+  assert.equal(mismatch.Viable, false);
+  assert.match(mismatch.Reason, /one matching version/i);
+
+  const platformMismatch = assessSystemApplicationUpgrade({
+    platformVersion: '22.0.0.0',
+    databaseVersion: '23.0.0.0',
+    installedApps: versionedApps('23.0.0.0'),
+    packageApps: versionedApps('23.5.16502.31399', true)
+  });
+  assert.equal(platformMismatch.Viable, false);
+  assert.match(platformMismatch.Reason, /platform major version/i);
+});
+
+test('system application restore upgrade keeps additive sync and dependency order', () => {
+  const source = fs.readFileSync(backupMgtPath, 'utf8');
+  const upgradeFunction = source.match(/function Invoke-BcContainerSystemApplicationUpgradeAfterRestore[\s\S]*?^}/m)?.[0] ?? '';
+  const publishCommand = upgradeFunction.match(/Publish-NAVApp[\s\S]*?\| Out-Null/)?.[0] ?? '';
+
+  assert.match(upgradeFunction, /System Application[\s\S]*Base Application[\s\S]*Application/);
+  assert.match(publishCommand, /-SkipVerification[\s\S]*-Force/);
+  assert.doesNotMatch(publishCommand, /-Confirm/);
+  assert.match(upgradeFunction, /Sync-NAVApp[\s\S]*-Mode Add/);
+  assert.match(upgradeFunction, /Start-NAVAppDataUpgrade/);
+  assert.match(upgradeFunction, /Set-NAVApplication[\s\S]*-Force[\s\S]*-Confirm:\$false[\s\S]*Sync-NAVTenant[\s\S]*-Mode Sync[\s\S]*-Force[\s\S]*-Confirm:\$false[\s\S]*Start-NAVDataUpgrade[\s\S]*-Force[\s\S]*-Confirm:\$false/);
+  assert.match(upgradeFunction, /Get-NAVServerSession[\s\S]*Remove-NAVServerSession[\s\S]*-Force[\s\S]*-Confirm:\$false/);
+  assert.doesNotMatch(upgradeFunction, /ForceSync/);
+  assert.doesNotMatch(upgradeFunction, /Test Toolkit|test libraries/i);
 });

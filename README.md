@@ -231,9 +231,9 @@ Starting a new workspace should be easy.
 
 ## Backup & Restore
 
-Be aware that backup and restore work only within the context of the same BC release. The database defines the version which is limited to running on a specific platform (service). You cannot use this to "upgrade" your data in a meaningful way, say use a configuration from BC22 in BC27.
+Be aware that backup and restore work only within the context of the same BC release. The database defines the version which is limited to running on a specific platform (service). You cannot use this to "upgrade" your data in a meaningful way, say use a configuration from BC22 in BC27. Major version upgrades are off the table. So are any kind of downgrades. On the other hand, minor version upgrades are viable and this toolset tries its best to keep your development environment up to the "Latest" date.
 
-That said; you can maintain data persistence in a couple of ways. One is to use the backup and restore functionality of *BcContainerHelper*. You can backup the current state of your container and restore it later, or share it with other developers. You can retrieve the state of a central test database and use it with your development to find test scenarios more easily or skip tedious configuration.
+You can maintain data persistence in a couple of ways. One is to use the backup and restore functionality of *BcContainerHelper*. You can backup the current state of your container and restore it later, or share it with other developers. You can retrieve the state of a central test database and use it with your development to find test scenarios more easily or skip tedious configuration.
 
 SQL backup operations create and consume a compatible backup set in each Container configuration's *sqlBackupPath*. Different container configurations can use different folders; set the same folder on multiple Container configurations only when sharing the backup set is intentional. When more than one Container configuration has a non-empty *sqlBackupPath*, container backup and restore operations ask which container to use; container backup also offers an option to back up all qualified containers. Missing or stopped containers are reported and skipped.
 
@@ -254,6 +254,8 @@ BC service SQL Server backups use the same role suffixes without adding a contai
 ### Restore
 
 Restore is based on the selected folder's content. It looks for \*.app.bak, \*.tenant.bak, and \*.database.bak files and does not require file names to start with the target container name. For a container-exported multitenant set, the shared source-container prefix is removed when the files are staged under the names expected by *BcContainerHelper*. You can copy a compatible backup set into the target configuration's *sqlBackupPath* and restore it from there.
+
+After a manual restore or a restore performed while creating a container, the tool reports the container platform, database application version, and the installed/package versions of System Application, Base Application, and Application. If the restored database is behind the same-major container platform and all three matching Microsoft packages are available in the container, it automatically publishes, synchronizes with `Mode Add`, and data-upgrades those applications in dependency order. Publication and database-level tenant operations suppress interactive confirmations so the noninteractive operation can run and a retry can replace an app/version left in the catalog by an interrupted attempt; application schema synchronization remains additive and never uses `ForceSync`. The matching package version is the upgrade target because a Business Central service-platform binary build can differ from its application artifact build within the same major release. Before upgrading, the tool forcibly closes active BC sessions. The upgrade stops on the first error, refuses downgrade and cross-major scenarios, and verifies every resulting version.
 
 ## Testing
 
@@ -324,6 +326,8 @@ to remove the files from git. You will need to commit these changes. Beware, thi
           "macAddress": "02:42:ac:11:00:02",
           "IP": "",
           "dns": "HostDNS",
+          "memoryLimit": "16G",
+          "sqlMemoryLimit": "2G",
           "serverConfiguration": [
             {
               "KeyName": "NavHttpClientMaxTimeout",
@@ -410,6 +414,8 @@ Each `configurations` entry can contain:
 - `macAddress`: Optional container MAC address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Use Docker's colon-delimited MAC address format, for example `02:42:ac:11:00:02`.
 - `IP`: Optional static container IP address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Leave empty to let the selected network assign the address, for example through DHCP.
 - `dns`: Optional DNS value passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. `HostDNS` adds the host DNS servers; explicit DNS server values are also allowed. Use a comma-delimited string for multiple DNS servers, for example `8.8.8.8,1.1.1.1`.
+- `memoryLimit`: Optional container memory limit passed directly to `New-BcContainer`. Valid only for `Container`. Use a positive whole-number size ending in `M` or `G`, for example `16G`. When omitted or empty, BcContainerHelper chooses its default (currently `8G` for Hyper-V isolation).
+- `sqlMemoryLimit`: Optional SQL Server memory limit passed directly to `New-BcContainer`. Valid only for `Container`. Use a positive whole-number size ending in `M` or `G`, or a percentage from `1%` through `100%`, for example `2G` or `25%`. When omitted or empty, BcContainerHelper chooses its default.
 - `databaseUser`: Optional SQL authentication user for regular SQL Server backup operations. If empty, Windows authentication is used.
 - `databasePassword`: Optional SQL authentication password for regular SQL Server backup operations.
 - `sqlBackupPath`: Local folder used by SQL backup operations for this configuration. Valid only for `Container`. Container backup and manual restore use the path from the selected Container configuration; new-container initialization uses it only when `autoRestoreBackup` is `true`. BC service SQL Server backups export into the configured Container backup folders.

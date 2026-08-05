@@ -218,6 +218,7 @@ test('automatic backup restore requires a boolean Container configuration flag w
   const containerCreationFunction = source.match(/function New-DockerContainer[\s\S]*?\n}/)?.[0] ?? '';
   assert.match(source, /function Test-AutoRestoreBackup[\s\S]*?return \$configuration\.autoRestoreBackup -eq \$true[\s\S]*?return \$true/);
   assert.match(containerCreationFunction, /\$honorAutoRestoreBackup -and \(Test-AutoRestoreBackup -configuration \$configuration\)[\s\S]*?Get-SqlBackupRootPath[\s\S]*?\$Parameters\.bakFolder/);
+  assert.match(containerCreationFunction, /New-BcContainer @Parameters[\s\S]*?\$Parameters\.ContainsKey\('bakFolder'\)[\s\S]*?Invoke-BcContainerSystemApplicationUpgradeAfterRestore/);
   const createContainerOperation = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
     path.join(repositoryRoot, 'operations', 'NewDockerContainer.ps1'), 'utf8');
   assert.match(createContainerOperation, /New-DockerContainer[\s\S]*?-honorAutoRestoreBackup \$true/);
@@ -227,6 +228,38 @@ test('automatic backup restore requires a boolean Container configuration flag w
   assert.match(testManagement, /if \(-not \(Test-AutoRestoreBackup -configuration \$configuration\)\)[\s\S]*?Skipping automatic SQL backup restore/);
   const manualOperation = fs.readFileSync(path.join(repositoryRoot, 'operations', 'RestoreBcContainerDatabases.ps1'), 'utf8');
   assert.doesNotMatch(manualOperation, /autoRestoreBackup/);
+});
+
+test('container memory limits are validated and passed to New-BcContainer', () => {
+  const schema = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'schemas', 'bcdevtoolset-settings.schema.json'), 'utf8'));
+  const containerRule = schema.definitions.configuration.allOf.find((rule) =>
+    rule.if?.properties?.serverType?.const === 'Container');
+  const nonContainerRule = schema.definitions.configuration.allOf.find((rule) =>
+    rule.if?.not?.properties?.serverType?.const === 'Container' && rule.then?.properties?.memoryLimit);
+
+  assert.ok(containerRule);
+  assert.ok(nonContainerRule);
+  assert.match('16G', new RegExp(containerRule.then.properties.memoryLimit.pattern));
+  assert.match('16384M', new RegExp(containerRule.then.properties.memoryLimit.pattern));
+  assert.doesNotMatch('16', new RegExp(containerRule.then.properties.memoryLimit.pattern));
+  assert.match('2G', new RegExp(containerRule.then.properties.sqlMemoryLimit.pattern));
+  assert.match('25%', new RegExp(containerRule.then.properties.sqlMemoryLimit.pattern));
+  assert.doesNotMatch('101%', new RegExp(containerRule.then.properties.sqlMemoryLimit.pattern));
+  assert.deepEqual(nonContainerRule.then.properties.memoryLimit.not, {});
+  assert.deepEqual(nonContainerRule.then.properties.sqlMemoryLimit.not, {});
+
+  const packageJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'package.json'), 'utf8'));
+  const embeddedConfiguration = packageJson.contributes.configuration.properties['dam-pav.bcdevtoolset']
+    .properties.configurations.items;
+  const embeddedContainerRule = embeddedConfiguration.allOf.find((rule) =>
+    rule.if?.properties?.serverType?.const === 'Container');
+  assert.deepEqual(embeddedContainerRule.then.properties.memoryLimit, containerRule.then.properties.memoryLimit);
+  assert.deepEqual(embeddedContainerRule.then.properties.sqlMemoryLimit, containerRule.then.properties.sqlMemoryLimit);
+
+  const source = fs.readFileSync(workspaceMgtPath, 'utf8');
+  const containerCreationFunction = source.match(/function New-DockerContainer[\s\S]*?\n}/)?.[0] ?? '';
+  assert.match(containerCreationFunction, /'memoryLimit', 'sqlMemoryLimit'/);
+  assert.match(containerCreationFunction, /\$Parameters\[\$parameterName\] = \[string\]\$configuration\.\$parameterName/);
 });
 
 test('container creation supports an optional explicit multitenant mode', () => {
@@ -403,16 +436,18 @@ test('test operations target the selected environment without a targetType group
   assert.doesNotMatch(pageScriptOperation, /-targetType\s+"Dev"/);
 });
 
-test('new local configurations omit optional Docker networking settings', () => {
+test('new local configurations omit optional Docker networking and memory settings', () => {
   const source = fs.readFileSync(workspaceMgtPath, 'utf8');
   const settingsBuilder = source.match(/function Build-Settings[\s\S]*?\n}/)?.[0] ?? '';
-  assert.doesNotMatch(settingsBuilder, /-Name (?:network|hostIP|updateHosts)\b/);
+  assert.doesNotMatch(settingsBuilder, /-Name (?:network|hostIP|updateHosts|memoryLimit|sqlMemoryLimit)\b/);
 
   const schema = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'schemas', 'bcdevtoolset-settings.schema.json'), 'utf8'));
   const defaultConfiguration = schema.properties.configurations.default[0];
   assert.equal(Object.hasOwn(defaultConfiguration, 'network'), false);
   assert.equal(Object.hasOwn(defaultConfiguration, 'hostIP'), false);
   assert.equal(Object.hasOwn(defaultConfiguration, 'updateHosts'), false);
+  assert.equal(Object.hasOwn(defaultConfiguration, 'memoryLimit'), false);
+  assert.equal(Object.hasOwn(defaultConfiguration, 'sqlMemoryLimit'), false);
 
   const containerRule = schema.definitions.configuration.allOf.find((rule) =>
     rule.if?.properties?.serverType?.const === 'Container');
@@ -420,6 +455,10 @@ test('new local configurations omit optional Docker networking settings', () => 
   for (const propertyName of ['network', 'hostIP', 'updateHosts']) {
     assert.ok(containerRule.then.properties[propertyName]);
     assert.equal(JSON.stringify(schema).split(`"${propertyName}"`).length - 1, 1);
+  }
+  for (const propertyName of ['memoryLimit', 'sqlMemoryLimit']) {
+    assert.ok(containerRule.then.properties[propertyName]);
+    assert.equal(JSON.stringify(schema).split(`"${propertyName}"`).length - 1, 2);
   }
 });
 

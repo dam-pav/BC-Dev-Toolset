@@ -117,7 +117,7 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 
 - `Create and export SQL backup set from Docker container`: Creates SQL backup files from a Docker container environment. If more than one Container configuration has a non-empty `sqlBackupPath`, choose one container or back up all qualified containers.
 - `Create and export SQL backup set from BC service SQL Server`: Creates SQL backup files from a Business Central service SQL Server environment. You will require credentials with the ability to create remote Powershell sessions to the SQL Server host.
-- `Restore SQL backup set to Docker container`: Restores a saved SQL backup set into a Docker container. If more than one Container configuration has a non-empty `sqlBackupPath`, choose which container to restore.
+- `Restore SQL backup set to Docker container`: Restores a saved SQL backup set into a Docker container, either through the manual operation or during automatic container initialization. If more than one Container configuration has a non-empty `sqlBackupPath`, choose which container to restore. Afterward, it reports platform/database/Microsoft application versions and, when matching same-major packages make the detected split safe to upgrade, forcibly closes active BC sessions and upgrades System Application, Base Application, and Application in dependency order with non-destructive schema synchronization.
 
 ### Tests
 
@@ -213,6 +213,8 @@ Each workspace `configuration` entry can contain:
 - `macAddress`: Optional container MAC address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Use Docker's colon-delimited MAC address format, for example `02:42:ac:11:00:02`.
 - `IP`: Optional static container IP address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Leave empty to let the selected network assign the address, for example through DHCP.
 - `dns`: Optional DNS value passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. `HostDNS` adds the host DNS servers; explicit DNS server values are also allowed. Use a comma-delimited string for multiple DNS servers, for example `8.8.8.8,1.1.1.1`.
+- `memoryLimit`: Optional container memory limit passed directly to `New-BcContainer`. Valid only for `Container`. Use a positive whole-number size ending in `M` or `G`, for example `16G`. When omitted or empty, BcContainerHelper chooses its default (currently `8G` for Hyper-V isolation).
+- `sqlMemoryLimit`: Optional SQL Server memory limit passed directly to `New-BcContainer`. Valid only for `Container`. Use a positive whole-number size ending in `M` or `G`, or a percentage from `1%` through `100%`, for example `2G` or `25%`. When omitted or empty, BcContainerHelper chooses its default.
 - `databaseUser`: Optional SQL user for database operations.
 - `databasePassword`: Optional SQL password for database operations.
 - `sqlBackupPath`: Folder used for SQL backup files for this configuration. Valid only for `Container`; container backup and manual restore use the path from the selected Container configuration, while new-container initialization uses it only when `autoRestoreBackup` is `true`. BC service SQL Server backups export into the configured Container backup folders.

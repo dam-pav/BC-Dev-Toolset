@@ -2187,7 +2187,7 @@ function New-DockerContainer {
             $Parameters.includeTestToolkit = $true
         }
 
-        foreach ($parameterName in @('network', 'hostIP', 'macAddress', 'IP', 'dns')) {
+        foreach ($parameterName in @('network', 'hostIP', 'macAddress', 'IP', 'dns', 'memoryLimit', 'sqlMemoryLimit')) {
             if ($configuration.PSObject.Properties[$parameterName] -and -not [string]::IsNullOrWhiteSpace($configuration.$parameterName)) {
                 if ($parameterName -eq 'network' -and -not $testmode) {
                     $Parameters[$parameterName] = Ensure-DockerNetwork -network ([string]$configuration.$parameterName)
@@ -2257,6 +2257,11 @@ Import-NAVServerLicense -LicenseFile '$escapedContainerLicenseFile' -ServerInsta
 
         if (-not $testmode) {
             New-BcContainer @Parameters
+
+            if ($Parameters.ContainsKey('bakFolder')) {
+                Write-Host "SQL backup was restored while creating container '$($configuration.container)'. Starting post-restore application version assessment." -ForegroundColor Green
+                Invoke-BcContainerSystemApplicationUpgradeAfterRestore -containerName $configuration.container
+            }
 
             if ($configuration.PSObject.Properties['autoExtractAssemblies'] -and $configuration.autoExtractAssemblies -eq $true) {
                 Invoke-ContainerAssemblyExtraction `
