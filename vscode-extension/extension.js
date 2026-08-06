@@ -1223,12 +1223,17 @@ function getDefaultToolsetPath() {
 }
 
 function getToolsetPath() {
+  const developmentToolsetPath = getDevelopmentToolsetPath();
+  if (developmentToolsetPath) {
+    return authorizeRoot(developmentToolsetPath, 'BC Dev Toolset development path');
+  }
+
   const configuredPath = getConfiguration().get('toolsetPath');
   if (configuredPath && configuredPath.trim()) {
     return authorizeRoot(configuredPath, 'BC Dev Toolset installation path');
   }
 
-  return authorizeRoot(getDevelopmentToolsetPath() || getDefaultToolsetPath(), 'BC Dev Toolset installation path');
+  return authorizeRoot(getDefaultToolsetPath(), 'BC Dev Toolset installation path');
 }
 
 function getDevelopmentToolsetPath() {
@@ -1408,6 +1413,8 @@ function getMcpWorkspaceSettings() {
 }
 
 function getDefaultLocalSettings() {
+  const localConfiguration = getDefaultLocalConfiguration();
+  const testConfiguration = getDefaultLocalTestConfiguration();
   return {
     licenseFile: '',
     certificateFile: '',
@@ -1416,8 +1423,10 @@ function getDefaultLocalSettings() {
     recordingsPath: '',
     pageScriptTestResultsPath: '',
     pageScriptTestHeaded: 'false',
+    executeTestsInContainerName: testConfiguration.container,
     configurations: [
-      getDefaultLocalConfiguration()
+      localConfiguration,
+      testConfiguration
     ]
   };
 }
@@ -1438,6 +1447,16 @@ function getDefaultLocalConfiguration() {
     network: '',
     hostIP: '',
     updateHosts: true
+  };
+}
+
+function getDefaultLocalTestConfiguration() {
+  return {
+    ...getDefaultLocalConfiguration(),
+    name: 'Local-Test',
+    targetType: 'Test',
+    container: `${getWorkspaceName().replace(/ /g, '-')}-Test`,
+    includeTestToolkit: 'true'
   };
 }
 
@@ -1671,8 +1690,10 @@ function ensureDefaultLocalConfiguration(localPath) {
 
   localSettings.configurations = [
     getDefaultLocalConfiguration(),
+    getDefaultLocalTestConfiguration(),
     ...configurations.filter((configuration) => configuration.name === 'sample')
   ];
+  localSettings.executeTestsInContainerName = getDefaultLocalTestConfiguration().container;
   fs.writeFileSync(localPath, `${JSON.stringify(localSettings, null, 2)}\n`, 'utf8');
 }
 

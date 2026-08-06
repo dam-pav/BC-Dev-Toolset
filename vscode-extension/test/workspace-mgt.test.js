@@ -383,13 +383,13 @@ test('local executeTestsInContainerName is supported and takes priority over the
   assert.deepEqual(schema.properties.executeTestsInContainerName, {
     type: 'string',
     default: '',
-    description: 'Optional container name used by Test operations. A non-empty local value takes priority over the shared workspace setting.'
+    description: 'Optional container name used by Test operations. Workspace initialization sets it to the generated Local-Test container name. A non-empty local value takes priority over the shared workspace setting.'
   });
 
   const source = fs.readFileSync(workspaceMgtPath, 'utf8');
   assert.match(source, /\$executeTestsInContainerName = \[string\]\$settingsJSONvalue\.executeTestsInContainerName/);
   assert.match(source, /IsNullOrWhiteSpace\(\$executeTestsInContainerName\)[\s\S]*?workspaceJSON\.value\.settings\."dam-pav\.bcdevtoolset"\.executeTestsInContainerName/);
-  assert.match(source, /Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value ""/);
+  assert.match(source, /Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value \$testContainerName/);
 });
 
 test('test operations allow Container configurations of every target type when the test toolkit is included', () => {
@@ -468,4 +468,14 @@ test('custom settings completion augments macAddress values without duplicating 
   const completionProvider = extensionSource.match(/function provideSettingsCompletionItems[\s\S]*?\n}/)?.[0] ?? '';
   assert.match(completionProvider, /CompletionItemKind\.Value/);
   assert.doesNotMatch(completionProvider, /CompletionItemKind\.Property|configurationFields/);
+});
+
+test('extension development mode uses repository source before a configured installed toolset', () => {
+  const extensionSource = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
+  const getToolsetPath = extensionSource.match(/function getToolsetPath\(\)[\s\S]*?\n}/)?.[0] ?? '';
+
+  assert.match(getToolsetPath, /const developmentToolsetPath = getDevelopmentToolsetPath\(\)/);
+  assert.ok(getToolsetPath.indexOf('if (developmentToolsetPath)') < getToolsetPath.indexOf("getConfiguration().get('toolsetPath')"));
+  assert.match(getToolsetPath, /return authorizeRoot\(developmentToolsetPath, 'BC Dev Toolset development path'\)/);
 });

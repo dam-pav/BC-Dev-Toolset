@@ -155,6 +155,8 @@ if ($null -eq $workspaceFile) {
     $workspaceName = [System.IO.Path]::GetFileNameWithoutExtension($workspaceFile.Name)
 }
 
+$workspaceConfigurationRoot = if ($null -ne $workspaceFile) { $workspaceFile.DirectoryName } else { $workspaceRoot }
+
 $workspaceJson = Get-Content -LiteralPath $workspaceFile.FullName -Raw | ConvertFrom-Json
 if (-not $workspaceJson.PSObject.Properties['settings']) {
     $workspaceJson | Add-Member -MemberType NoteProperty -Name settings -Value ([PSCustomObject]@{})
@@ -182,9 +184,16 @@ if ($null -ne $toolsetSettings) {
 }
 $workspaceJson | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $workspaceFile.FullName
 
-$settingsPath = Join-Path $workspaceRoot '.bcdevtoolset' 'settings.json'
-Build-Settings -settingsPath $settingsPath -workspaceName $workspaceName
-Add-BcDevToolsetGitIgnore -RootPath $workspaceRoot
+$settingsPath = if ([string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_LOCAL_SETTINGS_PATH)) {
+    Join-Path $workspaceConfigurationRoot '.bcdevtoolset' 'settings.json'
+} elseif ([System.IO.Path]::IsPathRooted($env:BCDEVTOOLSET_LOCAL_SETTINGS_PATH)) {
+    # The extension validates and explicitly authorizes its configured local settings path.
+    [System.IO.Path]::GetFullPath($env:BCDEVTOOLSET_LOCAL_SETTINGS_PATH)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $workspaceConfigurationRoot $env:BCDEVTOOLSET_LOCAL_SETTINGS_PATH))
+}
+Build-Settings -settingsPath $settingsPath -workspaceName $workspaceName -ReconcileWorkspaceDefaults
+Add-BcDevToolsetGitIgnore -RootPath $workspaceConfigurationRoot
 
 Write-Host "BC Dev Toolset workspace configuration is ready: $($workspaceFile.FullName)" -ForegroundColor Green
 Write-Done

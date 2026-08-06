@@ -55,7 +55,7 @@
     "executeTestsInContainerName": {
       "type": "string",
       "default": "",
-      "description": "Optional container name used by Test operations. A non-empty local value takes priority over the shared workspace setting."
+      "description": "Optional container name used by Test operations. Workspace initialization sets it to the generated Local-Test container name. A non-empty local value takes priority over the shared workspace setting."
     },
     "sqlBackupPath": {
       "not": {},
@@ -72,6 +72,20 @@
           "container": "",
           "environmentType": "Sandbox",
           "includeTestToolkit": "false",
+          "authentication": "UserPassword",
+          "bcUser": "admin",
+          "bcPassword": "P@ssw0rd",
+          "sqlBackupPath": "",
+          "autoRestoreBackup": true,
+          "autoExtractAssemblies": false
+        },
+        {
+          "name": "Local-Test",
+          "serverType": "Container",
+          "targetType": "Test",
+          "container": "",
+          "environmentType": "Sandbox",
+          "includeTestToolkit": "true",
           "authentication": "UserPassword",
           "bcUser": "admin",
           "bcPassword": "P@ssw0rd",

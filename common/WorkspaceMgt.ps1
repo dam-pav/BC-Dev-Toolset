@@ -1193,12 +1193,49 @@ function Format-Json([Parameter(Mandatory, ValueFromPipeline)][String] $json) {
     }) -Join "`n"
 }
 
+function New-DefaultLocalConfiguration {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $containerName
+    )
+
+    return [PSCustomObject][ordered]@{
+        name = "Local"
+        serverType = "Container"
+        targetType = "Dev"
+        container = $containerName
+        environmentType = "Sandbox"
+        includeTestToolkit = "false"
+        authentication = "UserPassword"
+        bcUser = "admin"
+        bcPassword = "P@ssw0rd"
+        sqlBackupPath = ""
+        autoRestoreBackup = $true
+        autoExtractAssemblies = $false
+    }
+}
+
+function New-DefaultLocalTestConfiguration {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $containerName
+    )
+
+    $configuration = New-DefaultLocalConfiguration -containerName $containerName
+    $configuration.name = "Local-Test"
+    $configuration.targetType = "Test"
+    $configuration.includeTestToolkit = "true"
+    return $configuration
+}
+
 function Build-Settings {
     Param (
         [Parameter(Mandatory=$true)]
         [string] $settingsPath,
         [Parameter(Mandatory=$true)]
-        [string] $workspaceName
+        [string] $workspaceName,
+        [Parameter(Mandatory=$false)]
+        [switch] $ReconcileWorkspaceDefaults
     )
 
     # Check if settings.json file exists
@@ -1221,29 +1258,71 @@ function Build-Settings {
         $defaultSettings | Add-Member -MemberType NoteProperty -Name recordingsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestResultsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestHeaded -Value "false"
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value ""
+        $defaultContainerName = $workspaceName.Replace(' ','-')
+        $testContainerName = "$defaultContainerName-Test"
+        $defaultSettings | Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value $testContainerName
         $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
 
         # add container configuration
-        $remoteConfiguration = [PSCustomObject]@{}
-        #$remoteConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "$workspaceName Default"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name name -Value "Local"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name serverType -Value "Container"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name targetType -Value "Dev"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name container -Value $workspaceName.Replace(' ','-')
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name includeTestToolkit -Value "false"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name authentication -Value "UserPassword"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name bcUser -Value "admin"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name bcPassword -Value "P@ssw0rd"
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value ""
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name autoRestoreBackup -Value $true
-        $remoteConfiguration | Add-Member -MemberType NoteProperty -Name autoExtractAssemblies -Value $false
+        $remoteConfiguration = New-DefaultLocalConfiguration -containerName $defaultContainerName
         $defaultSettings.configurations += $remoteConfiguration
+
+        # add test container configuration
+        $testConfiguration = New-DefaultLocalTestConfiguration -containerName $testContainerName
+        $defaultSettings.configurations += $testConfiguration
 
         $defaultSettings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
         Write-Host "$settingsPath created." -ForegroundColor Green
+    } elseif ($ReconcileWorkspaceDefaults) {
+        $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+        $configurations = if ($null -eq $settings.configurations) { @() } else { @($settings.configurations) }
+        $settingsChanged = $false
+        $defaultContainerName = $workspaceName.Replace(' ','-')
+        $existingLocalConfiguration = @($configurations | Where-Object { $_.name -eq "Local" }) | Select-Object -First 1
+
+        if ($null -ne $existingLocalConfiguration) {
+            Write-Host "Workspace local settings already contain Local; existing values were preserved." -ForegroundColor Gray
+        } else {
+            $localContainerConflict = @($configurations | Where-Object {
+                $_.serverType -eq "Container" -and $_.container -eq $defaultContainerName
+            }) | Select-Object -First 1
+            if ($null -ne $localContainerConflict) {
+                Write-Host "Local was not added because container '$defaultContainerName' is already used by configuration '$($localContainerConflict.name)'." -ForegroundColor Yellow
+            } else {
+                $configurations = @($configurations) + @(New-DefaultLocalConfiguration -containerName $defaultContainerName)
+                $settingsChanged = $true
+                Write-Host "Added Local configuration for '$defaultContainerName'." -ForegroundColor Green
+            }
         }
+
+        $existingTestConfiguration = @($configurations | Where-Object { $_.name -eq "Local-Test" }) | Select-Object -First 1
+        if ($null -ne $existingTestConfiguration) {
+            Write-Host "Workspace local settings already contain Local-Test; existing values were preserved." -ForegroundColor Gray
+        } else {
+            $testContainerName = "$defaultContainerName-Test"
+            $testContainerConflict = @($configurations | Where-Object {
+                $_.serverType -eq "Container" -and $_.container -eq $testContainerName
+            }) | Select-Object -First 1
+            if ($null -ne $testContainerConflict) {
+                Write-Host "Local-Test was not added because container '$testContainerName' is already used by configuration '$($testContainerConflict.name)'." -ForegroundColor Yellow
+            } else {
+                $configurations = @($configurations) + @(New-DefaultLocalTestConfiguration -containerName $testContainerName)
+                $settingsChanged = $true
+                Write-Host "Added Local-Test configuration for '$testContainerName'." -ForegroundColor Green
+
+                $configuredTestContainer = [string]$settings.executeTestsInContainerName
+                if ([string]::IsNullOrWhiteSpace($configuredTestContainer)) {
+                    $settings | Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value $testContainerName -Force
+                    Write-Host "Selected '$testContainerName' as the test execution container." -ForegroundColor Green
+                }
+            }
+        }
+
+        if ($settingsChanged) {
+            $settings | Add-Member -MemberType NoteProperty -Name configurations -Value @($configurations) -Force
+            $settings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
+        }
+    }
 }
 function Select-IndexFromList {
     Param (
