@@ -407,10 +407,19 @@ function Initialize-TestExecutionContainer {
 function Invoke-Tests {
     Param (
         [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
         [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $workspaceJSON,
         [ValidateSet("Dev", "Test", "Production")]
         [string] $targetType
     )
+
+    $workspaceApps = @(Get-SortedApps -workspaceJSON $workspaceJSON)
+    if ($workspaceApps.Count -eq 0) {
+        throw "No workspace apps were found for AL test discovery."
+    }
 
     $targetConfigurations = @($settingsJSON.configurations)
     if (-not [string]::IsNullOrWhiteSpace($targetType)) {
@@ -426,21 +435,37 @@ function Invoke-Tests {
                 }
 
                 $bcCredentials = Get-BcConfigurationCredentialValues -configuration $configuration
-                $params = @{
-                    containerName = $configuration.container
-                    credential = (New-Object System.Management.Automation.PSCredential ($bcCredentials.User, (ConvertTo-SecureString -String $bcCredentials.Password -AsPlainText -Force)))
-                    detailed = $true
-                }
-                # if $configuration.testSuite has a value, add it to the parameters
-                if ($configuration.testSuite -and $configuration.testSuite -ne "") {
-                    $params.testSuite = $configuration.testSuite
-                }                    
+                $credential = New-Object System.Management.Automation.PSCredential (
+                    $bcCredentials.User,
+                    (ConvertTo-SecureString -String $bcCredentials.Password -AsPlainText -Force)
+                )
+                $installedApps = @(Get-BcContainerAppInfo `
+                    -containerName $configuration.container `
+                    -installedOnly)
 
-                Write-Host ""
-                Write-Host "Running " -ForegroundColor green -NoNewline
-                Write-Host "Run-TestsInBcContainer" -ForegroundColor Blue -NoNewline
-                Write-Host ":" -ForegroundColor green
-                Run-TestsInBcContainer -ErrorAction SilentlyContinue @params
+                foreach ($workspaceApp in $workspaceApps) {
+                    $installedApp = @($installedApps | Where-Object {
+                        [string]$_.AppId -eq [string]$workspaceApp.AppId
+                    } | Select-Object -First 1)
+                    if ($installedApp.Count -eq 0) {
+                        throw "Workspace app '$($workspaceApp.Name)' ($($workspaceApp.AppId)) is not installed in container '$($configuration.container)'; tests cannot be discovered."
+                    }
+
+                    $params = @{
+                        containerName = $configuration.container
+                        credential = $credential
+                        extensionId = [string]$workspaceApp.AppId
+                        appName = [string]$installedApp[0].Name
+                        detailed = $true
+                    }
+
+                    Write-Host ""
+                    Write-Host "Discovering and running tests in '$($workspaceApp.Name)' ($($workspaceApp.AppId))." -ForegroundColor Green
+                    Write-Host "Running " -ForegroundColor Green -NoNewline
+                    Write-Host "Run-TestsInBcContainer" -ForegroundColor Blue -NoNewline
+                    Write-Host " with extension-scoped test discovery:" -ForegroundColor Green
+                    Run-TestsInBcContainer -ErrorAction SilentlyContinue @params
+                }
             }
             Default {
                 Write-Host "Cannot run tests on serverType $serverType." -ForegroundColor Blue

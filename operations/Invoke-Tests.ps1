@@ -28,6 +28,8 @@ if ($null -eq $testSettingsJSON) {
 }
 
 Invoke-Tests `
-    -settingsJSON $testSettingsJSON
+    -scriptPath $scriptRoot `
+    -settingsJSON $testSettingsJSON `
+    -workspaceJSON $workspaceJSON
 
 Write-Done
