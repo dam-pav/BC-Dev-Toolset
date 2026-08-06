@@ -427,9 +427,9 @@ Each `configurations` entry can contain:
 
 VS Code settings have user, workspace, and folder scopes, but BC Dev Toolset operates at a project-local developer-specific scope. That is why the toolset keeps a separate `.bcdevtoolset/settings.json` file for values that should stay local to the workstation.
 
-> **Note:** If you place more than one `.code-workspace` file in the same folder, these workspaces will all share the same `.bcdevtoolset/settings.json` setup.
+> **Note:** If you place more than one `.code-workspace` file in the same folder, these workspaces will all share the same `.bcdevtoolset/settings.json` setup. This only makes sense if you keep separate workspace definitions for what is essentially the same project.
 
-If not found, a `settings.json` file will be created for you when any of the scripts is first run, with default values.
+If not found, a `settings.json` file will be created for you when any of the scripts is first run, with default values. Workspace initialization creates a `Local` development container configuration and a `Local-Test` test container configuration, then sets `executeTestsInContainerName` to the generated test container name. Re-running initialization adds either default configuration when it is missing without replacing existing configurations or an explicit test target; conflicting container names are reported and left unchanged.
 
 These settings are stored in `.bcdevtoolset/settings.json`:
 

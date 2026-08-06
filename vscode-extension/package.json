@@ -168,7 +168,7 @@
             "executeTestsInContainerName": {
               "type": "string",
               "default": "",
-              "description": "Optional container name used by Test operations. If empty and only one Dev container configuration exists, tests run there without backup restore or app deployment. Otherwise Test operations ask which Dev container to use when needed. If the selected container is missing, it is created and an initial SQL backup set is exported before tests continue."
+              "description": "Optional container name used by Test operations. New workspaces set this to their default Local-Test container. If empty and only one eligible container configuration exists, tests run there without backup restore or app deployment. Otherwise Test operations ask which eligible container to use when needed. If the selected container is missing, it is created and an initial SQL backup set is exported before tests continue."
             },
             "sqlBackupPath": {
               "not": {},
