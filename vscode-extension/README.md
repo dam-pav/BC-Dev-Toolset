@@ -121,7 +121,7 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 
 ### Tests
 
-- `Run AL test tool tests`: Builds all workspace apps in dependency order before deployment, then runs Business Central AL test tool tests.
+- `Run AL test tool tests`: Builds all workspace apps in dependency order before deployment, then runs tests once per workspace extension. Business Central discovers codeunits whose `SubType` is `Test` by extension ID, so test suite registration in an `OnInstall` procedure is not required.
 - `Run page script tests`: Runs page script test recordings and writes the results to the configured output location.
 
 ### Publish

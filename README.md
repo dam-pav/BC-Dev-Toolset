@@ -261,7 +261,7 @@ After a manual restore or a restore performed while creating a container, the to
 
 The Tests group contains two operations:
 
-- *Run AL test tool tests* builds all workspace apps in dependency order before deploying them, then runs Business Central AL test tool tests with *Run-TestsInBcContainer*.
+- *Run AL test tool tests* builds all workspace apps in dependency order before deploying them, then invokes *Run-TestsInBcContainer* once per workspace app using its extension ID. Business Central discovers every codeunit in that extension whose `SubType` is `Test`; test suite registration from an `OnInstall` procedure is not required.
 - *Run page script tests* runs page scripting recordings from *recordingsPath* and writes results to *pageScriptTestResultsPath*.
 
 Both operations run in a Docker container selected from configurations whose *serverType* is `Container`, whose *includeTestToolkit* value is `true`, and whose *container* value is not empty. The configuration's *targetType* can be `Dev`, `Test`, or `Production`; it does not affect eligibility. If only one eligible Container configuration exists and *executeTestsInContainerName* is empty, tests run in that container as-is: no backup restore and no app deployment are performed.
@@ -270,7 +270,7 @@ If *executeTestsInContainerName* is set, or if multiple eligible Container confi
 
 When a selected container does not exist, the operation creates it from the selected configuration and immediately exports an initial SQL backup set to that configuration's *sqlBackupPath*. Because that backup was just created from the new container, restore is skipped for that run.
 
-When preparation is required for an existing selected container, the operation restores the SQL backup set from *sqlBackupPath* if compatible backup files exist, publishes dependency apps, publishes all workspace apps including test apps, and then executes the tests.
+When preparation is required for an existing selected container, the operation restores the SQL backup set from *sqlBackupPath* if compatible backup files exist, publishes dependency apps, publishes all workspace apps including test apps, and then discovers and executes tests separately for each installed workspace extension. Apps without test codeunits are allowed; a workspace app that is not installed causes the operation to stop instead of silently omitting its tests.
 
 Page script tests additionally require Node.js 24 or newer and the *@microsoft/bc-replay* command-line tool. The test operation verifies these prerequisites and exits cleanly if they are missing. Run the *Install prerequisites* operation to install or update them.
 

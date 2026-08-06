@@ -422,6 +422,21 @@ test('AL test runs build every workspace app before deployment', () => {
   assert.match(buildOperation, /\[switch\] \$SkipOperationUI/);
 });
 
+test('AL test runs discover tests by workspace extension id without suite registration', () => {
+  const testManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'common', 'TestMgt.ps1'), 'utf8');
+  const invokeTestsOperation = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'operations', 'Invoke-Tests.ps1'), 'utf8');
+  const invokeTests = testManagement.match(/function Invoke-Tests[\s\S]*?\n}/)?.[0] ?? '';
+
+  assert.match(invokeTestsOperation, /Invoke-Tests[\s\S]*?-scriptPath \$scriptRoot[\s\S]*?-workspaceJSON \$workspaceJSON/);
+  assert.match(invokeTests, /Get-SortedApps -workspaceJSON \$workspaceJSON/);
+  assert.match(invokeTests, /Get-BcContainerAppInfo[\s\S]*?-containerName \$configuration\.container[\s\S]*?-installedOnly/);
+  assert.match(invokeTests, /extensionId = \[string\]\$workspaceApp\.AppId/);
+  assert.match(invokeTests, /Run-TestsInBcContainer[\s\S]*?@params/);
+  assert.doesNotMatch(invokeTests, /\.testSuite|params\.testSuite/);
+});
+
 test('test operations target the selected environment without a targetType group filter', () => {
   const testManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
     path.join(repositoryRoot, 'common', 'TestMgt.ps1'), 'utf8');
