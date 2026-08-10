@@ -261,7 +261,7 @@ After a manual restore or a restore performed while creating a container, the to
 
 The Tests group contains two operations:
 
-- *Run AL test tool tests* builds all workspace apps in dependency order before deploying them, then invokes *Run-TestsInBcContainer* once per workspace app using its extension ID. Business Central discovers every codeunit in that extension whose `SubType` is `Test`; test suite registration from an `OnInstall` procedure is not required.
+- *Run AL test tool tests* builds all workspace apps in dependency order before preparing the test container, so a failed build stops the operation before backup restore or deployment. It then invokes *Run-TestsInBcContainer* once per workspace app using its extension ID. Business Central discovers every codeunit in that extension whose `SubType` is `Test`; test suite registration from an `OnInstall` procedure is not required.
 - *Run page script tests* runs page scripting recordings from *recordingsPath* and writes results to *pageScriptTestResultsPath*.
 
 Both operations run in a Docker container selected from configurations whose *serverType* is `Container`, whose *includeTestToolkit* value is `true`, and whose *container* value is not empty. The configuration's *targetType* can be `Dev`, `Test`, or `Production`; it does not affect eligibility. If only one eligible Container configuration exists and *executeTestsInContainerName* is empty, tests run in that container as-is: no backup restore and no app deployment are performed.
