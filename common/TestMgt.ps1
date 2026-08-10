@@ -353,6 +353,12 @@ function Initialize-TestExecutionContainer {
         return $null
     }
 
+    if ($BuildAppsBeforeDeployment) {
+        Write-Host ""
+        Write-Host "Building all workspace apps before preparing the test container." -ForegroundColor Green
+        & (Join-Path $scriptPath 'operations/BuildAllApps.ps1') -SkipOperationUI
+    }
+
     $testSettings = New-TestExecutionSettings `
         -settingsJSON $settingsJSON `
         -configuration $configuration
@@ -380,12 +386,6 @@ function Initialize-TestExecutionContainer {
         Restore-TestContainerBackupIfExists `
             -scriptPath $scriptPath `
             -configuration $configuration
-    }
-
-    if ($BuildAppsBeforeDeployment) {
-        Write-Host ""
-        Write-Host "Building all workspace apps before deployment." -ForegroundColor Green
-        & (Join-Path $scriptPath 'operations/BuildAllApps.ps1') -SkipOperationUI
     }
 
     Write-Host ""
