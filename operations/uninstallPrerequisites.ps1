@@ -52,7 +52,7 @@ function Confirm-Uninstall {
     }
 
     do {
-        $answer = Read-Host -Prompt "Uninstall $Component? [y/N]"
+        $answer = Read-Host -Prompt "Uninstall ${Component}? [y/N]"
         if ([string]::IsNullOrWhiteSpace($answer)) {
             return $false
         }
