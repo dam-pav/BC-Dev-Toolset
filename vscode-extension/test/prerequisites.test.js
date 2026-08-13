@@ -42,7 +42,7 @@ test('uninstall prerequisites asks separately and defaults to keeping every comp
     'Git',
     'BcContainerHelper'
   ]) {
-    assert.match(source, new RegExp(`Confirm-Uninstall -Component "${component.replace('.', '\\.')}"`));
+    assert.ok(source.includes(`Confirm-Uninstall -Component "${component}"`));
   }
   assert.match(source, /Confirm-Uninstall -Component "Windows feature '\$\(\$feature\.Name\)'"/);
   assert.match(source, /Docker Desktop is not removed/);
