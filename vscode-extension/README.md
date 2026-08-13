@@ -149,7 +149,8 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 ### Prerequisites
 
 - `Show BcContainerHelper versions (installed and available)`: Shows the installed and available BcContainerHelper versions.
-- `Install/Update Prerequisites`: Installs and updates the main prerequisites used by the toolset, including BcContainerHelper, Node.js, and @microsoft/bc-replay.
+- `Install/Update Prerequisites`: Installs and updates the main prerequisites used by the toolset, including BcContainerHelper, Node.js, and @microsoft/bc-replay. If required Windows container features cannot be enabled, later installation steps are skipped and the operation offers to open the guarded uninstall flow.
+- `Uninstall Prerequisites`: Detects Docker Engine, BC Replay, Node.js, Git, BcContainerHelper, and Windows container features, then asks separately before removing each component. Every prompt defaults to keeping the component installed.
 - `Install/Update Microsoft PowerShell`: Updates the Windows PowerShell installation used for the toolkit setup flow.
 
 ### MCP Configuration

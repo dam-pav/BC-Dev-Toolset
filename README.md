@@ -69,8 +69,8 @@ The Codex MCP server uses the VS Code terminal bridge belonging to the current w
 
 ## Prerequisites
 
-1. A **Windows Pro** or **Windows Enterprise** edition.
-   Docker requires Hyper-V and a feature named Containers to work on Windows. Windows Home does not provide these features. Make sure your BIOS has virtualization enabled. The Hyper-V feature might appear to be enabled, but won't work without proper HW support.
+1. A **Windows Pro**, **Windows Enterprise**, or supported **Windows Server** edition capable of running Windows containers.
+   Docker requires Hyper-V and a feature named Containers to work on Windows. Windows Home does not provide these features. On Windows Server, the prerequisites operation manages the `Hyper-V` server role and `Containers` feature through Server Manager; on Windows clients it manages the corresponding optional features. Make sure BIOS or nested virtualization support is enabled. Hyper-V can appear available but still fail without the required hardware support.
 
    If you don't have access to any of the above, you won't be able to develop for BC using Docker. You might still find scripts that are not related to Docker useful, for instance, if you only use "regular" environments without containers.
 
@@ -89,6 +89,9 @@ The Codex MCP server uses the VS Code terminal bridge belonging to the current w
    > - configures the required Windows features
    > - installs git
    > - installs BcContainerHelper
+   > - stops before installing later components if the required Windows container features cannot be enabled, and offers an optional guarded cleanup flow
+   >
+   > The companion ***BC Dev Toolset: Uninstall prerequisites*** operation detects each prerequisite and asks separately before removing it. Pressing Enter keeps the component installed.
    >
    > If Docker Desktop is already present, the operation reports it and skips the Docker Engine installation, PATH, and service setup steps.
    >

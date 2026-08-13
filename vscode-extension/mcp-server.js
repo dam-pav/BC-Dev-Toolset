@@ -753,7 +753,7 @@ function getOperationTimeoutDescription(operation) {
     return 'Maximum runtime in seconds. Container creation can download artifacts and run for a long time; values below 7200 are raised to 7200.';
   }
 
-  if (operation.id === 'initPrerequisites' || operation.id === 'updatePowerShell') {
+  if (operation.id === 'initPrerequisites' || operation.id === 'uninstallPrerequisites' || operation.id === 'updatePowerShell') {
     return 'Maximum runtime in seconds. This operation can run for a long time; values below 3600 are raised to 3600.';
   }
 
@@ -1150,6 +1150,7 @@ function getMinimumTerminalTimeoutSeconds(operationId) {
     case 'newDockerContainer':
       return 7200;
     case 'initPrerequisites':
+    case 'uninstallPrerequisites':
     case 'updatePowerShell':
       return 3600;
     default:

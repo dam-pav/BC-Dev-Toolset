@@ -585,6 +585,7 @@ else {
 # ============================================================================
 # 2. ENABLE WINDOWS FEATURES
 # ============================================================================
+$windowsFeaturesReady = $true
 if (-not $SkipWindowsFeatures) {
     Write-Header "2. Enabling Windows Features"
 
@@ -713,12 +714,32 @@ if (-not $SkipWindowsFeatures) {
         Write-Warning "You may need to restart your computer for changes to take effect"
     }
     catch {
+        $windowsFeaturesReady = $false
         $installationFailures.Add("Windows feature enablement")
         Write-Error "Failed to enable Windows features: $_"
     }
 }
 else {
     Write-Host "Skipping Windows Features (--SkipWindowsFeatures flag set)"
+}
+
+if (-not $windowsFeaturesReady) {
+    Write-Error "Required Windows container features could not be enabled. Remaining prerequisite installation steps will be skipped."
+    Write-Warning "Any prerequisites from an earlier run remain installed unless you choose the guarded cleanup flow."
+
+    $cleanupAnswer = Read-Host -Prompt "Open the Uninstall prerequisites flow now? [y/N]"
+    if ($cleanupAnswer -match '^(?i:y|yes)$') {
+        $uninstallScript = Join-Path $PSScriptRoot "uninstallPrerequisites.ps1"
+        if (Test-Path -LiteralPath $uninstallScript -PathType Leaf) {
+            & $uninstallScript -DockerPath $DockerPath -NoPause
+        }
+        else {
+            Write-Error "Uninstall prerequisites script was not found at '$uninstallScript'."
+        }
+    }
+
+    Read-Host -Prompt 'Press Enter to close this window and finish the script' | Out-Null
+    exit 1
 }
 
 # ============================================================================
