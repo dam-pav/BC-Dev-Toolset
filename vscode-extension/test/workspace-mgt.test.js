@@ -496,3 +496,21 @@ test('extension development mode uses repository source before a configured inst
   assert.ok(getToolsetPath.indexOf('if (developmentToolsetPath)') < getToolsetPath.indexOf("getConfiguration().get('toolsetPath')"));
   assert.match(getToolsetPath, /return authorizeRoot\(developmentToolsetPath, 'BC Dev Toolset development path'\)/);
 });
+
+test('runtime synchronization state includes an explicit content revision', () => {
+  const extensionSource = fs.readFileSync(
+    path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
+
+  assert.match(extensionSource, /const runtimeToolsetRevision = \d+;/);
+  assert.match(extensionSource, /`\$\{extensionVersion\}\.\$\{runtimeToolsetRevision\}\|\$\{getToolsetPath\(\)\}`/);
+});
+
+test('prerequisites distinguish Windows Server roles from client optional features', () => {
+  const prerequisitesSource = fs.readFileSync(
+    path.join(repositoryRoot, 'operations', 'initPrerequisites.ps1'), 'utf8');
+
+  assert.match(prerequisitesSource, /ProductType -in @\(2, 3\)/);
+  assert.match(prerequisitesSource, /Enable-ServerFeatureNonInteractive -FeatureName \$feature/);
+  assert.match(prerequisitesSource, /foreach \(\$feature in @\("Containers", "Hyper-V"\)\)/);
+  assert.match(prerequisitesSource, /foreach \(\$feature in @\("Containers", "Microsoft-Hyper-V-All"\)\)/);
+});

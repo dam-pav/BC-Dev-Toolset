@@ -34,6 +34,8 @@ const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
 const mcpServerDefinitionRevision = 7;
+// Increment when bundled runtime content changes without an extension version bump.
+const runtimeToolsetRevision = 2;
 
 const directOperationIds = [
   'invokeTests',
@@ -1751,7 +1753,7 @@ function getOperationTerminal(powershellExecutable) {
 
 function getRuntimeSyncStateKey(context) {
   const extensionVersion = context.extension.packageJSON.version || 'unknown';
-  return `${extensionVersion}|${getToolsetPath()}`;
+  return `${extensionVersion}.${runtimeToolsetRevision}|${getToolsetPath()}`;
 }
 
 async function syncRuntimeToolsetAfterExtensionUpdate(context) {
