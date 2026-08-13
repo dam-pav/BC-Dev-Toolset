@@ -587,6 +587,55 @@ else {
 # ============================================================================
 if (-not $SkipWindowsFeatures) {
     Write-Header "2. Enabling Windows Features"
+
+    function Test-IsWindowsServer {
+        $operatingSystem = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+        $installationType = [string](Get-ItemPropertyValue `
+            -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion" `
+            -Name "InstallationType" `
+            -ErrorAction SilentlyContinue)
+        $isServer = [int]$operatingSystem.ProductType -in @(2, 3) -or
+            [string]$operatingSystem.Caption -match "Windows Server" -or
+            $installationType -match "Server"
+
+        $platformDescription = if ($isServer) { "Windows Server" } else { "Windows client" }
+        Write-Host "Detected ${platformDescription}: $($operatingSystem.Caption) (ProductType $($operatingSystem.ProductType), InstallationType '$installationType')"
+        return $isServer
+    }
+
+    function Enable-ServerFeatureNonInteractive {
+        param([string]$FeatureName)
+
+        $getWindowsFeatureCommand = Get-Command Get-WindowsFeature -ErrorAction SilentlyContinue
+        $installWindowsFeatureCommand = Get-Command Install-WindowsFeature -ErrorAction SilentlyContinue
+        if (-not $getWindowsFeatureCommand -or -not $installWindowsFeatureCommand) {
+            throw "Windows Server feature management cmdlets are unavailable. Install or enable the ServerManager PowerShell module."
+        }
+
+        $feature = Get-WindowsFeature -Name $FeatureName -ErrorAction Stop
+        if (-not $feature) {
+            throw "Windows Server feature '$FeatureName' is not available on this operating system."
+        }
+
+        if ($feature.InstallState -eq "Installed") {
+            Write-Success "Feature '$FeatureName' is already enabled"
+            return
+        }
+
+        Write-Host "Enabling Windows Server feature: $FeatureName..."
+        Write-Host "This may take several minutes. Please wait."
+        $featureResult = Install-WindowsFeature -Name $FeatureName -IncludeAllSubFeature -IncludeManagementTools -ErrorAction Stop
+        if (-not $featureResult.Success) {
+            throw "Windows Server feature '$FeatureName' did not install successfully. Exit code: $($featureResult.ExitCode)"
+        }
+
+        if ($featureResult.RestartNeeded -eq "Yes") {
+            Write-Warning "Feature '$FeatureName' enabled; a system restart is required"
+        }
+        else {
+            Write-Success "Feature '$FeatureName' enabled"
+        }
+    }
     
     function Enable-FeatureNonInteractive {
         param(
@@ -645,14 +694,19 @@ if (-not $SkipWindowsFeatures) {
     }
 
     try {
-        $features = @("Containers", "Microsoft-Hyper-V-All")
-
-        foreach ($feature in $features) {
-            if (Test-WindowsFeatureEnabled -FeatureName $feature) {
-                Write-Success "Feature '$feature' is already enabled"
+        if (Test-IsWindowsServer) {
+            foreach ($feature in @("Containers", "Hyper-V")) {
+                Enable-ServerFeatureNonInteractive -FeatureName $feature
             }
-            else {
-                Enable-FeatureNonInteractive -FeatureName $feature | Out-Null
+        }
+        else {
+            foreach ($feature in @("Containers", "Microsoft-Hyper-V-All")) {
+                if (Test-WindowsFeatureEnabled -FeatureName $feature) {
+                    Write-Success "Feature '$feature' is already enabled"
+                }
+                else {
+                    Enable-FeatureNonInteractive -FeatureName $feature | Out-Null
+                }
             }
         }
 
