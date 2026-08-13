@@ -498,7 +498,7 @@ test('extension development mode uses repository source before a configured inst
 });
 
 test('runtime synchronization state includes an explicit content revision', () => {
-  const extensionSource = fs.readFileSync(
+  const extensionSource = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
     path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
 
   assert.match(extensionSource, /const runtimeToolsetRevision = \d+;/);
@@ -506,7 +506,7 @@ test('runtime synchronization state includes an explicit content revision', () =
 });
 
 test('prerequisites distinguish Windows Server roles from client optional features', () => {
-  const prerequisitesSource = fs.readFileSync(
+  const prerequisitesSource = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
     path.join(repositoryRoot, 'operations', 'initPrerequisites.ps1'), 'utf8');
 
   assert.match(prerequisitesSource, /ProductType -in @\(2, 3\)/);
