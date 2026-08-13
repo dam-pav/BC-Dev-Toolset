@@ -33,7 +33,8 @@ test('failed Windows container feature setup stops later prerequisite installati
 test('uninstall prerequisites asks separately and defaults to keeping every component', () => {
   const source = fs.readFileSync(uninstallScriptPath, 'utf8'); // nosemgrep -- path is resolved within the authorized repository root
 
-  assert.match(source, /Uninstall \$Component\? \[y\/N\]/);
+  assert.match(source, /Uninstall \$\{Component\}\? \[y\/N\]/);
+  assert.doesNotMatch(source, /Uninstall \$Component\? \[y\/N\]/);
   assert.match(source, /IsNullOrWhiteSpace\(\$answer\)[\s\S]*?return \$false/);
   for (const component of [
     'Docker Engine',
