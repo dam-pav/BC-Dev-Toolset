@@ -53,6 +53,15 @@ function Write-Error {
     Write-Host "✗ $Message" -ForegroundColor $colors.Error
 }
 
+function Update-ProcessPath {
+    $machinePath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
+    $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    $pathParts = @($machinePath, $userPath) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { $_.TrimEnd(';') }
+    $env:PATH = $pathParts -join ';'
+}
+
 function Confirm-Upgrade {
     param(
         [string]$Name,
@@ -96,8 +105,8 @@ function Get-DockerInstalledVersion {
 function Get-DockerDesktopInstallation {
     $programFiles = [Environment]::GetFolderPath("ProgramFiles")
     $candidatePaths = @(
-        Join-Path $programFiles "Docker\Docker\Docker Desktop.exe",
-        Join-Path $programFiles "Docker\Docker\DockerCli.exe"
+        (Join-Path $programFiles "Docker\Docker\Docker Desktop.exe")
+        (Join-Path $programFiles "Docker\Docker\DockerCli.exe")
     )
 
     foreach ($candidatePath in $candidatePaths) {
@@ -358,6 +367,66 @@ function Get-WinGetPackageVersion {
     return $null
 }
 
+function Install-Git {
+    param([bool]$IsUpgrade)
+
+    $wingetCommand = Get-Command winget -ErrorAction SilentlyContinue
+    if ($wingetCommand) {
+        $wingetAction = if ($IsUpgrade) { "upgrade" } else { "install" }
+        $wingetDescription = if ($IsUpgrade) { "Updating" } else { "Installing" }
+        Write-Host "$wingetDescription Git via WinGet..."
+        & $wingetCommand.Source $wingetAction -e --id Git.Git --accept-package-agreements --accept-source-agreements --disable-interactivity
+        if ($LASTEXITCODE -eq 0) {
+            Update-ProcessPath
+            return
+        }
+
+        Write-Warning "WinGet could not install Git (exit code $LASTEXITCODE). Trying the official Git for Windows installer."
+    }
+    else {
+        Write-Warning "WinGet is not available. Using the official Git for Windows installer instead."
+    }
+
+    $architecture = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "64-bit" }
+    $release = Invoke-RestMethod `
+        -Uri "https://api.github.com/repos/git-for-windows/git/releases/latest" `
+        -Headers @{ "User-Agent" = "BC-Dev-Toolset" } `
+        -ErrorAction Stop
+    $installerAsset = $release.assets |
+        Where-Object { $_.name -match "^Git-[0-9].*-$architecture\.exe$" } |
+        Select-Object -First 1
+    if (-not $installerAsset) {
+        throw "Could not find the Git for Windows $architecture installer in the latest release."
+    }
+
+    $temporaryRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd('\')
+    $installerPath = [System.IO.Path]::GetFullPath((Join-Path $temporaryRoot "bc-dev-toolset-git-installer.exe"))
+    if ([System.IO.Path]::GetDirectoryName($installerPath) -ne $temporaryRoot) {
+        throw "The temporary Git installer path escaped the operating system temporary directory."
+    }
+
+    try {
+        Write-Host "Downloading Git for Windows from: $($installerAsset.browser_download_url)"
+        Invoke-WebRequest -Uri $installerAsset.browser_download_url -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
+        $installerProcess = Start-Process -FilePath $installerPath -ArgumentList @(
+            "/VERYSILENT",
+            "/NORESTART",
+            "/NOCANCEL",
+            "/SP-"
+        ) -Wait -PassThru -ErrorAction Stop
+        if ($installerProcess.ExitCode -ne 0) {
+            throw "The Git for Windows installer exited with code $($installerProcess.ExitCode)."
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $installerPath -PathType Leaf) {
+            Remove-Item -LiteralPath $installerPath -Force
+        }
+    }
+
+    Update-ProcessPath
+}
+
 function Get-NodeInstalledVersion {
     $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
     if (-not $nodeCommand) {
@@ -377,6 +446,81 @@ function Get-NodeInstalledVersion {
     }
 }
 
+function Install-NodeJs24 {
+    param([bool]$IsUpgrade)
+
+    $wingetCommand = Get-Command winget -ErrorAction SilentlyContinue
+    if ($wingetCommand) {
+        $wingetAction = if ($IsUpgrade) { "upgrade" } else { "install" }
+        $wingetDescription = if ($IsUpgrade) { "Updating" } else { "Installing" }
+        Write-Host "$wingetDescription Node.js via WinGet..."
+        & $wingetCommand.Source $wingetAction -e --id OpenJS.NodeJS --accept-package-agreements --accept-source-agreements --disable-interactivity
+        if ($LASTEXITCODE -eq 0) {
+            Update-ProcessPath
+            return
+        }
+
+        Write-Warning "WinGet could not install Node.js (exit code $LASTEXITCODE). Trying the official Node.js installer."
+    }
+    else {
+        Write-Warning "WinGet is not available. Using the official Node.js installer instead."
+    }
+
+    $nodeReleaseUrl = "https://nodejs.org/dist/latest-v24.x/"
+    $architecture = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }
+    $releasePage = Invoke-WebRequest -Uri $nodeReleaseUrl -UseBasicParsing -ErrorAction Stop
+    $installerLink = $releasePage.Links |
+        Where-Object { (Split-Path $_.href -Leaf) -match "^node-v([0-9]+(?:\.[0-9]+)*)-$architecture\.msi$" } |
+        ForEach-Object {
+            $installerFileName = Split-Path $_.href -Leaf
+            if ($installerFileName -match "^node-v([0-9]+(?:\.[0-9]+)*)-$architecture\.msi$") {
+                [PSCustomObject]@{
+                    FileName = $installerFileName
+                    Url = [Uri]::new([Uri]$nodeReleaseUrl, $_.href).AbsoluteUri
+                    Version = [version]$matches[1]
+                }
+            }
+        } |
+        Sort-Object Version -Descending |
+        Select-Object -First 1
+
+    if (-not $installerLink) {
+        throw "Could not find the Node.js 24 $architecture MSI on $nodeReleaseUrl"
+    }
+
+    $temporaryRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd('\')
+    $installerPath = [System.IO.Path]::GetFullPath((Join-Path $temporaryRoot "bc-dev-toolset-$($installerLink.FileName)"))
+    if ([System.IO.Path]::GetDirectoryName($installerPath) -ne $temporaryRoot) {
+        throw "The temporary Node.js installer path escaped the operating system temporary directory."
+    }
+
+    try {
+        Write-Host "Downloading Node.js v$($installerLink.Version) from: $($installerLink.Url)"
+        Invoke-WebRequest -Uri $installerLink.Url -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
+        $installerProcess = Start-Process -FilePath "msiexec.exe" -ArgumentList @(
+            "/i",
+            "`"$installerPath`"",
+            "/qn",
+            "/norestart"
+        ) -Wait -PassThru -ErrorAction Stop
+
+        if ($installerProcess.ExitCode -notin @(0, 1641, 3010)) {
+            throw "The Node.js installer exited with code $($installerProcess.ExitCode)."
+        }
+
+        if ($installerProcess.ExitCode -in @(1641, 3010)) {
+            Write-Warning "Node.js was installed and requires a system restart."
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $installerPath -PathType Leaf) {
+            Remove-Item -LiteralPath $installerPath -Force
+        }
+    }
+
+    Update-ProcessPath
+}
+
 function Get-LatestBcContainerHelperVersion {
     $module = Find-Module -Name BcContainerHelper -ErrorAction Stop
     return [version]$module.Version
@@ -389,6 +533,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 }
 
 Write-Header "BC Dev Toolset Prerequisites Installation"
+$installationFailures = [System.Collections.Generic.List[string]]::new()
 
 $dockerDesktopInstallation = Get-DockerDesktopInstallation
 $skipDockerEngineSteps = $null -ne $dockerDesktopInstallation
@@ -425,6 +570,7 @@ if (-not $SkipDockerInstall -and -not $skipDockerEngineSteps) {
         }
     }
     catch {
+        $installationFailures.Add("Docker Engine installation")
         Write-Error "Docker installation failed: $_"
         Write-Host "You can manually download from: https://download.docker.com/win/static/stable/x86_64/"
     }
@@ -459,15 +605,21 @@ if (-not $SkipWindowsFeatures) {
         )
 
         $dismOutput = & dism.exe @dismCommand 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            Write-Success "Feature '$FeatureName' enabled"
+        $dismExitCode = $LASTEXITCODE
+        if ($dismExitCode -in @(0, 3010)) {
+            if ($dismExitCode -eq 3010) {
+                Write-Warning "Feature '$FeatureName' enabled; a system restart is required"
+            }
+            else {
+                Write-Success "Feature '$FeatureName' enabled"
+            }
             return $true
         }
 
-        Write-Warning "DISM failed to enable feature '$FeatureName' (exit code $LASTEXITCODE). Falling back to Enable-WindowsOptionalFeature."
+        Write-Warning "DISM failed to enable feature '$FeatureName' (exit code $dismExitCode). Falling back to Enable-WindowsOptionalFeature."
         Write-Host $dismOutput
 
-        $featureResult = Enable-WindowsOptionalFeature -Online -FeatureName $FeatureName -All -NoRestart -Confirm:$false -ErrorAction Stop
+        $featureResult = Enable-WindowsOptionalFeature -Online -FeatureName $FeatureName -All -NoRestart -ErrorAction Stop
         if ($featureResult.RestartNeeded) {
             Write-Warning "Feature '$FeatureName' requires system restart"
         }
@@ -507,6 +659,7 @@ if (-not $SkipWindowsFeatures) {
         Write-Warning "You may need to restart your computer for changes to take effect"
     }
     catch {
+        $installationFailures.Add("Windows feature enablement")
         Write-Error "Failed to enable Windows features: $_"
     }
 }
@@ -542,6 +695,7 @@ if (-not $skipDockerEngineSteps) {
         }
     }
     catch {
+        $installationFailures.Add("Docker PATH configuration")
         Write-Error "Failed to add Docker to PATH: $_"
     }
 }
@@ -566,10 +720,7 @@ if (-not $SkipDockerInstall -and -not $skipDockerEngineSteps) {
         else {
             # Check if service already exists
             $existingService = Get-Service -Name "Docker" -ErrorAction SilentlyContinue
-            if ($existingService) {
-                Write-Warning "Docker service already exists, skipping creation"
-            }
-            else {
+            if (-not $existingService) {
                 # Create the service
                 $binaryPath = "$dockerdPath --run-service --config-file $daemonJsonPath"
                 New-Service -Name "Docker" `
@@ -578,14 +729,34 @@ if (-not $SkipDockerInstall -and -not $skipDockerEngineSteps) {
                     -StartupType "Automatic" | Out-Null
                 
                 Write-Success "Docker service created"
-                
-                # Start the service
-                Start-Service -Name "Docker"
+            }
+            else {
+                Write-Warning "Docker service already exists, skipping creation"
+            }
+
+            $dockerService = Get-Service -Name "Docker" -ErrorAction Stop
+            if ($dockerService.Status -ne "Running") {
+                try {
+                    Start-Service -Name "Docker" -ErrorAction Stop
+                    $dockerService.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(30))
+                    $dockerService.Refresh()
+                    if ($dockerService.Status -ne "Running") {
+                        throw "Docker service did not reach the Running state."
+                    }
+
+                    Write-Success "Docker service started"
+                }
+                catch {
+                    Write-Warning "Docker service is installed but could not start. Restart Windows to finish enabling the container features, then start the Docker service. $($_.Exception.Message)"
+                }
+            }
+            else {
                 Write-Success "Docker service started"
             }
         }
     }
     catch {
+        $installationFailures.Add("Docker service installation")
         Write-Error "Failed to install Docker service: $_"
         Write-Host "You may need to create the service manually"
     }
@@ -619,8 +790,7 @@ if (-not $SkipGit) {
                 }
                 elseif ($gitVersion -lt $latestGitSemanticVersion) {
                     if (Confirm-Upgrade -Name "Git" -CurrentVersion "v$gitVersion" -LatestVersion "v$latestGitVersion") {
-                        Write-Host "Updating Git via WinGet..."
-                        & winget upgrade -e --id Git.Git --accept-package-agreements --accept-source-agreements
+                        Install-Git -IsUpgrade $true
                         Write-Warning "Please restart your PowerShell session to use the updated git commands"
                     }
                     else {
@@ -636,8 +806,7 @@ if (-not $SkipGit) {
             }
         }
         else {
-            Write-Host "Installing Git via WinGet..."
-            & winget install -e --id Git.Git --accept-package-agreements --accept-source-agreements
+            Install-Git -IsUpgrade $false
             
             # Verify installation
             if (Get-Command git -ErrorAction SilentlyContinue) {
@@ -650,8 +819,9 @@ if (-not $SkipGit) {
         }
     }
     catch {
+        $installationFailures.Add("Git installation")
         Write-Error "Failed to install Git: $_"
-        Write-Host "You can install manually: winget install -e --id Git.Git"
+        Write-Host "Install Git manually from https://gitforwindows.org/ if automatic installation continues to fail."
     }
 }
 else {
@@ -677,14 +847,7 @@ if (-not $SkipNode) {
                 Write-Warning "Node.js is not installed or not available in PATH"
             }
 
-            if ($nodeVersion) {
-                Write-Host "Updating Node.js via WinGet..."
-                & winget upgrade -e --id OpenJS.NodeJS --accept-package-agreements --accept-source-agreements
-            }
-            else {
-                Write-Host "Installing Node.js via WinGet..."
-                & winget install -e --id OpenJS.NodeJS --accept-package-agreements --accept-source-agreements
-            }
+            Install-NodeJs24 -IsUpgrade ($null -ne $nodeVersion)
 
             $nodeVersion = Get-NodeInstalledVersion
             if ($nodeVersion -and $nodeVersion.Major -ge 24) {
@@ -697,7 +860,10 @@ if (-not $SkipNode) {
 
         if (Get-Command npm -ErrorAction SilentlyContinue) {
             Write-Host "Installing/Updating @microsoft/bc-replay globally..."
-            npm install -g @microsoft/bc-replay@latest
+            & npm install -g @microsoft/bc-replay@latest
+            if ($LASTEXITCODE -ne 0) {
+                throw "npm failed to install @microsoft/bc-replay (exit code $LASTEXITCODE)."
+            }
             if (Get-Command replay -ErrorAction SilentlyContinue) {
                 Write-Success "@microsoft/bc-replay is available"
             }
@@ -710,8 +876,9 @@ if (-not $SkipNode) {
         }
     }
     catch {
+        $installationFailures.Add("Node.js or BC Replay installation")
         Write-Error "Failed to install Node.js or @microsoft/bc-replay: $_"
-        Write-Host "Try running: winget install -e --id OpenJS.NodeJS"
+        Write-Host "Install Node.js 24 or newer from https://nodejs.org/ if automatic installation continues to fail."
         Write-Host "Then run: npm install -g @microsoft/bc-replay@latest"
     }
 }
@@ -767,6 +934,7 @@ if (-not $SkipBcContainerHelper) {
         }
     }
     catch {
+        $installationFailures.Add("BcContainerHelper installation")
         Write-Error "Failed to install BcContainerHelper: $_"
         Write-Host "Try running: Install-Module BcContainerHelper -force"
         Write-Host "If PowerShell Gallery is unavailable, use the alternative script:"
@@ -782,9 +950,17 @@ else {
 # ============================================================================
 Write-Header "Installation Summary"
 
-Write-Host @"
-Prerequisites installation/update complete!
+if ($installationFailures.Count -eq 0) {
+    Write-Success "Prerequisites installation/update pass completed without errors."
+}
+else {
+    Write-Error "Prerequisites installation/update pass finished with $($installationFailures.Count) error(s):"
+    foreach ($installationFailure in $installationFailures) {
+        Write-Host "- $installationFailure" -ForegroundColor $colors.Error
+    }
+}
 
+Write-Host @"
 Next steps:
 1. Review the configuration in: $DockerPath\daemon.json
 2. Restart your computer for Windows features to take effect
@@ -798,6 +974,8 @@ For troubleshooting, see:
 - BcContainerHelper: https://github.com/microsoft/navcontainerhelper
 "@
 
-Write-Success "`nPrerequisites installation/update script completed!"
-
 Read-Host -Prompt 'Press Enter to close this window and finish the script' | Out-Null
+
+if ($installationFailures.Count -gt 0) {
+    exit 1
+}
