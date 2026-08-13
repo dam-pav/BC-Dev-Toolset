@@ -256,6 +256,16 @@
     "requiresConfirmation": true
   },
   {
+    "id": "uninstallPrerequisites",
+    "title": "Uninstall Prerequisites",
+    "script": "operations/uninstallPrerequisites.bat",
+    "category": "Prerequisites",
+    "promptInputs": [
+      { "promptId": "uninstallPrerequisites.componentDecisions", "type": "confirm", "question": "Each detected prerequisite is offered separately in the elevated terminal and defaults to keeping the component installed.", "conditional": true, "agentAllowed": false }
+    ],
+    "requiresConfirmation": true
+  },
+  {
     "id": "showBcContainerHelperVersions",
     "title": "Show BcContainerHelper versions (installed and available)",
     "script": "operations/ShowBcContainerHelperVersions.ps1",
