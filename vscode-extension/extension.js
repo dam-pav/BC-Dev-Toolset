@@ -33,7 +33,7 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 8;
+const mcpServerDefinitionRevision = 9;
 // Increment when bundled runtime content changes without an extension version bump.
 const runtimeToolsetRevision = 3;
 
@@ -1148,7 +1148,11 @@ function getCodexAgentsInstructionSection() {
     '',
     'Use BC Dev Toolset runtime package operations only when the user explicitly asks for runtime packages. Do not use `bc_dev_toolset_create_runtime_package` as a substitute for ordinary AL compile/build/validation; it creates deployment runtime artifacts and requires runtime-package settings such as `packageOutputPath`.',
     '',
-    'For compile/build/validate requests, use a matching compile/build tool when one exists. If no matching `bc_dev_toolset_*` compile/build tool is exposed, normal AL CLI compilation with the discovered workspace settings is appropriate.',
+    'For ordinary AL compile, build, or validation requests, call `bc_dev_toolset_build_all_apps` when it is exposed. Do not invoke `al.exe`, `altool.exe`, `alc.exe`, `al compile`, or a manually reconstructed PowerShell build while that MCP tool is available; the toolset operation carries workspace dependencies, package-cache settings, and `al.assemblyProbingPaths` needed for .NET components.',
+    '',
+    'An MCP failure is not permission to bypass the toolset. If a matching MCP operation fails, times out, reports an unavailable terminal bridge, or returns incomplete context, report that result and the corrective action instead of retrying through direct compiler, Docker, BcContainerHelper, or PowerShell commands. Use a manual fallback only when no matching MCP tool is exposed or the user explicitly requests it.',
+    '',
+    'Before any permitted AL CLI fallback, call `bc_dev_toolset_get_workspace` when available and carry its package-cache and assembly-probing settings into the compiler command. If required assembly context is absent, stop instead of guessing paths.',
     '',
     'PowerShell and terminal commands are appropriate for work that is not covered by a `bc_dev_toolset_*` MCP tool, for reading local files, and for normal codebase maintenance.',
     '',

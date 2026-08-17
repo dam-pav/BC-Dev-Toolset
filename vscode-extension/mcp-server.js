@@ -231,6 +231,8 @@ async function handleMessage(body) {
 function getServerInstructions() {
   return [
     'Use this server for Business Central Developer\'s Toolset operations. Prefer direct tools named bc_dev_toolset_* for matching user requests; do not inspect Docker containers or call BcContainerHelper directly to duplicate a supported toolset operation.',
+    'For ordinary AL compile, build, or validation requests, call bc_dev_toolset_build_all_apps when it is exposed. Do not invoke al.exe, altool.exe, alc.exe, al compile, or a manually reconstructed PowerShell build while that tool is available. It preserves workspace dependency order, package-cache isolation, and configured assembly probing paths for .NET components.',
+    'A failed, timed-out, or bridge-unavailable MCP operation must be reported; it is not permission to retry the same operation with direct compiler, Docker, BcContainerHelper, or PowerShell commands. Use a manual fallback only when no matching MCP tool is exposed or the user explicitly requests it.',
     'Before answering questions about the active VS Code workspace, workspace file, workspace folders, AL project path, app.json location, .code-workspace settings, local .bcdevtoolset settings path, or AL settings such as assembly probing paths, call bc_dev_toolset_get_workspace or read bcdevtoolset://workspace/current. Do not infer the workspace by scanning parent folders unless this tool/resource is unavailable.',
     'PowerShell-backed operations require the VS Code terminal bridge and run visibly in the BC Dev Toolset terminal. If the bridge is unavailable, report that the BC Dev Toolset VS Code extension must be active instead of falling back to manual PowerShell.',
     'Use bc_dev_toolset_show_active_licenses for requests about the current container license. Use bc_dev_toolset_new_docker_container for creating or recreating containers.',
@@ -614,6 +616,12 @@ function getOperationToolAliases(operationId) {
       return [
         'create or recreate the development container',
         'create a Business Central Docker container'
+      ];
+    case 'buildAllApps':
+      return [
+        'compile, build, or validate the AL apps in the current workspace',
+        'build AL projects with workspace package caches and assembly probing paths',
+        'resolve DotNet assemblies while compiling AL apps'
       ];
     case 'extractContainerAssemblies':
       return [

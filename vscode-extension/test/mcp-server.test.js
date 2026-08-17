@@ -108,6 +108,14 @@ test('operation tool descriptions explain preflight and resumable prompt answers
   assert.equal(newDockerContainerTool.inputSchema.properties.pullFullArtifact.type, 'boolean');
 });
 
+test('build tool description directs AL compilation through workspace-aware tooling', () => {
+  const buildTool = mcpServer.getTools().find((tool) => tool.name === 'bc_dev_toolset_build_all_apps');
+
+  assert.ok(buildTool);
+  assert.match(buildTool.description, /compile, build, or validate the AL apps/);
+  assert.match(buildTool.description, /assembly probing paths/);
+});
+
 test('pre-supplies testing prompt answers for test operations', () => {
   assert.deepEqual(
     mcpServer.getOperationPromptAnswers({ id: 'invokeTests' }, {}),
