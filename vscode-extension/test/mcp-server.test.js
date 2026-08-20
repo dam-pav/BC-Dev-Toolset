@@ -116,6 +116,23 @@ test('build tool description directs AL compilation through workspace-aware tool
   assert.match(buildTool.description, /assembly probing paths/);
 });
 
+test('serves repository help as an agent tool and Markdown resource', async () => {
+  const helpTool = mcpServer.getTools().find((tool) => tool.name === 'bc_dev_toolset_show_help');
+  const helpResource = mcpServer.getResources().find((resource) => resource.uri === 'bcdevtoolset://help/readme');
+  const helpToolResult = await mcpServer.callTool({ name: 'bc_dev_toolset_show_help', arguments: {} });
+  const help = await mcpServer.readResource({ uri: 'bcdevtoolset://help/readme' });
+
+  assert.ok(helpTool);
+  assert.deepEqual(helpTool.inputSchema, { type: 'object', properties: {} });
+  assert.match(helpTool.description, /repository README/);
+  assert.equal(helpResource.mimeType, 'text/markdown');
+  assert.equal(helpToolResult.isError, false);
+  assert.match(helpToolResult.content[0].text, /^# Business Central Developer's Toolset/m);
+  assert.equal(help.contents[0].mimeType, 'text/markdown');
+  assert.match(help.contents[0].text, /^# Business Central Developer's Toolset/m);
+  assert.match(help.contents[0].text, /BC Dev Toolset: Show Help/);
+});
+
 test('compiles successful test output without prerequisite stage chatter', () => {
   const report = {
     applicationCount: 2,

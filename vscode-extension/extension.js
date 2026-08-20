@@ -33,11 +33,12 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 10;
+const mcpServerDefinitionRevision = 11;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 4;
+const runtimeToolsetRevision = 5;
 
 const directOperationIds = [
+  'showHelp',
   'invokeTests',
   'invokePageScriptTests',
   'showBcContainerHelperVersions',
@@ -74,6 +75,7 @@ const directOperationIds = [
 ];
 
 const requiredRuntimeFiles = [
+  'README.md',
   'Invoke-BcDevToolsetOperation.ps1',
   'operations/operations.json'
 ];
@@ -1803,6 +1805,7 @@ async function syncRuntimeToolsetQuietly() {
   writeOutput(`Synchronizing BC Dev Toolset runtime at ${toolsetPath} from bundled extension assets.`);
 
   fs.mkdirSync(toolsetPath, { recursive: true });
+  copyRuntimeFile(bundledRuntimePath, toolsetPath, 'README.md');
   copyRuntimeFile(bundledRuntimePath, toolsetPath, 'Invoke-BcDevToolsetOperation.ps1');
   for (const runtimeDirectory of runtimeDirectories) {
     copyRuntimeDirectory(bundledRuntimePath, toolsetPath, runtimeDirectory);
@@ -1870,6 +1873,21 @@ async function openLocalSettingsJson() {
   ensureDefaultLocalConfiguration(localPath);
 
   await vscode.window.showTextDocument(vscode.Uri.file(localPath));
+}
+
+async function showHelp() {
+  const toolsetPath = await resolveToolsetRuntimePath();
+  if (!toolsetPath) {
+    return;
+  }
+
+  const readmePath = resolveWithinRoot(toolsetPath, 'README.md');
+  if (!fs.existsSync(readmePath)) { // nosemgrep -- fixed path is contained by the authorized toolset root
+    await vscode.window.showErrorMessage(`BC Dev Toolset help was not found at ${readmePath}.`);
+    return;
+  }
+
+  await vscode.commands.executeCommand('markdown.showPreview', vscode.Uri.file(readmePath));
 }
 
 async function showObjectIdRangeVisualizationData() {
@@ -1992,6 +2010,11 @@ function getOperations(toolsetPath) {
 }
 
 async function executeOperation(operation, toolsetPath) {
+  if (operation.command === 'showHelp') {
+    await showHelp();
+    return;
+  }
+
   if (operation.command === 'openLocalSettingsJson') {
     await openLocalSettingsJson();
     return;

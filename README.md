@@ -49,9 +49,11 @@ Your development environment for your current workspace is ready and you can sta
 
 All the operations are available through the VS Code Command Palette. You can type them out directly or you can use the ***BC Dev Toolset: Show Operations List*** that will let you select any of the operations from a drop-down menu.
 
+Run ***BC Dev Toolset: Show Help*** to open this README in VS Code's rendered Markdown preview.
+
 ### MCP server
 
-The extension contributes an MCP server named `BC Dev Toolset Operations` in VS Code. MCP-aware agents can use it to run BC Dev Toolset operations for the current AL workspace, such as creating containers, publishing apps, invoking tests, or showing active licenses.
+The extension contributes an MCP server named `BC Dev Toolset Operations` in VS Code. MCP-aware agents can use it to run BC Dev Toolset operations for the current AL workspace, such as creating containers, publishing apps, invoking tests, or showing active licenses. Agents can call `bc_dev_toolset_show_help` or read `bcdevtoolset://help/readme` to use this README when helping you explore, configure, or troubleshoot the toolset.
 
 PowerShell-backed operations still run in the visible `BC Dev Toolset: <PowerShell executable>` terminal. This lets you follow long-running work, such as creating a container or downloading artifacts, while the agent waits for the operation result.
 

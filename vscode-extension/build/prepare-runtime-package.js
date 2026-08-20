@@ -6,6 +6,7 @@ const repositoryRoot = path.resolve(extensionRoot, '..');
 const runtimeRoot = path.join(extensionRoot, 'runtime');
 
 const runtimeItems = [
+  'README.md',
   'Invoke-BcDevToolsetOperation.ps1',
   'common',
   'operations',
