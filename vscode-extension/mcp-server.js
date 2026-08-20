@@ -231,6 +231,7 @@ async function handleMessage(body) {
 function getServerInstructions() {
   return [
     'Use this server for Business Central Developer\'s Toolset operations. Prefer direct tools named bc_dev_toolset_* for matching user requests; do not inspect Docker containers or call BcContainerHelper directly to duplicate a supported toolset operation.',
+    'Use bc_dev_toolset_show_help or read bcdevtoolset://help/readme when the user wants to explore, understand, configure, or troubleshoot BC Dev Toolset itself.',
     'For ordinary AL compile, build, or validation requests, call bc_dev_toolset_build_all_apps when it is exposed. Do not invoke al.exe, altool.exe, alc.exe, al compile, or a manually reconstructed PowerShell build while that tool is available. It preserves workspace dependency order, package-cache isolation, and configured assembly probing paths for .NET components.',
     'A failed, timed-out, or bridge-unavailable MCP operation must be reported; it is not permission to retry the same operation with direct compiler, Docker, BcContainerHelper, or PowerShell commands. Use a manual fallback only when no matching MCP tool is exposed or the user explicitly requests it.',
     'The AL test operation returns a compiled stage and test report. Treat its included failure diagnostics as definitive and do not rerun the build or tests merely to retrieve output.',
@@ -399,6 +400,12 @@ function getLegacyTools() {
 function getResources() {
   return [
     {
+      uri: 'bcdevtoolset://help/readme',
+      name: 'BC Dev Toolset Help',
+      description: 'The bundled BC Dev Toolset repository README with setup, operation, configuration, and troubleshooting guidance.',
+      mimeType: 'text/markdown'
+    },
+    {
       uri: 'bcdevtoolset://workspace/current',
       name: 'Current BC Dev Toolset Workspace Context',
       description: 'Active VS Code workspace context known to BC Dev Toolset: workspace file, folders, active AL project, app.json, local settings path, and effective AL settings.',
@@ -409,19 +416,40 @@ function getResources() {
 
 async function readResource(params) {
   const uri = String(params.uri || '').trim();
-  if (uri !== 'bcdevtoolset://workspace/current') {
-    throw new Error(`Unknown resource: ${uri}`);
+  if (uri === 'bcdevtoolset://help/readme') {
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: 'text/markdown',
+          text: readHelpContent()
+        }
+      ]
+    };
   }
 
-  return {
-    contents: [
-      {
-        uri,
-        mimeType: 'application/json',
-        text: JSON.stringify(await getWorkspaceContextObject(), null, 2)
-      }
-    ]
-  };
+  if (uri === 'bcdevtoolset://workspace/current') {
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: 'application/json',
+          text: JSON.stringify(await getWorkspaceContextObject(), null, 2)
+        }
+      ]
+    };
+  }
+
+  throw new Error(`Unknown resource: ${uri}`);
+}
+
+function readHelpContent() {
+  const readmePath = resolveWithinRoot(toolsetPath, 'README.md');
+  if (!fs.existsSync(readmePath)) {
+    throw new Error(`BC Dev Toolset help was not found at ${readmePath}.`);
+  }
+
+  return fs.readFileSync(readmePath, 'utf8');
 }
 
 function shouldExposeGenericTools() {
@@ -549,12 +577,18 @@ function parseJsonEnvironmentValue(value) {
 
 function getOperationTools() {
   return loadOperations()
-    .filter((operation) => operation.script)
+    .filter(isAgentOperation)
     .map((operation) => ({
       name: getOperationToolName(operation),
       description: getOperationToolDescription(operation),
-      inputSchema: getOperationToolInputSchema(operation)
+      inputSchema: operation.command === 'showHelp'
+        ? { type: 'object', properties: {} }
+        : getOperationToolInputSchema(operation)
     }));
+}
+
+function isAgentOperation(operation) {
+  return Boolean(operation.script || operation.command === 'showHelp');
 }
 
 function getOperationToolName(operation) {
@@ -563,7 +597,7 @@ function getOperationToolName(operation) {
 
 function getOperationIdForToolName(toolName) {
   const operation = loadOperations()
-    .filter((candidate) => candidate.script)
+    .filter(isAgentOperation)
     .find((candidate) => getOperationToolName(candidate) === toolName);
   return operation ? operation.id : '';
 }
@@ -577,6 +611,10 @@ function toSnakeCase(value) {
 }
 
 function getOperationToolDescription(operation) {
+  if (operation.command === 'showHelp') {
+    return 'BC Dev Toolset: Show Help. Returns the bundled repository README so you can help users explore, understand, configure, and troubleshoot BC Dev Toolset.';
+  }
+
   const aliases = getOperationToolAliases(operation.id);
   const aliasText = aliases.length > 0
     ? ` Use this when the user asks to ${aliases.join(', ')}.`
@@ -605,6 +643,13 @@ function getOperationToolAliases(operationId) {
         'show active container license details',
         'inspect the active Business Central container license',
         'display current BC license information'
+      ];
+    case 'showHelp':
+      return [
+        'show BC Dev Toolset help',
+        'explain how BC Dev Toolset works',
+        'explore BC Dev Toolset operations and configuration',
+        'troubleshoot BC Dev Toolset using its documentation'
       ];
     case 'updateBcLicenseContainer':
       return [
@@ -782,7 +827,7 @@ function loadOperations() {
 
 function listRunnableOperations(category) {
   return loadOperations()
-    .filter((operation) => operation.script)
+    .filter(isAgentOperation)
     .filter((operation) => !category || operation.category === category)
     .map((operation) => ({
       id: operation.id,
@@ -805,6 +850,10 @@ async function runOperation(args, progress) {
   const operation = loadOperations().find((candidate) => candidate.id === operationId);
   if (!operation) {
     return textResult(`BC Dev Toolset operation '${operationId}' was not found.`, true);
+  }
+
+  if (operation.command === 'showHelp') {
+    return textResult(readHelpContent());
   }
 
   if (!operation.script) {
@@ -1606,6 +1655,10 @@ module.exports = {
       inputBuffer = Buffer.from(value, 'utf8');
     },
     getTools,
+    callTool,
+    getResources,
+    readResource,
+    readHelpContent,
     getOperationPromptAnswers,
     compileInvokeTestsReport,
     normalizePromptToolAnswer,

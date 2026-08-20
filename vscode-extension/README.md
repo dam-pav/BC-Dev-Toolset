@@ -65,9 +65,11 @@ This opens a two-step picker: choose a category first, then pick an operation fr
 
 All operations are available directly as well.
 
+Run `BC Dev Toolset: Show Help` at any time to open the full repository README in VS Code's rendered Markdown preview.
+
 ## MCP server
 
-The extension contributes an MCP server named `BC Dev Toolset Operations` in VS Code. MCP-aware agents can use it to run BC Dev Toolset operations for the current AL workspace, such as creating containers, publishing apps, invoking tests, or showing active licenses.
+The extension contributes an MCP server named `BC Dev Toolset Operations` in VS Code. MCP-aware agents can use it to run BC Dev Toolset operations for the current AL workspace, such as creating containers, publishing apps, invoking tests, or showing active licenses. Agents can call `bc_dev_toolset_show_help` or read `bcdevtoolset://help/readme` to consult the full repository README when helping users explore, configure, or troubleshoot the toolset.
 
 PowerShell-backed operations still run in the visible `BC Dev Toolset: <PowerShell executable>` terminal. This keeps long-running work, such as container creation and artifact downloads, visible while the agent waits for the operation result.
 
