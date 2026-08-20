@@ -336,68 +336,69 @@ function Install-DockerEngine {
     }
 }
 
+function ConvertTo-GitComparableVersion {
+    param([Parameter(Mandatory)][string]$VersionText)
+
+    # Git for Windows reports, for example, 2.55.0.windows.4 while the
+    # release installer uses 2.55.0.4. Normalize both to System.Version.
+    if ($VersionText -match '(?i)(?<base>[0-9]+\.[0-9]+\.[0-9]+)\.windows\.(?<revision>[0-9]+)') {
+        return [version]"$($matches.base).$($matches.revision)"
+    }
+
+    if ($VersionText -match '(?<![0-9])(?<version>[0-9]+\.[0-9]+(?:\.[0-9]+){0,2})(?![0-9.])') {
+        return [version]$matches.version
+    }
+
+    return $null
+}
+
 function Get-GitInstalledVersion {
     $gitPath = Get-Command git -ErrorAction SilentlyContinue
     if (-not $gitPath) {
         return $null
     }
 
-    $gitVersion = git --version
-    if ($gitVersion -match '([0-9]+(?:\.[0-9]+)+)') {
-        return [version]$matches[1]
-    }
-
-    return $null
-}
-
-function Get-WinGetPackageVersion {
-    param([string]$PackageId)
-
-    $wingetPath = Get-Command winget -ErrorAction SilentlyContinue
-    if (-not $wingetPath) {
+    $gitVersionOutput = & $gitPath.Source --version 2>$null
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitVersionOutput)) {
         return $null
     }
 
-    $showOutput = & winget show -e --id $PackageId --disable-interactivity 2>$null
-    $versionLine = $showOutput | Where-Object { $_ -match '^\s*Version:\s*(.+?)\s*$' } | Select-Object -First 1
-    if ($versionLine -and $versionLine -match '^\s*Version:\s*(.+?)\s*$') {
-        return $matches[1].Trim()
-    }
-
-    return $null
+    return ConvertTo-GitComparableVersion -VersionText ([string]$gitVersionOutput)
 }
 
-function Install-Git {
-    param([bool]$IsUpgrade)
-
-    $wingetCommand = Get-Command winget -ErrorAction SilentlyContinue
-    if ($wingetCommand) {
-        $wingetAction = if ($IsUpgrade) { "upgrade" } else { "install" }
-        $wingetDescription = if ($IsUpgrade) { "Updating" } else { "Installing" }
-        Write-Host "$wingetDescription Git via WinGet..."
-        & $wingetCommand.Source $wingetAction -e --id Git.Git --accept-package-agreements --accept-source-agreements --disable-interactivity
-        if ($LASTEXITCODE -eq 0) {
-            Update-ProcessPath
-            return
-        }
-
-        Write-Warning "WinGet could not install Git (exit code $LASTEXITCODE). Trying the official Git for Windows installer."
-    }
-    else {
-        Write-Warning "WinGet is not available. Using the official Git for Windows installer instead."
-    }
-
+function Get-LatestGitForWindowsRelease {
     $architecture = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "64-bit" }
     $release = Invoke-RestMethod `
         -Uri "https://api.github.com/repos/git-for-windows/git/releases/latest" `
         -Headers @{ "User-Agent" = "BC-Dev-Toolset" } `
         -ErrorAction Stop
+    $version = ConvertTo-GitComparableVersion -VersionText ([string]$release.tag_name)
+    if (-not $version) {
+        throw "Could not parse Git for Windows release version '$($release.tag_name)'."
+    }
+
     $installerAsset = $release.assets |
         Where-Object { $_.name -match "^Git-[0-9].*-$architecture\.exe$" } |
         Select-Object -First 1
     if (-not $installerAsset) {
         throw "Could not find the Git for Windows $architecture installer in the latest release."
     }
+
+    return [PSCustomObject]@{
+        Version      = $version
+        TagName      = [string]$release.tag_name
+        InstallerUrl = [string]$installerAsset.browser_download_url
+    }
+}
+
+function Install-Git {
+    param(
+        [bool]$IsUpgrade,
+        [Parameter(Mandatory)]$Release
+    )
+
+    $action = if ($IsUpgrade) { "Updating" } else { "Installing" }
+    Write-Host "$action Git for Windows from the official release..."
 
     $temporaryRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd('\')
     $installerPath = [System.IO.Path]::GetFullPath((Join-Path $temporaryRoot "bc-dev-toolset-git-installer.exe"))
@@ -406,8 +407,8 @@ function Install-Git {
     }
 
     try {
-        Write-Host "Downloading Git for Windows from: $($installerAsset.browser_download_url)"
-        Invoke-WebRequest -Uri $installerAsset.browser_download_url -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
+        Write-Host "Downloading Git for Windows from: $($Release.InstallerUrl)"
+        Invoke-WebRequest -Uri $Release.InstallerUrl -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
         $installerProcess = Start-Process -FilePath $installerPath -ArgumentList @(
             "/VERYSILENT",
             "/NORESTART",
@@ -848,48 +849,41 @@ if (-not $SkipGit) {
     
     try {
         $gitVersion = Get-GitInstalledVersion
-        $latestGitVersion = Get-WinGetPackageVersion -PackageId "Git.Git"
+        $latestGitRelease = Get-LatestGitForWindowsRelease
 
         if ($gitVersion) {
             Write-Warning "Git already installed: v$gitVersion"
+            Write-Host "Latest official Git for Windows: v$($latestGitRelease.Version)"
 
-            if ($latestGitVersion) {
-                Write-Host "Latest available Git: v$latestGitVersion"
-                $latestGitSemanticVersion = $null
-                if ($latestGitVersion -match '^([0-9]+(?:\.[0-9]+)+)') {
-                    $latestGitSemanticVersion = [version]$matches[1]
-                }
-
-                if (-not $latestGitSemanticVersion) {
-                    Write-Warning "Could not compare Git versions automatically"
-                }
-                elseif ($gitVersion -lt $latestGitSemanticVersion) {
-                    if (Confirm-Upgrade -Name "Git" -CurrentVersion "v$gitVersion" -LatestVersion "v$latestGitVersion") {
-                        Install-Git -IsUpgrade $true
-                        Write-Warning "Please restart your PowerShell session to use the updated git commands"
+            if ($gitVersion -lt $latestGitRelease.Version) {
+                if (Confirm-Upgrade -Name "Git" -CurrentVersion "v$gitVersion" -LatestVersion "v$($latestGitRelease.Version)") {
+                    Install-Git -IsUpgrade $true -Release $latestGitRelease
+                    $updatedGitVersion = Get-GitInstalledVersion
+                    if ($updatedGitVersion -and $updatedGitVersion -ge $latestGitRelease.Version) {
+                        Write-Success "Git updated successfully: v$updatedGitVersion"
                     }
                     else {
-                        Write-Host "Skipping Git update"
+                        Write-Warning "Git was updated, but the new version may require restarting PowerShell before it is detected."
                     }
                 }
                 else {
-                    Write-Success "Git is up to date"
+                    Write-Host "Skipping Git update"
                 }
             }
             else {
-                Write-Warning "Could not determine latest Git version with WinGet"
+                Write-Success "Git is up to date"
             }
         }
         else {
-            Install-Git -IsUpgrade $false
+            Install-Git -IsUpgrade $false -Release $latestGitRelease
             
             # Verify installation
-            if (Get-Command git -ErrorAction SilentlyContinue) {
-                Write-Success "Git installed successfully"
-                Write-Warning "Please restart your PowerShell session to use git commands"
+            $installedGitVersion = Get-GitInstalledVersion
+            if ($installedGitVersion) {
+                Write-Success "Git installed successfully: v$installedGitVersion"
             }
             else {
-                Write-Error "Git installation failed or not found in PATH"
+                throw "Git installation completed, but git.exe was not found in PATH. Restart PowerShell and verify the installation."
             }
         }
     }
