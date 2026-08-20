@@ -71,6 +71,8 @@ The extension contributes an MCP server named `BC Dev Toolset Operations` in VS 
 
 PowerShell-backed operations still run in the visible `BC Dev Toolset: <PowerShell executable>` terminal. This keeps long-running work, such as container creation and artifact downloads, visible while the agent waits for the operation result.
 
+The AL test MCP operation compiles the visible transcript and JUnit data into a bounded report. Successful prerequisite output is collapsed into stage status, while a failed build, container-preparation, or test stage includes its diagnostics. Test results include totals and actionable failure details without requiring a second build or test invocation.
+
 Some operations require confirmation before they start. If an operation asks a supported question while running, the visible terminal shows the question and the operation pauses. The agent may answer low-risk operational questions when it has enough context, but sensitive prompts and destructive user decisions still require you to choose. Operations started from the Command Palette keep the normal terminal behavior and can always be answered directly in the terminal.
 
 MCP operations with declared inputs use a non-mutating preflight call first: omit `execute: true` to receive all known questions together, then call the same tool with `execute: true` and the named answers. MCP operation tools also accept a `promptAnswers` object keyed by prompt ID for conditional prompts. Calling the same operation with answers while it is waiting resumes the existing session and retains all supplied answers for later prompts; it does not restart the operation. Sensitive decisions remain in the visible terminal.

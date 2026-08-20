@@ -233,6 +233,7 @@ function getServerInstructions() {
     'Use this server for Business Central Developer\'s Toolset operations. Prefer direct tools named bc_dev_toolset_* for matching user requests; do not inspect Docker containers or call BcContainerHelper directly to duplicate a supported toolset operation.',
     'For ordinary AL compile, build, or validation requests, call bc_dev_toolset_build_all_apps when it is exposed. Do not invoke al.exe, altool.exe, alc.exe, al compile, or a manually reconstructed PowerShell build while that tool is available. It preserves workspace dependency order, package-cache isolation, and configured assembly probing paths for .NET components.',
     'A failed, timed-out, or bridge-unavailable MCP operation must be reported; it is not permission to retry the same operation with direct compiler, Docker, BcContainerHelper, or PowerShell commands. Use a manual fallback only when no matching MCP tool is exposed or the user explicitly requests it.',
+    'The AL test operation returns a compiled stage and test report. Treat its included failure diagnostics as definitive and do not rerun the build or tests merely to retrieve output.',
     'Before answering questions about the active VS Code workspace, workspace file, workspace folders, AL project path, app.json location, .code-workspace settings, local .bcdevtoolset settings path, or AL settings such as assembly probing paths, call bc_dev_toolset_get_workspace or read bcdevtoolset://workspace/current. Do not infer the workspace by scanning parent folders unless this tool/resource is unavailable.',
     'PowerShell-backed operations require the VS Code terminal bridge and run visibly in the BC Dev Toolset terminal. If the bridge is unavailable, report that the BC Dev Toolset VS Code extension must be active instead of falling back to manual PowerShell.',
     'Use bc_dev_toolset_show_active_licenses for requests about the current container license. Use bc_dev_toolset_new_docker_container for creating or recreating containers.',
@@ -586,7 +587,10 @@ function getOperationToolDescription(operation) {
   const preflightText = getOperationPromptInputs(operation).length > 0
     ? ' Call without execute:true to return every declared input decision without starting the operation; then call again with execute:true and the answers.'
     : '';
-  return `BC Dev Toolset: ${operation.title}. Category: ${operation.category}.${aliasText}${confirmationText}${preflightText} A repeated call with promptAnswers resumes the same pending operation and retains answers for later prompts; it does not restart it.`;
+  const compiledReportText = operation.id === 'invokeTests'
+    ? ' Returns one compiled report with stage status, test totals, failure details, and diagnostics for the failed stage; do not rerun a failed build or test merely to retrieve output.'
+    : '';
+  return `BC Dev Toolset: ${operation.title}. Category: ${operation.category}.${aliasText}${confirmationText}${preflightText}${compiledReportText} A repeated call with promptAnswers resumes the same pending operation and retains answers for later prompts; it does not restart it.`;
 }
 
 function getOperationPromptInputs(operation) {
@@ -904,8 +908,10 @@ async function runOperationInTerminal(operation, args, progress) {
       ? 'Instruction: The operation is running visibly in the VS Code terminal. Call bc_dev_toolset_get_operation_status with this session ID to check completion and captured output.'
       : startedOnly
       ? 'Instruction: The operation is running visibly in the VS Code terminal. Terminal output capture was unavailable, so watch that terminal for progress and final output.'
+      : displayOperationId === 'invokeTests'
+      ? 'Instruction: The operation ran visibly in the VS Code terminal. Use the compiled operation report below as the definitive MCP result; do not rerun a failed stage merely to retrieve diagnostics.'
       : 'Instruction: The operation ran visibly in the VS Code terminal. Use the captured terminal output below as the MCP result.',
-    bridgeResult.output ? ['', 'TERMINAL OUTPUT:', truncateOutput(bridgeResult.output)].join('\n') : ''
+    bridgeResult.output ? ['', getOperationOutputLabel(displayOperationId), formatOperationOutput(displayOperationId, bridgeResult.output, bridgeResult.status, bridgeResult.operationReport)].join('\n') : ''
   ].filter((line) => line !== '').join('\n'), !completed && !running && !startedOnly && !waitingForInput && !promptAnswered);
 }
 
@@ -1136,7 +1142,7 @@ function formatOperationStatus(status) {
     status.status === 'waiting_for_input' ? formatPendingPromptInstruction(status) : '',
     result.exitCodeSource ? `Exit code source: ${result.exitCodeSource}` : '',
     typeof result.exitCode === 'number' ? `Exit code: ${result.exitCode}` : '',
-    result.output ? ['', 'TERMINAL OUTPUT:', truncateOutput(result.output)].join('\n') : '',
+    result.output ? ['', getOperationOutputLabel(status.operationId), formatOperationOutput(status.operationId, result.output, status.status, result.operationReport)].join('\n') : '',
     status.status === 'running' && prompt.id ? `Last prompt: ${prompt.id}` : ''
   ].filter((line) => line !== '').join('\n');
 }
@@ -1360,6 +1366,135 @@ function truncateOutput(output) {
   return `${output.slice(0, outputLimit)}\n\n[Output truncated to ${outputLimit} characters.]`;
 }
 
+function formatOperationOutput(operationId, output, operationStatus, operationReport) {
+  if (operationId !== 'invokeTests') {
+    return truncateOutput(output);
+  }
+
+  const compiledReport = compileInvokeTestsReport(output, operationStatus, operationReport);
+  return compiledReport || truncateOutput(output);
+}
+
+function getOperationOutputLabel(operationId) {
+  return operationId === 'invokeTests' ? 'OPERATION REPORT:' : 'TERMINAL OUTPUT:';
+}
+
+function compileInvokeTestsReport(output, operationStatus, operationReport) {
+  const text = String(output || '');
+  const markerPattern = /^__BCDEVTOOLSET_STAGE__(build|prepare|tests)::(started|succeeded|failed|cancelled)\s*$/gm;
+  const markers = [];
+  let markerMatch;
+  while ((markerMatch = markerPattern.exec(text)) !== null) {
+    markers.push({
+      stage: markerMatch[1],
+      status: markerMatch[2],
+      index: markerMatch.index,
+      endIndex: markerPattern.lastIndex
+    });
+  }
+  if (markers.length === 0) {
+    return '';
+  }
+
+  const stageNames = {
+    build: 'Build workspace apps',
+    prepare: 'Prepare test container and deploy apps',
+    tests: 'Execute AL tests'
+  };
+  const stages = ['build', 'prepare', 'tests'].map((stage) => {
+    const stageMarkers = markers.filter((marker) => marker.stage === stage);
+    const startMarker = stageMarkers.find((marker) => marker.status === 'started');
+    const endMarker = [...stageMarkers].reverse().find((marker) => marker.status !== 'started');
+    const nextMarker = endMarker && markers.find((marker) => marker.index > endMarker.index);
+    return {
+      id: stage,
+      name: stageNames[stage],
+      status: endMarker ? endMarker.status : (startMarker ? 'incomplete' : 'not reached'),
+      output: startMarker
+        ? text.slice(
+            startMarker.endIndex,
+            endMarker && endMarker.status === 'succeeded'
+              ? endMarker.index
+              : nextMarker ? nextMarker.index : text.length
+          )
+        : ''
+    };
+  });
+
+  const testReport = operationReport && typeof operationReport === 'object'
+    ? operationReport
+    : undefined;
+
+  const cancelled = stages.some((stage) => stage.status === 'cancelled');
+  const failed = stages.some((stage) => stage.status === 'failed') || operationStatus === 'failed';
+  const lines = [
+    `Status: ${cancelled ? 'cancelled' : failed ? 'failed' : operationStatus || 'completed'}`,
+    '',
+    'Stages:',
+    ...stages
+      .filter((stage) => stage.status !== 'not reached')
+      .map((stage) => `- ${stage.name}: ${stage.status}`)
+  ];
+
+  if (testReport) {
+    lines.push(
+      '',
+      `Tests: ${Number(testReport.total) || 0} total, ${Number(testReport.passed) || 0} passed, ${Number(testReport.failed) || 0} failed, ${Number(testReport.skipped) || 0} skipped`,
+      `Applications tested: ${Number(testReport.applicationCount) || 0}`,
+      `Duration: ${Number(testReport.durationSeconds) || 0} seconds`
+    );
+
+    const omittedFailureCount = Number(testReport.omittedFailureCount) || 0;
+    if (omittedFailureCount > 0) {
+      lines.push(`Failure details omitted: ${omittedFailureCount} (the first ${Array.isArray(testReport.failures) ? testReport.failures.length : 0} are shown)`);
+    }
+
+    const failures = Array.isArray(testReport.failures) ? testReport.failures : [];
+    if (failures.length > 0) {
+      lines.push('', 'Failures:');
+      failures.forEach((failure, index) => {
+        const location = [failure.app, failure.codeunit, failure.method].filter(Boolean).join(' / ');
+        lines.push(`${index + 1}. ${location || 'Unknown test'}`);
+        if (failure.message) {
+          lines.push(`   Message: ${limitText(failure.message, 1200)}`);
+        }
+        if (failure.stackTrace) {
+          lines.push(`   Stack: ${limitText(failure.stackTrace, 1600)}`);
+        }
+      });
+    }
+  }
+
+  const failedStage = stages.find((stage) => stage.status === 'failed');
+  if (failedStage && !(failedStage.id === 'tests' && testReport)) {
+    const diagnostics = compactFailureDiagnostics(failedStage.output);
+    lines.push('', `${failedStage.name} diagnostics:`, diagnostics || 'No stage diagnostics were captured.');
+  }
+
+  return truncateOutput(lines.join('\n'));
+}
+
+function compactFailureDiagnostics(output) {
+  const cleaned = String(output || '')
+    .replace(/^__BCDEVTOOLSET_STAGE__.*$\r?\n?/gm, '')
+    .trim();
+  const limit = 40000;
+  if (cleaned.length <= limit) {
+    return cleaned;
+  }
+
+  const headLength = 5000;
+  return `${cleaned.slice(0, headLength)}\n\n[${cleaned.length - limit} diagnostic characters omitted.]\n\n${cleaned.slice(-(limit - headLength))}`;
+}
+
+function limitText(value, maximumLength) {
+  const text = String(value || '').trim();
+  if (text.length <= maximumLength) {
+    return text;
+  }
+  return `${text.slice(0, maximumLength)}…`;
+}
+
 function textResult(text, isError = false) {
   return {
     content: [
@@ -1472,6 +1607,7 @@ module.exports = {
     },
     getTools,
     getOperationPromptAnswers,
+    compileInvokeTestsReport,
     normalizePromptToolAnswer,
     tryReadRawJsonMessage
   }
