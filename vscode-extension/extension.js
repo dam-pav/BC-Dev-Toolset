@@ -2033,7 +2033,7 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
     throw new Error(`BC Dev Toolset operation '${operation.id}' cannot be run by this extension.`);
   }
 
-  const capture = createMcpCapturePaths(operation.id);
+  const capture = createMcpCapturePaths();
   const session = getOrCreateMcpPromptSession(capture.sessionId);
   session.operationId = operation.id;
   session.operationTitle = operation.title;
@@ -2142,16 +2142,16 @@ function buildMcpCapturedPowerShellCommand(operationCommand, transcriptPath, res
   ].join('; ');
 }
 
-function createMcpCapturePaths(operationId) {
+function createMcpCapturePaths() {
   const temporaryRoot = authorizeRoot(os.tmpdir(), 'Operating system temporary directory');
   const directoryPath = resolveWithinRoot(temporaryRoot, 'bc-dev-toolset-mcp');
   fs.mkdirSync(directoryPath, { recursive: true });
-  const id = `${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${operationId}`;
+  const id = crypto.randomUUID();
   return {
     sessionId: id,
-    transcriptPath: path.join(directoryPath, `${id}.transcript.txt`),
-    resultPath: path.join(directoryPath, `${id}.result.json`),
-    reportPath: path.join(directoryPath, `${id}.report.json`)
+    transcriptPath: resolveWithinRoot(directoryPath, `${id}.transcript.txt`),
+    resultPath: resolveWithinRoot(directoryPath, `${id}.result.json`),
+    reportPath: resolveWithinRoot(directoryPath, `${id}.report.json`)
   };
 }
 
@@ -2209,13 +2209,13 @@ async function waitForMcpCaptureResult(operation, terminalName, capture, options
 }
 
 function readMcpCaptureResult(operation, terminalName, capture) {
-  const resultPath = assertMcpCapturePath(capture.resultPath);
+  const resultText = readTextFileIfExists(capture.resultPath);
   const transcriptPath = assertMcpCapturePath(capture.transcriptPath);
-  if (!fs.existsSync(resultPath)) {
+  if (!resultText) {
     return undefined;
   }
 
-  const result = JSON.parse(fs.readFileSync(resultPath, 'utf8').replace(/^\uFEFF/, ''));
+  const result = JSON.parse(resultText.replace(/^\uFEFF/, ''));
   const output = cleanPowerShellTranscript(readTextFileIfExists(transcriptPath));
   const operationReport = readJsonFileIfExists(capture.reportPath);
   const exitCode = typeof result.exitCode === 'number' ? result.exitCode : 1;
@@ -2251,7 +2251,8 @@ function readJsonFileIfExists(filePath) {
 
 function readTextFileIfExists(filePath) {
   const validatedPath = assertMcpCapturePath(filePath);
-  return fs.existsSync(validatedPath) ? fs.readFileSync(validatedPath, 'utf8') : '';
+  // validatedPath is normalized and confined to the extension-owned MCP capture root.
+  return fs.existsSync(validatedPath) ? fs.readFileSync(validatedPath, 'utf8') : ''; // nosemgrep
 }
 
 function assertMcpCapturePath(filePath) {
