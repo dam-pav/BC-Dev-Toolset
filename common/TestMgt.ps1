@@ -328,21 +328,14 @@ function New-TestExecutionContainerIfMissing {
     return $true
 }
 
-function Initialize-TestExecutionContainer {
+function Request-TestExecutionContainerSelection {
     Param (
         [Parameter(Mandatory=$true)]
-        [string] $scriptPath,
-        [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON,
-        [Parameter(Mandatory=$true)]
-        [PSObject] $workspaceJSON,
-        [switch] $BuildAppsBeforeDeployment
+        [PSObject] $settingsJSON
     )
 
     $selection = Select-TestContainerConfiguration -settingsJSON $settingsJSON
-    $configuration = $selection.Configuration
-    $containerName = $configuration.container
-
+    $containerName = $selection.Configuration.container
     if (-not (Confirm-Option `
         -question "Do you want to execute tests in the '$containerName' container?" `
         -PromptId "tests.executeInContainer" `
@@ -352,6 +345,31 @@ function Initialize-TestExecutionContainer {
         Write-Host "Test execution aborted." -ForegroundColor Yellow
         return $null
     }
+
+    return $selection
+}
+
+function Initialize-TestExecutionContainer {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $workspaceJSON,
+        [switch] $BuildAppsBeforeDeployment,
+        [PSObject] $Selection
+    )
+
+    $selection = $Selection
+    if ($null -eq $selection) {
+        $selection = Request-TestExecutionContainerSelection -settingsJSON $settingsJSON
+    }
+    if ($null -eq $selection) {
+        return $null
+    }
+    $configuration = $selection.Configuration
+    $containerName = $configuration.container
 
     if ($BuildAppsBeforeDeployment) {
         Write-Host ""
@@ -404,6 +422,81 @@ function Initialize-TestExecutionContainer {
     return $testSettings
 }
 
+function Get-BcDevToolsetTestResultDirectory {
+    $configuredHostHelperFolder = [string]$env:BCDEVTOOLSET_HOST_HELPER_FOLDER
+    if ([string]::IsNullOrWhiteSpace($configuredHostHelperFolder)) {
+        throw "BC Dev Toolset host helper folder is unavailable; JUnit test results cannot be captured."
+    }
+
+    # The extension validates and supplies the configurable host-helper root. Only a fixed child is used here.
+    $authorizedRoot = [System.IO.Path]::GetFullPath($configuredHostHelperFolder).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar)
+    $resultDirectory = [System.IO.Path]::GetFullPath((Join-Path $authorizedRoot 'bc-dev-toolset-test-results'))
+    $authorizedPrefix = $authorizedRoot + [System.IO.Path]::DirectorySeparatorChar
+    if (-not $resultDirectory.StartsWith($authorizedPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "The test-result directory escaped the configured host helper folder."
+    }
+
+    New-Item -ItemType Directory -Path $resultDirectory -Force | Out-Null
+    return $resultDirectory
+}
+
+function ConvertFrom-BcDevToolsetJUnitResult {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $ResultPath,
+        [Parameter(Mandatory=$true)]
+        [string] $AppName
+    )
+
+    if (-not (Test-Path -LiteralPath $ResultPath -PathType Leaf)) {
+        throw "Run-TestsInBcContainer did not create the expected JUnit result for '$AppName'."
+    }
+
+    [xml]$resultDocument = Get-Content -LiteralPath $ResultPath -Raw
+    $testSuites = @($resultDocument.SelectNodes('//testsuite'))
+    $failures = @()
+    $total = 0
+    $failed = 0
+    $skipped = 0
+    $durationSeconds = 0.0
+
+    foreach ($testSuite in $testSuites) {
+        $total += [int]$testSuite.GetAttribute('tests')
+        $failed += [int]$testSuite.GetAttribute('failures') + [int]$testSuite.GetAttribute('errors')
+        $skipped += [int]$testSuite.GetAttribute('skipped')
+        $suiteDuration = 0.0
+        if ([double]::TryParse(
+            $testSuite.GetAttribute('time'),
+            [System.Globalization.NumberStyles]::Float,
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [ref]$suiteDuration)) {
+            $durationSeconds += $suiteDuration
+        }
+
+        foreach ($testCase in @($testSuite.SelectNodes('./testcase[failure or error]'))) {
+            $failureNode = $testCase.SelectSingleNode('./failure | ./error')
+            $failures += [pscustomobject]@{
+                app = $AppName
+                codeunit = [string]$testCase.GetAttribute('classname')
+                method = [string]$testCase.GetAttribute('name')
+                message = [string]$failureNode.GetAttribute('message')
+                stackTrace = ([string]$failureNode.InnerText).Trim()
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        total = $total
+        passed = $total - $failed - $skipped
+        failed = $failed
+        skipped = $skipped
+        durationSeconds = [Math]::Round($durationSeconds, 3)
+        failures = @($failures)
+    }
+}
+
 function Invoke-Tests {
     Param (
         [Parameter(Mandatory=$true)]
@@ -425,6 +518,20 @@ function Invoke-Tests {
     if (-not [string]::IsNullOrWhiteSpace($targetType)) {
         $targetConfigurations = @($targetConfigurations | Where-Object { $_.targetType -eq $targetType })
     }
+
+    $resultDirectory = Get-BcDevToolsetTestResultDirectory
+    $compiledResult = [ordered]@{
+        applicationCount = 0
+        total = 0
+        passed = 0
+        failed = 0
+        skipped = 0
+        durationSeconds = 0.0
+        failures = @()
+        omittedFailureCount = 0
+        allPassed = $true
+    }
+    $maximumFailureDetails = 20
 
     foreach ($configuration in $targetConfigurations) {
         Write-Host "Running tests on '$($configuration.name)'." -ForegroundColor Blue
@@ -451,11 +558,14 @@ function Invoke-Tests {
                         throw "Workspace app '$($workspaceApp.Name)' ($($workspaceApp.AppId)) is not installed in container '$($configuration.container)'; tests cannot be discovered."
                     }
 
+                    $resultPath = Join-Path $resultDirectory "$([guid]::NewGuid().ToString('N')).junit.xml"
                     $params = @{
                         containerName = $configuration.container
                         credential = $credential
                         extensionId = [string]$workspaceApp.AppId
                         appName = [string]$installedApp[0].Name
+                        JUnitResultFileName = $resultPath
+                        returnTrueIfAllPassed = $true
                         detailed = $true
                     }
 
@@ -464,7 +574,29 @@ function Invoke-Tests {
                     Write-Host "Running " -ForegroundColor Green -NoNewline
                     Write-Host "Run-TestsInBcContainer" -ForegroundColor Blue -NoNewline
                     Write-Host " with extension-scoped test discovery:" -ForegroundColor Green
-                    Run-TestsInBcContainer -ErrorAction SilentlyContinue @params
+                    try {
+                        $appPassed = Run-TestsInBcContainer -ErrorAction SilentlyContinue @params
+                        $appResult = ConvertFrom-BcDevToolsetJUnitResult `
+                            -ResultPath $resultPath `
+                            -AppName ([string]$workspaceApp.Name)
+                        $compiledResult.applicationCount++
+                        $compiledResult.total += $appResult.total
+                        $compiledResult.passed += $appResult.passed
+                        $compiledResult.failed += $appResult.failed
+                        $compiledResult.skipped += $appResult.skipped
+                        $compiledResult.durationSeconds += $appResult.durationSeconds
+                        $compiledResult.allPassed = $compiledResult.allPassed -and ($appPassed -eq $true) -and ($appResult.failed -eq 0)
+
+                        foreach ($failure in @($appResult.failures)) {
+                            if ($compiledResult.failures.Count -lt $maximumFailureDetails) {
+                                $compiledResult.failures += $failure
+                            } else {
+                                $compiledResult.omittedFailureCount++
+                            }
+                        }
+                    } finally {
+                        Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
+                    }
                 }
             }
             Default {
@@ -472,6 +604,9 @@ function Invoke-Tests {
             }
         }
     }
+
+    $compiledResult.durationSeconds = [Math]::Round($compiledResult.durationSeconds, 3)
+    return [pscustomobject]$compiledResult
 }
 
 function Invoke-PageScriptTests {

@@ -116,6 +116,90 @@ test('build tool description directs AL compilation through workspace-aware tool
   assert.match(buildTool.description, /assembly probing paths/);
 });
 
+test('compiles successful test output without prerequisite stage chatter', () => {
+  const report = {
+    applicationCount: 2,
+    total: 12,
+    passed: 11,
+    failed: 0,
+    skipped: 1,
+    durationSeconds: 4.25,
+    failures: [],
+    omittedFailureCount: 0,
+    allPassed: true
+  };
+  const output = [
+    '__BCDEVTOOLSET_STAGE__build::started',
+    'verbose successful compiler output',
+    '__BCDEVTOOLSET_STAGE__build::succeeded',
+    '__BCDEVTOOLSET_STAGE__prepare::started',
+    'verbose successful deployment output',
+    '__BCDEVTOOLSET_STAGE__prepare::succeeded',
+    '__BCDEVTOOLSET_STAGE__tests::started',
+    '__BCDEVTOOLSET_STAGE__tests::succeeded'
+  ].join('\n');
+
+  const compiled = mcpServer.compileInvokeTestsReport(output, 'completed', report);
+
+  assert.match(compiled, /12 total, 11 passed, 0 failed, 1 skipped/);
+  assert.match(compiled, /Build workspace apps: succeeded/);
+  assert.doesNotMatch(compiled, /verbose successful compiler output/);
+  assert.doesNotMatch(compiled, /verbose successful deployment output/);
+});
+
+test('includes build diagnostics when the nested test build stage fails', () => {
+  const output = [
+    '__BCDEVTOOLSET_STAGE__build::started',
+    "Building 'Payroll' using its isolated project package cache...",
+    "src/codeunit.al(10,5): error AL0132: 'Record' does not contain a definition",
+    '__BCDEVTOOLSET_STAGE__build::failed',
+    "AL compilation failed for 'Payroll' (process exit code: 1)."
+  ].join('\n');
+
+  const compiled = mcpServer.compileInvokeTestsReport(output, 'failed');
+
+  assert.match(compiled, /Build workspace apps: failed/);
+  assert.match(compiled, /error AL0132/);
+  assert.match(compiled, /AL compilation failed for 'Payroll'/);
+  assert.doesNotMatch(compiled, /Prepare test container/);
+});
+
+test('reports bounded individual AL test failures from the compiled result', () => {
+  const report = {
+    applicationCount: 1,
+    total: 3,
+    passed: 1,
+    failed: 2,
+    skipped: 0,
+    durationSeconds: 1.5,
+    omittedFailureCount: 4,
+    failures: [{
+      app: 'Payroll Tests',
+      codeunit: '50100 Payroll Tests',
+      method: 'RejectsInvalidPeriod',
+      message: 'Expected an error.',
+      stackTrace: 'PayrollTests.RejectsInvalidPeriod line 42'
+    }]
+  };
+  const output = [
+    '__BCDEVTOOLSET_STAGE__build::started',
+    '__BCDEVTOOLSET_STAGE__build::succeeded',
+    '__BCDEVTOOLSET_STAGE__prepare::started',
+    '__BCDEVTOOLSET_STAGE__prepare::succeeded',
+    '__BCDEVTOOLSET_STAGE__tests::started',
+    '__BCDEVTOOLSET_STAGE__tests::failed',
+    '2 of 3 AL tests failed.'
+  ].join('\n');
+
+  const compiled = mcpServer.compileInvokeTestsReport(output, 'failed', report);
+
+  assert.match(compiled, /3 total, 1 passed, 2 failed/);
+  assert.match(compiled, /Payroll Tests \/ 50100 Payroll Tests \/ RejectsInvalidPeriod/);
+  assert.match(compiled, /Expected an error/);
+  assert.match(compiled, /Failure details omitted: 4/);
+  assert.doesNotMatch(compiled, /2 of 3 AL tests failed/);
+});
+
 test('pre-supplies testing prompt answers for test operations', () => {
   assert.deepEqual(
     mcpServer.getOperationPromptAnswers({ id: 'invokeTests' }, {}),

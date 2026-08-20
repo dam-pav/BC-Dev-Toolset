@@ -33,9 +33,9 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 9;
+const mcpServerDefinitionRevision = 10;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 3;
+const runtimeToolsetRevision = 4;
 
 const directOperationIds = [
   'invokeTests',
@@ -705,7 +705,7 @@ function cleanupMcpCaptureFiles(capture) {
     return;
   }
 
-  for (const filePath of [capture.transcriptPath, capture.resultPath]) {
+  for (const filePath of [capture.transcriptPath, capture.resultPath, capture.reportPath]) {
     const validatedPath = filePath ? assertMcpCapturePath(filePath) : '';
     if (validatedPath && fs.existsSync(validatedPath)) { // nosemgrep -- confined to the MCP capture root
       try {
@@ -1221,7 +1221,10 @@ function getShortcutMode() {
 }
 
 function getHostHelperFolder() {
-  return getConfiguration().get('hostHelperFolder') || 'C:\\ProgramData\\BcContainerHelper';
+  return authorizeRoot(
+    getConfiguration().get('hostHelperFolder') || 'C:\\ProgramData\\BcContainerHelper',
+    'BC Dev Toolset host helper folder'
+  );
 }
 
 function getDefaultToolsetPath() {
@@ -2041,6 +2044,7 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
     includeMcpCapture: true,
     transcriptPath: capture.transcriptPath,
     resultPath: capture.resultPath,
+    reportPath: capture.reportPath,
     mcpSessionId: capture.sessionId,
     workspacePath: options.workspacePath,
     workspaceFile: options.workspaceFile,
@@ -2096,13 +2100,15 @@ function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
         `$env:BCDEVTOOLSET_MCP_SESSION_ID = ${quotePowerShellArgument(options.mcpSessionId)}`,
         `$env:BCDEVTOOLSET_MCP_PROMPT_URL = ${quotePowerShellArgument(`${mcpBridgeUrl}/prompt/request`)}`,
         `$env:BCDEVTOOLSET_MCP_PROMPT_TOKEN = ${quotePowerShellArgument(mcpBridgeToken)}`,
-        `$env:BCDEVTOOLSET_MCP_PROMPT_BINDING = ${quotePowerShellArgument(JSON.stringify({ protocolVersion: bridgeIdentity.protocolVersion, instanceId: mcpBridgeInstanceId, extensionHostPid: process.pid }))}`
+        `$env:BCDEVTOOLSET_MCP_PROMPT_BINDING = ${quotePowerShellArgument(JSON.stringify({ protocolVersion: bridgeIdentity.protocolVersion, instanceId: mcpBridgeInstanceId, extensionHostPid: process.pid }))}`,
+        `$env:BCDEVTOOLSET_MCP_REPORT_PATH = ${quotePowerShellArgument(options.reportPath || '')}`
       ].join('; ') + '; '
     : [
         '$env:BCDEVTOOLSET_MCP_SESSION_ID = $null',
         '$env:BCDEVTOOLSET_MCP_PROMPT_URL = $null',
         '$env:BCDEVTOOLSET_MCP_PROMPT_TOKEN = $null',
-        '$env:BCDEVTOOLSET_MCP_PROMPT_BINDING = $null'
+        '$env:BCDEVTOOLSET_MCP_PROMPT_BINDING = $null',
+        '$env:BCDEVTOOLSET_MCP_REPORT_PATH = $null'
       ].join('; ') + '; ';
 
   const command =
@@ -2144,7 +2150,8 @@ function createMcpCapturePaths(operationId) {
   return {
     sessionId: id,
     transcriptPath: path.join(directoryPath, `${id}.transcript.txt`),
-    resultPath: path.join(directoryPath, `${id}.result.json`)
+    resultPath: path.join(directoryPath, `${id}.result.json`),
+    reportPath: path.join(directoryPath, `${id}.report.json`)
   };
 }
 
@@ -2208,8 +2215,9 @@ function readMcpCaptureResult(operation, terminalName, capture) {
     return undefined;
   }
 
-  const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+  const result = JSON.parse(fs.readFileSync(resultPath, 'utf8').replace(/^\uFEFF/, ''));
   const output = cleanPowerShellTranscript(readTextFileIfExists(transcriptPath));
+  const operationReport = readJsonFileIfExists(capture.reportPath);
   const exitCode = typeof result.exitCode === 'number' ? result.exitCode : 1;
   return {
     status: exitCode === 0 ? 'completed' : 'failed',
@@ -2220,8 +2228,25 @@ function readMcpCaptureResult(operation, terminalName, capture) {
     exitCodeSource: 'mcp-capture-file',
     timedOut: false,
     outputAvailable: true,
-    output: result.error ? `${output}\n\nError: ${result.error}`.trim() : output
+    output: result.error ? `${output}\n\nError: ${result.error}`.trim() : output,
+    operationReport
   };
+}
+
+function readJsonFileIfExists(filePath) {
+  if (!filePath) {
+    return undefined;
+  }
+  const value = readTextFileIfExists(filePath);
+  if (!value) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(value.replace(/^\uFEFF/, ''));
+  } catch (error) {
+    writeOutput(`Failed to parse MCP operation report ${assertMcpCapturePath(filePath)}: ${error.message}`);
+    return undefined;
+  }
 }
 
 function readTextFileIfExists(filePath) {

@@ -414,13 +414,11 @@ test('AL test builds every workspace app before preparing the test container', (
   const buildOperation = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
     path.join(repositoryRoot, 'operations', 'BuildAllApps.ps1'), 'utf8');
 
-  assert.match(invokeTestsOperation, /Initialize-TestExecutionContainer[\s\S]*?-BuildAppsBeforeDeployment/);
+  assert.match(invokeTestsOperation, /BuildAllApps\.ps1'\) -SkipOperationUI[\s\S]*?Initialize-TestExecutionContainer/);
+  assert.match(invokeTestsOperation, /Request-TestExecutionContainerSelection[\s\S]*?BuildAllApps\.ps1/);
   assert.doesNotMatch(pageScriptOperation, /-BuildAppsBeforeDeployment/);
-  assert.match(initializeContainer, /BuildAllApps\.ps1'\) -SkipOperationUI/);
-  assert.ok(initializeContainer.indexOf('BuildAllApps.ps1') < initializeContainer.indexOf('New-TestExecutionContainerIfMissing'));
-  assert.ok(initializeContainer.indexOf('BuildAllApps.ps1') < initializeContainer.indexOf('Restore-TestContainerBackupIfExists'));
-  assert.ok(initializeContainer.indexOf('BuildAllApps.ps1') < initializeContainer.indexOf('Publish-Dependencies'));
-  assert.ok(initializeContainer.indexOf('BuildAllApps.ps1') < initializeContainer.indexOf('Publish-Apps'));
+  assert.doesNotMatch(invokeTestsOperation, /-BuildAppsBeforeDeployment/);
+  assert.match(initializeContainer, /New-TestExecutionContainerIfMissing/);
   assert.match(buildOperation, /\[switch\] \$SkipOperationUI/);
 });
 
@@ -436,6 +434,9 @@ test('AL test runs discover tests by workspace extension id without suite regist
   assert.match(invokeTests, /Get-BcContainerAppInfo[\s\S]*?-containerName \$configuration\.container[\s\S]*?-installedOnly/);
   assert.match(invokeTests, /extensionId = \[string\]\$workspaceApp\.AppId/);
   assert.match(invokeTests, /Run-TestsInBcContainer[\s\S]*?@params/);
+  assert.match(invokeTests, /JUnitResultFileName = \$resultPath/);
+  assert.match(invokeTests, /returnTrueIfAllPassed = \$true/);
+  assert.match(invokeTests, /detailed = \$true/);
   assert.doesNotMatch(invokeTests, /\.testSuite|params\.testSuite/);
 });
 
