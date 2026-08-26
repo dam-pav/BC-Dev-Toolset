@@ -10,49 +10,23 @@ $scriptPath = (Get-Item $PSScriptRoot).Parent
 . $scriptPath/common/WorkspaceMgt.ps1
 
 function Resolve-AlToolPath {
-    $candidates = @()
-
-    if (-not [string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_ALTOOL_PATH)) {
-        $candidates += $env:BCDEVTOOLSET_ALTOOL_PATH
+    if ([string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_ALTOOL_PATH)) {
+        throw 'ALTool path was not provided. Run this operation through the BC Dev Toolset VS Code extension.'
     }
 
-    foreach ($commandName in @('altool.exe', 'al.exe', 'altool', 'al')) {
-        $toolCommand = Get-Command $commandName -CommandType Application -ErrorAction SilentlyContinue
-        if ($null -ne $toolCommand) { $candidates += $toolCommand.Source }
+    # The VS Code extension supplies its Microsoft AL Language dependency's platform-specific ALTool.
+    $validatedAlToolPath = [System.IO.Path]::GetFullPath([string]$env:BCDEVTOOLSET_ALTOOL_PATH)
+    if (-not (Test-Path -LiteralPath $validatedAlToolPath -PathType Leaf)) {
+        throw "ALTool was not found at '$validatedAlToolPath'. Reinstall the Microsoft AL Language extension."
     }
 
-    $extensionRoots = @()
-    if (-not [string]::IsNullOrWhiteSpace($env:VSCODE_EXTENSIONS)) {
-        $extensionRoots += $env:VSCODE_EXTENSIONS
-    }
-    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
-        $extensionRoots += (Join-Path $env:USERPROFILE '.vscode\extensions')
-        $extensionRoots += (Join-Path $env:USERPROFILE '.vscode-insiders\extensions')
+    $LASTEXITCODE = 0
+    $helpOutput = @(& $validatedAlToolPath compile --help 2>&1)
+    if ($LASTEXITCODE -ne 0 -or (($helpOutput -join "`n") -notmatch 'invoking alc.exe')) {
+        throw "The configured ALTool is not a compatible Microsoft AL compiler: '$validatedAlToolPath'."
     }
 
-    foreach ($extensionRoot in ($extensionRoots | Select-Object -Unique)) {
-        if (-not (Test-Path -LiteralPath $extensionRoot -PathType Container)) { continue }
-        foreach ($alExtension in @(Get-ChildItem -LiteralPath $extensionRoot -Directory -Filter 'ms-dynamics-smb.al-*' |
-            Sort-Object Name -Descending)) {
-            $candidates += (Join-Path $alExtension.FullName 'bin\win32\altool.exe')
-        }
-    }
-
-    foreach ($candidate in $candidates) {
-        if ([string]::IsNullOrWhiteSpace([string]$candidate)) { continue }
-
-        # This path is intentionally configurable for CI installations. Validate it once here.
-        $validatedAlToolPath = [System.IO.Path]::GetFullPath([string]$candidate)
-        if (-not (Test-Path -LiteralPath $validatedAlToolPath -PathType Leaf)) { continue }
-
-        $LASTEXITCODE = 0
-        $helpOutput = @(& $validatedAlToolPath compile --help 2>&1)
-        if ($LASTEXITCODE -eq 0 -and (($helpOutput -join "`n") -match 'invoking alc.exe')) {
-            return $validatedAlToolPath
-        }
-    }
-
-    throw "ALTool was not found. Install a current Microsoft AL Language extension, install the Business Central Development Tools .NET tool, or set BCDEVTOOLSET_ALTOOL_PATH."
+    return $validatedAlToolPath
 }
 
 function Resolve-AlSettingPath {

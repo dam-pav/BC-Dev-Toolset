@@ -422,6 +422,26 @@ test('AL test builds every workspace app before preparing the test container', (
   assert.match(buildOperation, /\[switch\] \$SkipOperationUI/);
 });
 
+test('AL compilation uses the required AL extension bundled tool instead of global al discovery', () => {
+  const packageJson = JSON.parse(fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'vscode-extension', 'package.json'), 'utf8'));
+  const extensionSource = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
+  const operationBridge = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'Invoke-BcDevToolsetOperation.ps1'), 'utf8');
+  const buildOperation = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'operations', 'BuildAllApps.ps1'), 'utf8');
+
+  assert.ok(packageJson.extensionDependencies.includes('ms-dynamics-smb.al'));
+  assert.match(extensionSource, /vscode\.extensions\.getExtension\('ms-dynamics-smb\.al'\)/);
+  assert.match(extensionSource, /'bin', process\.platform, executableName/);
+  assert.match(extensionSource, /operationsRequiringAlTool\.has\(operation\.id\)[\s\S]*?-ValidatedAlToolPath/);
+  assert.match(operationBridge, /\[string\] \$ValidatedAlToolPath = ''/);
+  assert.match(operationBridge, /\$env:BCDEVTOOLSET_ALTOOL_PATH = \[System\.IO\.Path\]::GetFullPath\(\$ValidatedAlToolPath\)/);
+  assert.match(buildOperation, /\$env:BCDEVTOOLSET_ALTOOL_PATH/);
+  assert.doesNotMatch(buildOperation, /Get-Command|['"]al\.exe['"]|['"]al['"]/);
+});
+
 test('AL test runs discover tests by workspace extension id without suite registration', () => {
   const testManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
     path.join(repositoryRoot, 'common', 'TestMgt.ps1'), 'utf8');

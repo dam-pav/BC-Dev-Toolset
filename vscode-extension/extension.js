@@ -33,9 +33,14 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 11;
+const mcpServerDefinitionRevision = 12;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 5;
+const runtimeToolsetRevision = 6;
+
+const operationsRequiringAlTool = new Set([
+  'buildAllApps',
+  'invokeTests'
+]);
 
 const directOperationIds = [
   'showHelp',
@@ -1150,11 +1155,11 @@ function getCodexAgentsInstructionSection() {
     '',
     'Use BC Dev Toolset runtime package operations only when the user explicitly asks for runtime packages. Do not use `bc_dev_toolset_create_runtime_package` as a substitute for ordinary AL compile/build/validation; it creates deployment runtime artifacts and requires runtime-package settings such as `packageOutputPath`.',
     '',
-    'For ordinary AL compile, build, or validation requests, call `bc_dev_toolset_build_all_apps` when it is exposed. Do not invoke `al.exe`, `altool.exe`, `alc.exe`, `al compile`, or a manually reconstructed PowerShell build while that MCP tool is available; the toolset operation carries workspace dependencies, package-cache settings, and `al.assemblyProbingPaths` needed for .NET components.',
+    'For ordinary AL compile, build, or validation requests, call `bc_dev_toolset_build_all_apps` when it is exposed. Do not invoke an AL compiler directly while that MCP tool is available; the toolset operation carries workspace dependencies, package-cache settings, and `al.assemblyProbingPaths` needed for .NET components.',
     '',
     'An MCP failure is not permission to bypass the toolset. If a matching MCP operation fails, times out, reports an unavailable terminal bridge, or returns incomplete context, report that result and the corrective action instead of retrying through direct compiler, Docker, BcContainerHelper, or PowerShell commands. Use a manual fallback only when no matching MCP tool is exposed or the user explicitly requests it.',
     '',
-    'Before any permitted AL CLI fallback, call `bc_dev_toolset_get_workspace` when available and carry its package-cache and assembly-probing settings into the compiler command. If required assembly context is absent, stop instead of guessing paths.',
+    'Before any permitted AL CLI fallback, call `bc_dev_toolset_get_workspace` when available and carry its package-cache and assembly-probing settings into the compiler command. Use the platform-specific ALTool bundled with the active Microsoft AL Language extension; never use the unsigned global `al` .NET tool. If required assembly context is absent, stop instead of guessing paths.',
     '',
     'PowerShell and terminal commands are appropriate for work that is not covered by a `bc_dev_toolset_*` MCP tool, for reading local files, and for normal codebase maintenance.',
     '',
@@ -1246,6 +1251,21 @@ function getToolsetPath() {
   }
 
   return authorizeRoot(getDefaultToolsetPath(), 'BC Dev Toolset installation path');
+}
+
+function getValidatedBundledAlToolPath() {
+  const alExtension = vscode.extensions.getExtension('ms-dynamics-smb.al');
+  if (!alExtension) {
+    throw new Error('The Microsoft AL Language extension is required to run AL compilation operations.');
+  }
+
+  const executableName = process.platform === 'win32' ? 'altool.exe' : 'altool';
+  const validatedAlToolPath = resolveWithinRoot(alExtension.extensionPath, 'bin', process.platform, executableName);
+  if (!fs.existsSync(validatedAlToolPath)) { // nosemgrep -- fixed segments resolve beneath the trusted AL extension root
+    throw new Error(`The Microsoft AL Language extension does not contain ALTool for ${process.platform}: ${validatedAlToolPath}`);
+  }
+
+  return validatedAlToolPath;
 }
 
 function getDevelopmentToolsetPath() {
@@ -2109,6 +2129,9 @@ function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
   const workspaceFileArguments = workspaceFile
     ? ` -WorkspaceFile ${quotePowerShellArgument(workspaceFile)}`
     : '';
+  const alToolArguments = operationsRequiringAlTool.has(operation.id)
+    ? ` -ValidatedAlToolPath ${quotePowerShellArgument(getValidatedBundledAlToolPath())}`
+    : '';
 
   const operationCommand =
     `& ${quotePowerShellArgument(bridgePath)}` +
@@ -2116,6 +2139,7 @@ function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
     ` -WorkspacePath ${quotePowerShellArgument(workspacePath)}` +
     workspaceFileArguments +
     localSettingsArguments +
+    alToolArguments +
     (options.nonInteractive ? ' -NonInteractive' : '');
 
   const mcpPromptEnvironment = options.mcpSessionId

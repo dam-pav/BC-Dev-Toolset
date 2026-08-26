@@ -19,6 +19,9 @@ param(
     [string] $SettingsPath = '',
 
     [Parameter(Mandatory=$false)]
+    [string] $ValidatedAlToolPath = '',
+
+    [Parameter(Mandatory=$false)]
     [switch] $ListOperations,
 
     [Parameter(Mandatory=$false)]
@@ -78,6 +81,7 @@ $previousWorkspaceFile = $env:BCDEVTOOLSET_WORKSPACE_FILE
 $previousProjectSettingsPath = $env:BCDEVTOOLSET_PROJECT_SETTINGS_PATH
 $previousLocalSettingsPath = $env:BCDEVTOOLSET_LOCAL_SETTINGS_PATH
 $previousSettingsPath = $env:BCDEVTOOLSET_SETTINGS_PATH
+$previousAlToolPath = $env:BCDEVTOOLSET_ALTOOL_PATH
 $previousNonInteractive = $env:BCDEVTOOLSET_NON_INTERACTIVE
 
 try {
@@ -86,6 +90,10 @@ try {
     $env:BCDEVTOOLSET_PROJECT_SETTINGS_PATH = $ProjectSettingsPath
     $env:BCDEVTOOLSET_LOCAL_SETTINGS_PATH = $LocalSettingsPath
     $env:BCDEVTOOLSET_SETTINGS_PATH = $SettingsPath
+    if (-not [string]::IsNullOrWhiteSpace($ValidatedAlToolPath)) {
+        # The extension validated this fixed child path against the Microsoft AL Language extension root.
+        $env:BCDEVTOOLSET_ALTOOL_PATH = [System.IO.Path]::GetFullPath($ValidatedAlToolPath)
+    }
     $env:BCDEVTOOLSET_NON_INTERACTIVE = if ($NonInteractive) { 'true' } else { '' }
 
     if ($NonInteractive) {
@@ -105,5 +113,6 @@ try {
     $env:BCDEVTOOLSET_PROJECT_SETTINGS_PATH = $previousProjectSettingsPath
     $env:BCDEVTOOLSET_LOCAL_SETTINGS_PATH = $previousLocalSettingsPath
     $env:BCDEVTOOLSET_SETTINGS_PATH = $previousSettingsPath
+    $env:BCDEVTOOLSET_ALTOOL_PATH = $previousAlToolPath
     $env:BCDEVTOOLSET_NON_INTERACTIVE = $previousNonInteractive
 }

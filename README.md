@@ -190,6 +190,8 @@ The Codex MCP server uses the VS Code terminal bridge belonging to the current w
 
 There are two scenarios for workspaces, in relation to repositories they handle.
 
+The *Build all apps in the workspace* operation compiles with the platform-specific ALTool bundled and signed with the required Microsoft AL Language extension. BC Dev Toolset does not discover or invoke the unsigned global `al` .NET tool. This keeps the compiler version aligned with the active AL extension and compatible with Windows Smart App Control.
+
 ---
 
 1. A workspace can contain one or more separate repositories, some of them containing apps of their own. The workspace definition is not included in any of them. It can include other otherwise independent folders, not necessarily containing apps. This is perfect for the developer that wants to use the toolset casually without involving it in any workflows.
