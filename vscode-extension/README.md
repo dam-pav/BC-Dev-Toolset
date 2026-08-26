@@ -95,6 +95,8 @@ The Codex MCP server uses the VS Code terminal bridge belonging to the current w
 
 The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all the required components with a single operation. For practical use, you should expect to need:
 
+Installing BC Dev Toolset also installs the official **Microsoft AL Language** extension automatically. It is a required VS Code extension dependency and supplies the platform-specific, signed ALTool used by the build and AL test operations.
+
 - Windows with PowerShell available. The extension uses `pwsh` by default.
 - Have access to or be an administrator on your workstation. The "Prerequisites" category operations require elevated access.
 - Access to any required Business Central environments, credentials, licenses, certificates, or dependency packages used by your team.
