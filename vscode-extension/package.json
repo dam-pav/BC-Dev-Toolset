@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -22,6 +22,9 @@
   "engines": {
     "vscode": "^1.101.0"
   },
+  "extensionDependencies": [
+    "ms-dynamics-smb.al"
+  ],
   "categories": [
     "Other"
   ],

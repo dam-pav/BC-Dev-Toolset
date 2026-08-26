@@ -41,6 +41,8 @@ You already have your VS Code running? It's as simple as 1,2,3.
 2. Open Command Palette, select *BC Dev Toolset: Install Prerequisites* and run the operation.
 3. Open Command Palette, select BC Dev Toolset: Initialize Workspace and run.
 
+Installing BC Dev Toolset also installs the official **Microsoft AL Language** extension automatically. It is a required VS Code extension dependency and supplies the platform-specific, signed ALTool used by the build and AL test operations.
+
 Your development environment for your current workspace is ready and you can start with creating your container, managing your workspace etc.
 
 ## Running the Toolset operations
@@ -189,6 +191,8 @@ The Codex MCP server uses the VS Code terminal bridge belonging to the current w
 ## Workspaces
 
 There are two scenarios for workspaces, in relation to repositories they handle.
+
+The *Build all apps in the workspace* operation compiles with the platform-specific ALTool bundled and signed with the required Microsoft AL Language extension. BC Dev Toolset does not discover or invoke the unsigned global `al` .NET tool. This keeps the compiler version aligned with the active AL extension and compatible with Windows Smart App Control.
 
 ---
 

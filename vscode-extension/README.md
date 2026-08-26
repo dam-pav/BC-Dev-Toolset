@@ -95,6 +95,8 @@ The Codex MCP server uses the VS Code terminal bridge belonging to the current w
 
 The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all the required components with a single operation. For practical use, you should expect to need:
 
+Installing BC Dev Toolset also installs the official **Microsoft AL Language** extension automatically. It is a required VS Code extension dependency and supplies the platform-specific, signed ALTool used by the build and AL test operations.
+
 - Windows with PowerShell available. The extension uses `pwsh` by default.
 - Have access to or be an administrator on your workstation. The "Prerequisites" category operations require elevated access.
 - Access to any required Business Central environments, credentials, licenses, certificates, or dependency packages used by your team.
@@ -106,7 +108,7 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 - `Initialize Workspace`: Creates the baseline BC Dev Toolset workspace structure and default settings content for the current workspace.
 - `Open Local Settings (JSON)`: Opens `.bcdevtoolset/settings.json` for the current workspace.
 - `Clear App and translation artifacts`: Removes generated app and translation artifacts from the workspace.
-- `Build all apps in the workspace`: Uses Microsoft ALTool to compile each AL project in dependency order. Every app builds against an isolated copy of its own package cache plus freshly built packages for its declared workspace dependencies, preserving project cache isolation.
+- `Build all apps in the workspace`: Uses the platform-specific ALTool bundled and signed with the required Microsoft AL Language extension to compile each AL project in dependency order. The toolset does not discover or invoke the unsigned global `al` .NET tool. Every app builds against an isolated copy of its own package cache plus freshly built packages for its declared workspace dependencies, preserving project cache isolation.
 - `Update launch.json files in all apps in the workspace`: Refreshes launch configurations for all apps in the workspace.
 
 ### Container
