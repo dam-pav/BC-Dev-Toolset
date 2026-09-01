@@ -80,6 +80,11 @@ test('workspace initialization recognizes BC apps nested in a workspace folder',
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /workspace configuration is ready/i);
   const initializedWorkspace = JSON.parse(fs.readFileSync(workspaceFile, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
+  assert.deepEqual(initializedWorkspace.folders, [
+    { name: 'sample', path: '.' },
+    { path: 'src/app' }
+  ]);
+  assert.deepEqual(initializedWorkspace.settings['files.exclude'], { 'src/app': true });
   assert.ok(initializedWorkspace.settings['dam-pav.bcdevtoolset']);
   assert.equal(initializedWorkspace.settings['dam-pav.bcdevtoolset'].selectArtifact, 'Latest');
   assert.equal(initializedWorkspace.settings['al.symbolsCountryRegion'], 'w1');
@@ -91,6 +96,50 @@ test('workspace initialization recognizes BC apps nested in a workspace folder',
   assert.deepEqual(localSettings.configurations.map(({ targetType }) => targetType), ['Dev', 'Test']);
   assert.deepEqual(localSettings.configurations.map(({ container }) => container), ['sample', 'sample-Test']);
   assert.deepEqual(localSettings.configurations.map(({ includeTestToolkit }) => includeTestToolkit), ['false', 'true']);
+});
+
+test('workspace initialization coordinates repository, app folders, and file exclusions', () => {
+  const workspacePath = authorizeRoot(
+    fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-coordinated-workspace-')),
+    'Test workspace'
+  );
+  const payrollPath = resolveWithinRoot(workspacePath, 'apps', 'Payroll');
+  const testsPath = resolveWithinRoot(workspacePath, 'tests', 'Payroll.Tests');
+  const workspaceFile = resolveWithinRoot(workspacePath, 'sample.code-workspace');
+  fs.mkdirSync(payrollPath, { recursive: true }); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.mkdirSync(testsPath, { recursive: true }); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.writeFileSync(resolveWithinRoot(payrollPath, 'app.json'), '{}\n'); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.writeFileSync(resolveWithinRoot(testsPath, 'app.json'), '{}\n'); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.writeFileSync(workspaceFile, JSON.stringify({ // nosemgrep -- path is contained by the test-owned workspace root
+    folders: [
+      { name: 'Repository', path: '.' },
+      { name: 'Payroll app', path: 'apps/Payroll' },
+      { path: 'docs' }
+    ],
+    settings: { 'files.exclude': { generated: true } }
+  }));
+
+  const result = runInitializeWorkspace(workspacePath, workspaceFile);
+
+  assert.equal(result.status, 0, result.stderr);
+  const initializedWorkspace = JSON.parse(fs.readFileSync(workspaceFile, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
+  assert.deepEqual(initializedWorkspace.folders, [
+    { name: 'sample', path: '.' },
+    { name: 'Payroll app', path: 'apps/Payroll' },
+    { path: 'tests/Payroll.Tests' },
+    { path: 'docs' }
+  ]);
+  assert.deepEqual(initializedWorkspace.settings['files.exclude'], {
+    generated: true,
+    'apps/Payroll': true,
+    'tests/Payroll.Tests': true
+  });
+
+  const rerunResult = runInitializeWorkspace(workspacePath, workspaceFile);
+  assert.equal(rerunResult.status, 0, rerunResult.stderr);
+  const rerunWorkspace = JSON.parse(fs.readFileSync(workspaceFile, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
+  assert.deepEqual(rerunWorkspace.folders, initializedWorkspace.folders);
+  assert.deepEqual(rerunWorkspace.settings['files.exclude'], initializedWorkspace.settings['files.exclude']);
 });
 
 test('workspace initialization writes local settings beside the active workspace file', () => {

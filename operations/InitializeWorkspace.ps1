@@ -87,6 +87,94 @@ function Add-BcDevToolsetGitIgnore {
     Add-Content -LiteralPath $gitIgnorePath -Value ''
 }
 
+function Update-WorkspacePaths {
+    param(
+        [PSObject] $Workspace,
+        [string] $WorkspaceRootPath,
+        [string] $WorkspaceName
+    )
+
+    $appFolderPaths = @(Get-AppWorkspaceFolders -RootPath $WorkspaceRootPath)
+    if ($appFolderPaths.Count -eq 0) {
+        return
+    }
+
+    $existingFolders = @($Workspace.folders)
+    $coordinatedFolders = [System.Collections.ArrayList]::new()
+    $includedPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $requiredPaths = @('.') + @($appFolderPaths | Where-Object { $_ -ne '.' })
+
+    foreach ($requiredPath in $requiredPaths) {
+        $requiredFullPath = [System.IO.Path]::GetFullPath((Join-Path $WorkspaceRootPath $requiredPath))
+        $matchingFolder = $null
+        foreach ($existingFolder in $existingFolders) {
+            $existingPath = if ($existingFolder -is [string]) { $existingFolder } else { $existingFolder.path }
+            if ([string]::IsNullOrWhiteSpace($existingPath)) {
+                continue
+            }
+
+            $existingFullPath = if ([System.IO.Path]::IsPathRooted($existingPath)) {
+                [System.IO.Path]::GetFullPath($existingPath)
+            } else {
+                [System.IO.Path]::GetFullPath((Join-Path $WorkspaceRootPath $existingPath))
+            }
+            if ($existingFullPath -eq $requiredFullPath) {
+                $matchingFolder = $existingFolder
+                break
+            }
+        }
+
+        if ($requiredPath -eq '.') {
+            if ($null -eq $matchingFolder -or $matchingFolder -is [string]) {
+                $matchingFolder = [ordered]@{ name = $WorkspaceName; path = '.' }
+            } else {
+                $matchingFolder | Add-Member -MemberType NoteProperty -Name name -Value $WorkspaceName -Force
+            }
+        } elseif ($null -eq $matchingFolder) {
+            $matchingFolder = [ordered]@{ path = $requiredPath }
+        }
+
+        if ($includedPaths.Add($requiredFullPath)) {
+            $null = $coordinatedFolders.Add($matchingFolder)
+        }
+    }
+
+    foreach ($existingFolder in $existingFolders) {
+        $existingPath = if ($existingFolder -is [string]) { $existingFolder } else { $existingFolder.path }
+        if ([string]::IsNullOrWhiteSpace($existingPath)) {
+            $null = $coordinatedFolders.Add($existingFolder)
+            continue
+        }
+
+        $existingFullPath = if ([System.IO.Path]::IsPathRooted($existingPath)) {
+            [System.IO.Path]::GetFullPath($existingPath)
+        } else {
+            [System.IO.Path]::GetFullPath((Join-Path $WorkspaceRootPath $existingPath))
+        }
+        if ($includedPaths.Add($existingFullPath)) {
+            $null = $coordinatedFolders.Add($existingFolder)
+        }
+    }
+
+    $Workspace | Add-Member -MemberType NoteProperty -Name folders -Value @($coordinatedFolders) -Force
+
+    $filesExclude = if ($Workspace.settings.PSObject.Properties['files.exclude']) {
+        $Workspace.settings.'files.exclude'
+    } else {
+        [PSCustomObject]@{}
+    }
+    if ($null -eq $filesExclude -or
+        ($filesExclude.GetType() -ne [System.Management.Automation.PSCustomObject] -and
+            -not ($filesExclude -is [System.Collections.IDictionary]))) {
+        throw "The workspace setting 'files.exclude' must be an object."
+    }
+
+    foreach ($appFolderPath in $appFolderPaths | Where-Object { $_ -ne '.' }) {
+        $filesExclude | Add-Member -MemberType NoteProperty -Name $appFolderPath -Value $true -Force
+    }
+    $Workspace.settings | Add-Member -MemberType NoteProperty -Name 'files.exclude' -Value $filesExclude -Force
+}
+
 $workspaceRoot = (Get-Item -LiteralPath ([System.IO.Path]::GetFullPath($env:BCDEVTOOLSET_WORKSPACE_PATH))).FullName
 $workspaceFile = if ([string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_WORKSPACE_FILE)) {
     $null
@@ -161,6 +249,10 @@ $workspaceJson = Get-Content -LiteralPath $workspaceFile.FullName -Raw | Convert
 if (-not $workspaceJson.PSObject.Properties['settings']) {
     $workspaceJson | Add-Member -MemberType NoteProperty -Name settings -Value ([PSCustomObject]@{})
 }
+Update-WorkspacePaths `
+    -Workspace $workspaceJson `
+    -WorkspaceRootPath $workspaceConfigurationRoot `
+    -WorkspaceName $workspaceName
 if (-not $workspaceJson.settings.PSObject.Properties['dam-pav.bcdevtoolset']) {
     $workspaceJson.settings | Add-Member -MemberType NoteProperty -Name 'dam-pav.bcdevtoolset' -Value ([ordered]@{
         selectArtifact = 'Latest'

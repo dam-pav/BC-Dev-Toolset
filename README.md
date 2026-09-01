@@ -215,19 +215,30 @@ The *Build all apps in the workspace* operation compiles with the platform-speci
 
 ---
 
-Either way there is one requirement you must follow. Each separate app needs to have a separate base folder and this folder needs to be specified in the *folders* array in the workspace file. Like this:
+Either way there are two workspace-path requirements: the workspace root and each separate app base folder need to be specified in the *folders* array. The root folder's display name is the workspace name. To keep an app from appearing both beneath the workspace root and as its own workspace folder, add its workspace-relative path to `files.exclude`. The *Initialize Workspace* operation coordinates these folders and exclusions automatically. For example, for a workspace named `My Workspace`:
 
 ```
 {
   "folders": [
     {
+      "name": "My Workspace",
+      "path": "."
+    },
+    {
+      "name": "A more descriptive name for App 1",
       "path": "App 1"
     },
     {
-      "name": "A more descriptive name for the app",
+      "name": "A more descriptive name for App 2",
       "path": "App 2"
     }
-  ]
+  ],
+  "settings": {
+    "files.exclude": {
+      "App 1": true,
+      "App 2": true
+    }
+  }
 }
 ```
 
@@ -330,6 +341,10 @@ to remove the files from git. You will need to commit these changes. Beware, thi
 {
   "folders": [
     {
+      "name": "project",
+      "path": "."
+    },
+    {
       "path": "Project/App"
     },
 	{
@@ -337,6 +352,10 @@ to remove the files from git. You will need to commit these changes. Beware, thi
     }
   ],
   "settings": {
+    "files.exclude": {
+      "Project/App": true,
+      "Project/Test-App": true
+    },
     "al.symbolsCountryRegion": "w1",
     "dam-pav.bcdevtoolset": {
       "selectArtifact": "Latest",
