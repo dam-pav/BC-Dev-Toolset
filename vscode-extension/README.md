@@ -99,6 +99,7 @@ Installing BC Dev Toolset also installs the official **Microsoft AL Language** e
 
 - Windows with PowerShell available. The extension uses `pwsh` by default.
 - Have access to or be an administrator on your workstation. The "Prerequisites" category operations require elevated access.
+- .NET SDK 9 or 10 and MSDyn365BC.AL.Runner for the standalone `AL Runner Test` operation; the install-prerequisites operation can configure both.
 - Access to any required Business Central environments, credentials, licenses, certificates, or dependency packages used by your team.
 
 ## Operations
@@ -129,6 +130,9 @@ Installing BC Dev Toolset also installs the official **Microsoft AL Language** e
 
 - `Run AL test tool tests`: Builds all workspace apps in dependency order before preparing the test container, so a failed build stops the operation before backup restore or deployment. It then runs tests once per workspace extension. Business Central discovers codeunits whose `SubType` is `Test` by extension ID, so test suite registration in an `OnInstall` procedure is not required.
 - `Run page script tests`: Runs page script test recordings and writes the results to the configured output location.
+- `AL Runner Test`: A BC Dev Toolset feature based on Stefan Maron's [BusinessCentral.AL.Runner](https://github.com/StefanMaron/BusinessCentral.AL.Runner) tool. It runs without a Business Central container and passes every workspace folder that contains an `app.json` file to one `al-runner` invocation. Refer to the upstream GitHub repository for its capabilities, limitations, and CLI documentation.
+
+  Windows Smart App Control or an organizational App Control policy can block an AL Runner release whose executable assemblies are not signed with a trusted certificate. The prerequisite and test operations report the corresponding Code Integrity failure but do not weaken or bypass application-control protection. Use a signed upstream release when available, or ask the device administrator to approve an appropriate policy. See Microsoft's [Smart App Control signing guidance](https://learn.microsoft.com/windows/apps/develop/smart-app-control/code-signing-for-smart-app-control).
 
 ### Publish
 
@@ -155,8 +159,8 @@ Installing BC Dev Toolset also installs the official **Microsoft AL Language** e
 ### Prerequisites
 
 - `Show BcContainerHelper versions (installed and available)`: Shows the installed and available BcContainerHelper versions.
-- `Install/Update Prerequisites`: Installs and updates the main prerequisites used by the toolset, including BcContainerHelper, Node.js, and @microsoft/bc-replay. If required Windows container features cannot be enabled, later installation steps are skipped and the operation offers to open the guarded uninstall flow.
-- `Uninstall Prerequisites`: Detects Docker Engine, BC Replay, Node.js, Git, BcContainerHelper, and Windows container features, then asks separately before removing each component. Every prompt defaults to keeping the component installed.
+- `Install/Update Prerequisites`: Installs and updates the main prerequisites used by the toolset, including BcContainerHelper, Node.js, @microsoft/bc-replay, .NET SDK 9/10, and MSDyn365BC.AL.Runner. If required Windows container features cannot be enabled, later installation steps are skipped and the operation offers to open the guarded uninstall flow.
+- `Uninstall Prerequisites`: Detects Docker Engine, BC Replay, AL Runner, Node.js, Git, BcContainerHelper, and Windows container features, then asks separately before removing each component. Every prompt defaults to keeping the component installed. The shared .NET SDK is retained.
 - `Install/Update Microsoft PowerShell`: Updates the Windows PowerShell installation used for the toolkit setup flow.
 
 ### MCP Configuration

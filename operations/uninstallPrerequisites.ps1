@@ -314,6 +314,23 @@ if (($bcReplayCommand -or $bcReplayInstalled) -and $npmCommand -and
     catch { Add-RemovalFailure -Failures $removalFailures -Component "@microsoft/bc-replay" -Failure $_ }
 }
 
+$dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
+$alRunnerInstalled = $false
+if ($dotnetCommand) {
+    $globalDotNetTools = @(& $dotnetCommand.Source tool list --global 2>$null)
+    $alRunnerInstalled = $LASTEXITCODE -eq 0 -and ($globalDotNetTools -match '(?im)^msdyn365bc\.al\.runner\s+')
+}
+if ($alRunnerInstalled -and
+    (Confirm-Uninstall -Component "MSDyn365BC.AL.Runner" -Impact "The standalone AL Runner Test operation will no longer work. The shared .NET SDK is kept installed.")) {
+    try {
+        & $dotnetCommand.Source tool uninstall --global MSDyn365BC.AL.Runner
+        if ($LASTEXITCODE -ne 0) { throw "dotnet exited with code $LASTEXITCODE." }
+        $removedComponents.Add("MSDyn365BC.AL.Runner")
+        Write-Success "MSDyn365BC.AL.Runner removed"
+    }
+    catch { Add-RemovalFailure -Failures $removalFailures -Component "MSDyn365BC.AL.Runner" -Failure $_ }
+}
+
 $nodeEntry = Get-UninstallRegistryEntry -DisplayNamePattern '^Node\.js(?:\s|$)'
 $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
 if (($nodeEntry -or $nodeCommand) -and (Confirm-Uninstall -Component "Node.js" -Impact "Other applications may depend on Node.js and npm.")) {

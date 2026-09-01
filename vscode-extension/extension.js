@@ -33,9 +33,9 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 12;
+const mcpServerDefinitionRevision = 13;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 6;
+const runtimeToolsetRevision = 7;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -46,6 +46,7 @@ const directOperationIds = [
   'showHelp',
   'invokeTests',
   'invokePageScriptTests',
+  'alRunnerTest',
   'showBcContainerHelperVersions',
   'initPrerequisites',
   'uninstallPrerequisites',

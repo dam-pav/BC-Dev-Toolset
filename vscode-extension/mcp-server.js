@@ -692,6 +692,11 @@ function getOperationToolAliases(operationId) {
         'run page scripting tests',
         'run BC page script recordings'
       ];
+    case 'alRunnerTest':
+      return [
+        'run standalone AL tests with AL Runner',
+        'run AL Runner tests without a Business Central container'
+      ];
     default:
       return [];
   }

@@ -49,6 +49,7 @@
     "onMcpCollection:bcDevToolset.operations",
     "onCommand:bcDevToolset.operation.invokeTests",
     "onCommand:bcDevToolset.operation.invokePageScriptTests",
+    "onCommand:bcDevToolset.operation.alRunnerTest",
     "onCommand:bcDevToolset.operation.showBcContainerHelperVersions",
     "onCommand:bcDevToolset.operation.initPrerequisites",
     "onCommand:bcDevToolset.operation.uninstallPrerequisites",
@@ -769,6 +770,10 @@
       {
         "command": "bcDevToolset.operation.invokePageScriptTests",
         "title": "BC Dev Toolset: Run page script tests"
+      },
+      {
+        "command": "bcDevToolset.operation.alRunnerTest",
+        "title": "BC Dev Toolset: AL Runner Test"
       },
       {
         "command": "bcDevToolset.operation.showBcContainerHelperVersions",

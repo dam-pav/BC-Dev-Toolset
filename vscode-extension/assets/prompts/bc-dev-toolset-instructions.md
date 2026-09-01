@@ -24,6 +24,7 @@ When working with Business Central AL projects, use the **BC Dev Toolset** MCP s
 | **Publishing** | `bc_dev_toolset_unpublish_test_apps` — Unpublish apps from test |
 | **Testing** | `bc_dev_toolset_invoke_tests` — Run AL test tool tests |
 | **Testing** | `bc_dev_toolset_invoke_page_script_tests` — Run page script tests |
+| **Testing** | `bc_dev_toolset_al_runner_test` — Run standalone tests with AL Runner |
 | **Backups** | `bc_dev_toolset_backup_bc_container_databases` — Backup Docker container databases |
 | **Backups** | `bc_dev_toolset_backup_bc_service_databases` — Backup BC service databases |
 | **Backups** | `bc_dev_toolset_restore_bc_container_databases` — Restore databases to container |
