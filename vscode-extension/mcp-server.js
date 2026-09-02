@@ -235,6 +235,7 @@ function getServerInstructions() {
     'For ordinary AL compile, build, or validation requests, call bc_dev_toolset_build_all_apps when it is exposed. Do not invoke an AL compiler directly while that tool is available. It preserves workspace dependency order, package-cache isolation, and configured assembly probing paths for .NET components.',
     'A failed, timed-out, or bridge-unavailable MCP operation must be reported; it is not permission to retry the same operation with direct compiler, Docker, BcContainerHelper, or PowerShell commands. Use a manual fallback only when no matching MCP tool is exposed or the user explicitly requests it.',
     'The AL test operation returns a compiled stage and test report. Treat its included failure diagnostics as definitive and do not rerun the build or tests merely to retrieve output.',
+    'If bc_dev_toolset_al_runner_test reports an AL Runner tool failure rather than an AL compilation or test failure, report that distinction and suggest bc_dev_toolset_invoke_tests as the container-based fallback. Do not invoke the fallback automatically unless the user asks to proceed with it.',
     'Before answering questions about the active VS Code workspace, workspace file, workspace folders, AL project path, app.json location, .code-workspace settings, local .bcdevtoolset settings path, or AL settings such as assembly probing paths, call bc_dev_toolset_get_workspace or read bcdevtoolset://workspace/current. Do not infer the workspace by scanning parent folders unless this tool/resource is unavailable.',
     'PowerShell-backed operations require the VS Code terminal bridge and run visibly in the BC Dev Toolset terminal. If the bridge is unavailable, report that the BC Dev Toolset VS Code extension must be active instead of falling back to manual PowerShell.',
     'Use bc_dev_toolset_show_active_licenses for requests about the current container license. Use bc_dev_toolset_new_docker_container for creating or recreating containers.',
@@ -627,6 +628,8 @@ function getOperationToolDescription(operation) {
     : '';
   const compiledReportText = operation.id === 'invokeTests'
     ? ' Returns one compiled report with stage status, test totals, failure details, and diagnostics for the failed stage; do not rerun a failed build or test merely to retrieve output.'
+    : operation.id === 'alRunnerTest'
+    ? ' Distinguishes AL Runner availability or compatibility failures from genuine AL compilation and test failures. On a runner-tool failure, report it and suggest bc_dev_toolset_invoke_tests as the container-based fallback; do not invoke the fallback automatically.'
     : '';
   return `BC Dev Toolset: ${operation.title}. Category: ${operation.category}.${aliasText}${confirmationText}${preflightText}${compiledReportText} A repeated call with promptAnswers resumes the same pending operation and retains answers for later prompts; it does not restart it.`;
 }
@@ -691,6 +694,11 @@ function getOperationToolAliases(operationId) {
       return [
         'run page scripting tests',
         'run BC page script recordings'
+      ];
+    case 'alRunnerTest':
+      return [
+        'run standalone AL tests with AL Runner',
+        'run AL Runner tests without a Business Central container'
       ];
     default:
       return [];
@@ -927,6 +935,7 @@ async function runOperationInTerminal(operation, args, progress) {
       bridgeResult.sessionId,
       getPromptAnswerStatusTimeoutSeconds(args)
     );
+    const followUpResult = followUpStatus.result || {};
     return textResult([
       `Status: ${bridgeResult.status}`,
       `Session ID: ${bridgeResult.sessionId}`,
@@ -934,14 +943,15 @@ async function runOperationInTerminal(operation, args, progress) {
       '',
       'FOLLOW-UP STATUS:',
       formatOperationStatus(followUpStatus)
-    ].join('\n'), followUpStatus.status === 'failed');
+    ].join('\n'), followUpStatus.status === 'failed' || hasAlRunnerToolFailure(followUpStatus.operationId, followUpResult.output));
   }
   const displayOperationTitle = bridgeResult.operationTitle || operation.title;
   const displayOperationId = bridgeResult.operationId || operation.id;
+  const alRunnerToolFailure = hasAlRunnerToolFailure(displayOperationId, bridgeResult.output);
   return textResult([
     `Operation: ${displayOperationTitle}`,
     `Operation ID: ${displayOperationId}`,
-    `Status: ${bridgeResult.status || 'unknown'}`,
+    `Status: ${alRunnerToolFailure ? 'tool_failure' : bridgeResult.status || 'unknown'}`,
     bridgeResult.blockedByPendingPrompt ? `Blocked operation ID: ${bridgeResult.blockedOperationId || operation.id}` : '',
     bridgeResult.sessionId ? `Session ID: ${bridgeResult.sessionId}` : '',
     typeof bridgeResult.exitCode === 'number' ? `Exit code: ${bridgeResult.exitCode}` : '',
@@ -957,11 +967,13 @@ async function runOperationInTerminal(operation, args, progress) {
       ? 'Instruction: The operation is running visibly in the VS Code terminal. Call bc_dev_toolset_get_operation_status with this session ID to check completion and captured output.'
       : startedOnly
       ? 'Instruction: The operation is running visibly in the VS Code terminal. Terminal output capture was unavailable, so watch that terminal for progress and final output.'
+      : alRunnerToolFailure
+      ? 'Instruction: AL Runner itself was unavailable or incompatible; AL tests were not executed. Report this as a tool failure and suggest bc_dev_toolset_invoke_tests as the container-based fallback. Do not invoke the fallback automatically unless the user asks to proceed.'
       : displayOperationId === 'invokeTests'
       ? 'Instruction: The operation ran visibly in the VS Code terminal. Use the compiled operation report below as the definitive MCP result; do not rerun a failed stage merely to retrieve diagnostics.'
       : 'Instruction: The operation ran visibly in the VS Code terminal. Use the captured terminal output below as the MCP result.',
     bridgeResult.output ? ['', getOperationOutputLabel(displayOperationId), formatOperationOutput(displayOperationId, bridgeResult.output, bridgeResult.status, bridgeResult.operationReport)].join('\n') : ''
-  ].filter((line) => line !== '').join('\n'), !completed && !running && !startedOnly && !waitingForInput && !promptAnswered);
+  ].filter((line) => line !== '').join('\n'), alRunnerToolFailure || (!completed && !running && !startedOnly && !waitingForInput && !promptAnswered));
 }
 
 function isTestOperation(operation) {
@@ -1054,7 +1066,12 @@ async function getOperationStatus(args) {
     return textResult(`Failed to get BC Dev Toolset operation status: ${response.body.error || response.rawBody}`, true);
   }
 
-  return textResult(formatOperationStatus(response.body || {}), response.body && response.body.status === 'failed');
+  const status = response.body || {};
+  const result = status.result || {};
+  return textResult(
+    formatOperationStatus(status),
+    status.status === 'failed' || hasAlRunnerToolFailure(status.operationId, result.output)
+  );
 }
 
 async function answerOperationPrompt(args) {
@@ -1082,6 +1099,7 @@ async function answerOperationPrompt(args) {
     response.body.sessionId || sessionId,
     getPromptAnswerStatusTimeoutSeconds(args)
   );
+  const followUpResult = followUpStatus.result || {};
   return textResult([
     `Status: ${response.body.status}`,
     `Session ID: ${response.body.sessionId}`,
@@ -1089,7 +1107,7 @@ async function answerOperationPrompt(args) {
     '',
     'FOLLOW-UP STATUS:',
     formatOperationStatus(followUpStatus)
-  ].join('\n'), followUpStatus.status === 'failed');
+  ].join('\n'), followUpStatus.status === 'failed' || hasAlRunnerToolFailure(followUpStatus.operationId, followUpResult.output));
 }
 
 async function waitForOperationStatusAfterPrompt(sessionId, timeoutSeconds) {
@@ -1182,8 +1200,9 @@ function formatPendingPromptInstruction(bridgeResult) {
 function formatOperationStatus(status) {
   const result = status.result || {};
   const prompt = status.prompt || {};
+  const alRunnerToolFailure = hasAlRunnerToolFailure(status.operationId, result.output);
   return [
-    `Status: ${status.status || 'unknown'}`,
+    `Status: ${alRunnerToolFailure ? 'tool_failure' : status.status || 'unknown'}`,
     `Session ID: ${status.sessionId || ''}`,
     status.operationId ? `Operation ID: ${status.operationId}` : '',
     status.operationTitle ? `Operation: ${status.operationTitle}` : '',
@@ -1416,16 +1435,54 @@ function truncateOutput(output) {
 }
 
 function formatOperationOutput(operationId, output, operationStatus, operationReport) {
-  if (operationId !== 'invokeTests') {
-    return truncateOutput(output);
+  if (operationId === 'invokeTests') {
+    const compiledReport = compileInvokeTestsReport(output, operationStatus, operationReport);
+    return compiledReport || truncateOutput(output);
   }
 
-  const compiledReport = compileInvokeTestsReport(output, operationStatus, operationReport);
-  return compiledReport || truncateOutput(output);
+  if (operationId === 'alRunnerTest') {
+    const compiledReport = compileAlRunnerTestReport(output);
+    return compiledReport || truncateOutput(output);
+  }
+
+  return truncateOutput(output);
 }
 
 function getOperationOutputLabel(operationId) {
-  return operationId === 'invokeTests' ? 'OPERATION REPORT:' : 'TERMINAL OUTPUT:';
+  return operationId === 'invokeTests' || operationId === 'alRunnerTest' ? 'OPERATION REPORT:' : 'TERMINAL OUTPUT:';
+}
+
+function getAlRunnerToolFailure(output) {
+  const text = String(output || '');
+  const marker = text.match(/^__BCDEVTOOLSET_AL_RUNNER_TOOL_FAILURE__::([a-z_]+)\s*$/m);
+  if (!marker) {
+    return undefined;
+  }
+
+  const detail = text.match(/^AL Runner tool failure:\s*(.+)\s*$/m);
+  return {
+    code: marker[1],
+    detail: detail ? detail[1].trim() : 'AL Runner could not execute the requested workspace.'
+  };
+}
+
+function hasAlRunnerToolFailure(operationId, output) {
+  return operationId === 'alRunnerTest' && Boolean(getAlRunnerToolFailure(output));
+}
+
+function compileAlRunnerTestReport(output) {
+  const failure = getAlRunnerToolFailure(output);
+  if (!failure) {
+    return '';
+  }
+
+  return [
+    'Status: tool failure (AL tests were not executed)',
+    `Reason code: ${failure.code}`,
+    `Details: ${failure.detail}`,
+    'Suggested fallback: bc_dev_toolset_invoke_tests (container-based AL test tool).',
+    'Instruction: Report this as an AL Runner tooling failure, not as a BC/AL test failure. Suggest the fallback, but do not invoke it automatically unless the user asks to proceed.'
+  ].join('\n');
 }
 
 function compileInvokeTestsReport(output, operationStatus, operationReport) {
@@ -1660,6 +1717,7 @@ module.exports = {
     readResource,
     readHelpContent,
     getOperationPromptAnswers,
+    compileAlRunnerTestReport,
     compileInvokeTestsReport,
     normalizePromptToolAnswer,
     tryReadRawJsonMessage

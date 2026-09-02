@@ -144,6 +144,12 @@
     ]
   },
   {
+    "id": "alRunnerTest",
+    "title": "AL Runner Test",
+    "script": "operations/Invoke-AlRunnerTests.ps1",
+    "category": "Tests"
+  },
+  {
     "id": "publishDependencies2Docker",
     "title": "Publish dependencies from the configuration to the existing container",
     "script": "operations/PublishDependencies2Docker.ps1",

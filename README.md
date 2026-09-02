@@ -95,6 +95,8 @@ The Codex MCP server uses the VS Code terminal bridge belonging to the current w
    > - configures the required Windows features
    > - installs git
    > - installs BcContainerHelper
+   > - installs Node.js and @microsoft/bc-replay for page script tests
+   > - installs .NET SDK 10 when SDK 9/10 is missing, then installs or updates MSDyn365BC.AL.Runner
    > - stops before installing later components if the required Windows container features cannot be enabled, and offers an optional guarded cleanup flow
    >
    > The companion ***BC Dev Toolset: Uninstall prerequisites*** operation detects each prerequisite and asks separately before removing it. Pressing Enter keeps the component installed.
@@ -187,6 +189,18 @@ The Codex MCP server uses the VS Code terminal bridge belonging to the current w
 
    > Note: Microsoft is announcing the [deprecation of BcContainerHelper](https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/al-go/algo-deprecating-bccontainerhelper). At the time of this writing, it said: *"For local development on Docker, equivalent functionality will likely become available in a new PowerShell module released as part of AL-Go for GitHub."* Until this new module is actually revealed, BcContainerHelper continues to be the basis of our local process. Naturally, we will implement the new module and functionality as soon as it becomes available.
    >
+6. **AL Runner** (for the standalone *AL Runner Test* operation).
+
+   This BC Dev Toolset feature is based on Stefan Maron's [BusinessCentral.AL.Runner](https://github.com/StefanMaron/BusinessCentral.AL.Runner) tool. Refer to the upstream GitHub repository for AL Runner's capabilities, limitations, and CLI documentation.
+
+   Install .NET SDK 9 or 10, then install AL Runner as a global .NET tool:
+
+   ```
+   winget install -e --id Microsoft.DotNet.SDK.10
+   dotnet tool install --global MSDyn365BC.AL.Runner
+   ```
+
+   The *Install Prerequisites* operation performs these steps automatically and uses `dotnet tool update` when AL Runner is already installed.
 
 ## Workspaces
 
@@ -270,12 +284,13 @@ After a manual restore or a restore performed while creating a container, the to
 
 ## Testing
 
-The Tests group contains two operations:
+The Tests group contains three operations:
 
 - *Run AL test tool tests* builds all workspace apps in dependency order before preparing the test container, so a failed build stops the operation before backup restore or deployment. It then invokes *Run-TestsInBcContainer* once per workspace app using its extension ID. Business Central discovers every codeunit in that extension whose `SubType` is `Test`; test suite registration from an `OnInstall` procedure is not required.
 - *Run page script tests* runs page scripting recordings from *recordingsPath* and writes results to *pageScriptTestResultsPath*.
+- *AL Runner Test* is a BC Dev Toolset feature based on Stefan Maron's [BusinessCentral.AL.Runner](https://github.com/StefanMaron/BusinessCentral.AL.Runner) tool. It invokes the standalone tool once and passes every workspace folder containing an *app.json* file as a bundle directory. The operation pins `--bc-version` to the apps' common `application` major so AL Runner cannot silently select an incompatible newer artifact from its cache; mixed application majors stop before execution. Unlike the other test operations, it does not build or prepare a Docker container.
 
-Both operations run in a Docker container selected from configurations whose *serverType* is `Container`, whose *includeTestToolkit* value is `true`, and whose *container* value is not empty. The configuration's *targetType* can be `Dev`, `Test`, or `Production`; it does not affect eligibility. If only one eligible Container configuration exists and *executeTestsInContainerName* is empty, tests run in that container as-is: no backup restore and no app deployment are performed.
+The AL test tool and page script operations run in a Docker container selected from configurations whose *serverType* is `Container`, whose *includeTestToolkit* value is `true`, and whose *container* value is not empty. The configuration's *targetType* can be `Dev`, `Test`, or `Production`; it does not affect eligibility. If only one eligible Container configuration exists and *executeTestsInContainerName* is empty, tests run in that container as-is: no backup restore and no app deployment are performed.
 
 If *executeTestsInContainerName* is set, or if multiple eligible Container configurations are available, the operation resolves the configured container name or asks which configured container to use. It then asks for explicit confirmation before running tests in that container.
 
@@ -284,6 +299,12 @@ When a selected container does not exist, the operation creates it from the sele
 When preparation is required for an existing selected container, the operation restores the SQL backup set from *sqlBackupPath* if compatible backup files exist, publishes dependency apps, publishes all workspace apps including test apps, and then discovers and executes tests separately for each installed workspace extension. Apps without test codeunits are allowed; a workspace app that is not installed causes the operation to stop instead of silently omitting its tests.
 
 Page script tests additionally require Node.js 24 or newer and the *@microsoft/bc-replay* command-line tool. The test operation verifies these prerequisites and exits cleanly if they are missing. Run the *Install prerequisites* operation to install or update them.
+
+AL Runner tests require .NET SDK 9 or 10 and the global *MSDyn365BC.AL.Runner* tool. The prerequisite operations install or update AL Runner and can remove the tool again; the shared .NET SDK is retained during prerequisite removal.
+
+The published AL Runner package ships a finite set of Business Central engine variants. Before execution, BC Dev Toolset compares the apps' required major with the installed variants and stops without downloading artifacts when that BC major is unavailable. This and other failures of AL Runner itself are reported as tool failures, explicitly stating that AL tests were not executed. Agents using `bc_dev_toolset_al_runner_test` are instructed to suggest the container-based `bc_dev_toolset_invoke_tests` operation as a fallback, without running it automatically. Genuine AL compilation and test failures remain test-operation failures and do not trigger that fallback guidance. A compatible upstream package or source build is required to use AL Runner for an unsupported major.
+
+> **Windows Smart App Control:** AL Runner is published by the upstream project, and some releases may contain unsigned executable assemblies. Windows Smart App Control or an organizational App Control policy can block such a release with Code Integrity events 3033/3077, even when it was installed successfully through `dotnet tool`. BC Dev Toolset detects and reports this condition but does not disable or bypass application-control protection. The durable resolution is an upstream release whose binaries are signed with a trusted certificate, or an allow policy approved by your device administrator. See Stefan Maron's [BusinessCentral.AL.Runner repository](https://github.com/StefanMaron/BusinessCentral.AL.Runner) and Microsoft's [Smart App Control signing guidance](https://learn.microsoft.com/windows/apps/develop/smart-app-control/code-signing-for-smart-app-control).
 
 ## Setup
 

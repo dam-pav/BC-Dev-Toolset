@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -49,6 +49,7 @@
     "onMcpCollection:bcDevToolset.operations",
     "onCommand:bcDevToolset.operation.invokeTests",
     "onCommand:bcDevToolset.operation.invokePageScriptTests",
+    "onCommand:bcDevToolset.operation.alRunnerTest",
     "onCommand:bcDevToolset.operation.showBcContainerHelperVersions",
     "onCommand:bcDevToolset.operation.initPrerequisites",
     "onCommand:bcDevToolset.operation.uninstallPrerequisites",
@@ -769,6 +770,10 @@
       {
         "command": "bcDevToolset.operation.invokePageScriptTests",
         "title": "BC Dev Toolset: Run page script tests"
+      },
+      {
+        "command": "bcDevToolset.operation.alRunnerTest",
+        "title": "BC Dev Toolset: AL Runner Test"
       },
       {
         "command": "bcDevToolset.operation.showBcContainerHelperVersions",

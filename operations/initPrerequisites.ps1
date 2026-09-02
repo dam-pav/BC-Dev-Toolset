@@ -9,6 +9,7 @@
     - Git
     - BcContainerHelper PowerShell Module
     - Node.js and @microsoft/bc-replay for page script tests
+    - .NET SDK and MSDyn365BC.AL.Runner for standalone AL tests
 .NOTES
     Requires Administrator privileges
     Requires Windows Pro or Enterprise edition for Hyper-V
@@ -20,7 +21,8 @@ param(
     [switch]$SkipWindowsFeatures,
     [switch]$SkipGit,
     [switch]$SkipBcContainerHelper,
-    [switch]$SkipNode
+    [switch]$SkipNode,
+    [switch]$SkipAlRunner
 )
 
 # Colors for output
@@ -70,7 +72,7 @@ function Confirm-Upgrade {
     )
 
     do {
-        $answer = Read-Host -Prompt "Update $Name from $CurrentVersion to $LatestVersion? [y/N]"
+        $answer = Read-Host -Prompt "Update $Name from $CurrentVersion to ${LatestVersion}? [y/N]"
         if ([string]::IsNullOrWhiteSpace($answer)) {
             return $false
         }
@@ -527,6 +529,129 @@ function Get-LatestBcContainerHelperVersion {
     return [version]$module.Version
 }
 
+function Get-CompatibleDotNetSdkVersions {
+    $dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
+    if (-not $dotnetCommand) {
+        return @()
+    }
+
+    $sdkOutput = @(& $dotnetCommand.Source --list-sdks 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        return @()
+    }
+
+    return @($sdkOutput | ForEach-Object {
+        if ([string]$_ -match '^(?<version>[0-9]+(?:\.[0-9]+){2,3})\s') {
+            try { [version]$matches.version } catch { }
+        }
+    } | Where-Object { $_.Major -in @(9, 10) })
+}
+
+function Install-DotNetSdk10 {
+    $wingetCommand = Get-Command winget -ErrorAction SilentlyContinue
+    if ($wingetCommand) {
+        Write-Host 'Installing .NET SDK 10 via WinGet...'
+        & $wingetCommand.Source install -e --id Microsoft.DotNet.SDK.10 --accept-package-agreements --accept-source-agreements --disable-interactivity
+        if ($LASTEXITCODE -eq 0) {
+            Update-ProcessPath
+            return
+        }
+
+        Write-Warning "WinGet could not install .NET SDK 10 (exit code $LASTEXITCODE). Trying the official dotnet-install script."
+    } else {
+        Write-Warning 'WinGet is not available. Using the official dotnet-install script instead.'
+    }
+
+    $temporaryRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd('\')
+    $installerPath = [System.IO.Path]::GetFullPath((Join-Path $temporaryRoot 'bc-dev-toolset-dotnet-install.ps1'))
+    if ([System.IO.Path]::GetDirectoryName($installerPath) -ne $temporaryRoot) {
+        throw 'The temporary .NET installer path escaped the operating system temporary directory.'
+    }
+
+    $dotnetInstallPath = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'dotnet'
+    try {
+        Invoke-WebRequest -Uri 'https://dot.net/v1/dotnet-install.ps1' -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
+        & $installerPath -Channel '10.0' -InstallDir $dotnetInstallPath -NoPath
+        if ($LASTEXITCODE -ne 0) {
+            throw "dotnet-install.ps1 exited with code $LASTEXITCODE."
+        }
+    } finally {
+        if (Test-Path -LiteralPath $installerPath -PathType Leaf) {
+            Remove-Item -LiteralPath $installerPath -Force
+        }
+    }
+
+    $machinePath = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
+    $machinePathEntries = @($machinePath -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($machinePathEntries -notcontains $dotnetInstallPath) {
+        [Environment]::SetEnvironmentVariable('PATH', (($machinePathEntries + $dotnetInstallPath) -join ';'), 'Machine')
+    }
+    Update-ProcessPath
+}
+
+function Install-OrUpdateAlRunner {
+    $dotnetCommand = Get-Command dotnet -ErrorAction Stop
+    $installedTools = @(& $dotnetCommand.Source tool list --global 2>$null)
+    $runnerInstalled = $LASTEXITCODE -eq 0 -and ($installedTools -match '(?im)^msdyn365bc\.al\.runner\s+')
+    $toolAction = if ($runnerInstalled) { 'update' } else { 'install' }
+    $actionDescription = if ($runnerInstalled) { 'Updating' } else { 'Installing' }
+
+    Write-Host "$actionDescription MSDyn365BC.AL.Runner as a global .NET tool..."
+    & $dotnetCommand.Source tool $toolAction --global MSDyn365BC.AL.Runner
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet tool $toolAction failed for MSDyn365BC.AL.Runner (exit code $LASTEXITCODE)."
+    }
+
+    $globalToolPath = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.dotnet\tools'
+    $userPath = [Environment]::GetEnvironmentVariable('PATH', 'User')
+    $userPathEntries = @($userPath -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($userPathEntries -notcontains $globalToolPath) {
+        [Environment]::SetEnvironmentVariable('PATH', (($userPathEntries + $globalToolPath) -join ';'), 'User')
+    }
+    Update-ProcessPath
+}
+
+function Get-AlRunnerApplicationControlEvent {
+    param([Parameter(Mandatory=$true)] [datetime] $StartTime)
+
+    for ($attempt = 0; $attempt -lt 10; $attempt++) {
+        try {
+            $event = Get-WinEvent -FilterHashtable @{
+                LogName = 'Microsoft-Windows-CodeIntegrity/Operational'
+                # Code Integrity event timestamps have coarser precision than Get-Date.
+                StartTime = $StartTime.AddSeconds(-5)
+            } -ErrorAction Stop |
+                Where-Object {
+                    $_.Id -in @(3033, 3077) -and
+                    $_.Message -match '(?i)al-runner(?:\.dll|\.exe)?'
+                } |
+                Select-Object -First 1
+            if ($event) { return $event }
+        } catch { }
+
+        Start-Sleep -Milliseconds 200
+    }
+
+    return $null
+}
+
+function Test-AlRunnerLaunch {
+    $runnerCommand = Get-Command al-runner -ErrorAction Stop
+    $launchStartedAt = Get-Date
+    & $runnerCommand.Source --help *> $null
+    $launchExitCode = $LASTEXITCODE
+    if ($launchExitCode -in @(0, 1, 2, 3)) {
+        return
+    }
+
+    $applicationControlEvent = Get-AlRunnerApplicationControlEvent -StartTime $launchStartedAt
+    if ($applicationControlEvent) {
+        throw "Windows Smart App Control or another Code Integrity policy blocked the upstream AL Runner payload (event $($applicationControlEvent.Id)). BC Dev Toolset will not disable or bypass application-control policy. Use a signed AL Runner release when one is available, or report the unsigned published binary to https://github.com/StefanMaron/BusinessCentral.AL.Runner."
+    }
+
+    throw "AL Runner was installed but could not start (exit code $launchExitCode)."
+}
+
 # Verify admin privileges
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Error "This script must be run as Administrator"
@@ -956,10 +1081,48 @@ else {
 }
 
 # ============================================================================
-# 7. INSTALL BCCONTAINERHELPER MODULE
+# 7. INSTALL .NET SDK AND AL RUNNER
+# ============================================================================
+if (-not $SkipAlRunner) {
+    Write-Header '7. Installing or Updating .NET SDK and AL Runner'
+
+    try {
+        $compatibleSdkVersions = @(Get-CompatibleDotNetSdkVersions)
+        if ($compatibleSdkVersions.Count -eq 0) {
+            Write-Warning '.NET SDK 9 or 10 is not installed or not available in PATH.'
+            Install-DotNetSdk10
+            $compatibleSdkVersions = @(Get-CompatibleDotNetSdkVersions)
+        }
+
+        if ($compatibleSdkVersions.Count -eq 0) {
+            throw '.NET SDK 9 or 10 could not be found after installation. Restart PowerShell and run prerequisites again.'
+        }
+
+        $latestCompatibleSdk = $compatibleSdkVersions | Sort-Object -Descending | Select-Object -First 1
+        Write-Success "Compatible .NET SDK is available: v$latestCompatibleSdk"
+        Install-OrUpdateAlRunner
+
+        if (Get-Command al-runner -ErrorAction SilentlyContinue) {
+            Test-AlRunnerLaunch
+            Write-Success 'MSDyn365BC.AL.Runner is available'
+        } else {
+            Write-Warning "MSDyn365BC.AL.Runner was installed, but 'al-runner' is not available in PATH. Restart PowerShell and run prerequisites again if needed."
+        }
+    } catch {
+        $installationFailures.Add('.NET SDK or AL Runner installation')
+        Write-Error "Failed to install .NET SDK or MSDyn365BC.AL.Runner: $_"
+        Write-Host 'Install .NET SDK 9 or 10 from https://dotnet.microsoft.com/download if automatic installation continues to fail.'
+        Write-Host 'Then run: dotnet tool install --global MSDyn365BC.AL.Runner'
+    }
+} else {
+    Write-Host 'Skipping .NET SDK and AL Runner installation (--SkipAlRunner flag set)'
+}
+
+# ============================================================================
+# 8. INSTALL BCCONTAINERHELPER MODULE
 # ============================================================================
 if (-not $SkipBcContainerHelper) {
-    Write-Header "7. Installing or Updating BcContainerHelper PowerShell Module"
+    Write-Header "8. Installing or Updating BcContainerHelper PowerShell Module"
     
     try {
         Write-Host "Checking if BcContainerHelper is already installed..."
@@ -1036,7 +1199,8 @@ Next steps:
 3. After restart, Docker service should start automatically
 4. Restart PowerShell to use git commands
 5. Restart PowerShell to use node/npm commands if Node.js was installed or updated
-6. Review the BC-Dev-Toolset README.md for additional configuration
+6. Restart PowerShell to use dotnet/al-runner commands if .NET SDK or AL Runner was installed or updated
+7. Review the BC-Dev-Toolset README.md for additional configuration
 
 For troubleshooting, see:
 - Docker Engine: https://download.docker.com/win/static/stable/x86_64/
