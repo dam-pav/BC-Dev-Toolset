@@ -73,7 +73,7 @@ The extension contributes an MCP server named `BC Dev Toolset Operations` in VS 
 
 PowerShell-backed operations still run in the visible `BC Dev Toolset: <PowerShell executable>` terminal. This keeps long-running work, such as container creation and artifact downloads, visible while the agent waits for the operation result.
 
-The AL test MCP operation compiles the visible transcript and JUnit data into a bounded report. Successful prerequisite output is collapsed into stage status, while a failed build, container-preparation, or test stage includes its diagnostics. Test results include totals and actionable failure details without requiring a second build or test invocation.
+The AL test MCP operation compiles the visible transcript and JUnit data into a bounded report. Successful prerequisite output is collapsed into stage status. A failed build includes up to 20 recognized AL compiler errors and omits warnings and informational entries; when compiler errors cannot be recognized safely, it includes the complete captured build diagnostics. Failed container-preparation and test stages include their diagnostics. Test results include totals and up to 20 actionable failure details without requiring a second build or test invocation.
 
 Some operations require confirmation before they start. If an operation asks a supported question while running, the visible terminal shows the question and the operation pauses. The agent may answer low-risk operational questions when it has enough context, but sensitive prompts and destructive user decisions still require you to choose. Operations started from the Command Palette keep the normal terminal behavior and can always be answered directly in the terminal.
 

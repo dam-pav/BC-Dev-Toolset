@@ -233,10 +233,17 @@ try {
 
         Write-Host "Building '$($app.name)' using its isolated project package cache..." -ForegroundColor Blue
         $LASTEXITCODE = 0
-        & $alToolPath compile @compilerArguments
+        # Native process output can bypass Start-Transcript even though it is visible in the
+        # terminal. Route it back through PowerShell so MCP operation reports retain the AL
+        # compiler diagnostics when this build is a phase of Invoke-Tests.
+        $compilerOutput = @(& $alToolPath compile @compilerArguments 2>&1)
         $alToolSucceeded = $?
-        if (-not $alToolSucceeded -or $LASTEXITCODE -ne 0) {
-            throw "AL compilation failed for '$($app.name)' (process exit code: $LASTEXITCODE)."
+        $alToolExitCode = $LASTEXITCODE
+        foreach ($compilerOutputLine in $compilerOutput) {
+            Write-Host ([string]$compilerOutputLine)
+        }
+        if (-not $alToolSucceeded -or $alToolExitCode -ne 0) {
+            throw "AL compilation failed for '$($app.name)' (process exit code: $alToolExitCode)."
         }
         if (-not (Test-Path -LiteralPath $packageFile -PathType Leaf)) {
             throw "AL compilation did not create the expected package: $packageFile"
