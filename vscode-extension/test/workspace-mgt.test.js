@@ -460,6 +460,7 @@ test('AL test builds every workspace app before preparing the test container', (
   assert.doesNotMatch(invokeTestsOperation, /-BuildAppsBeforeDeployment/);
   assert.match(initializeContainer, /New-TestExecutionContainerIfMissing/);
   assert.match(buildOperation, /\[switch\] \$SkipOperationUI/);
+  assert.match(buildOperation, /\$compilerOutput = @\(& \$alToolPath compile @compilerArguments 2>&1\)[\s\S]*?Write-Host \(\[string\]\$compilerOutputLine\)/);
 });
 
 test('AL compilation uses the required AL extension bundled tool instead of global al discovery', () => {

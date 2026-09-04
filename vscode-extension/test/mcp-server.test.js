@@ -168,6 +168,8 @@ test('includes build diagnostics when the nested test build stage fails', () => 
   const output = [
     '__BCDEVTOOLSET_STAGE__build::started',
     "Building 'Payroll' using its isolated project package cache...",
+    "src/codeunit.al(8,5): info AL0604: Compiling procedure 'PostPayroll'",
+    "src/codeunit.al(9,5): warning AL0603: An implicit conversion is being performed",
     "src/codeunit.al(10,5): error AL0132: 'Record' does not contain a definition",
     '__BCDEVTOOLSET_STAGE__build::failed',
     "AL compilation failed for 'Payroll' (process exit code: 1)."
@@ -177,8 +179,60 @@ test('includes build diagnostics when the nested test build stage fails', () => 
 
   assert.match(compiled, /Build workspace apps: failed/);
   assert.match(compiled, /error AL0132/);
-  assert.match(compiled, /AL compilation failed for 'Payroll'/);
+  assert.doesNotMatch(compiled, /info AL0604/);
+  assert.doesNotMatch(compiled, /warning AL0603/);
+  assert.doesNotMatch(compiled, /AL compilation failed for 'Payroll'/);
   assert.doesNotMatch(compiled, /Prepare test container/);
+});
+
+test('limits build diagnostics to the first 20 AL compiler errors', () => {
+  const compilerErrors = Array.from(
+    { length: 22 },
+    (_, index) => `src/codeunit-${index + 1}.al(10,5): error AL9${String(index + 1).padStart(4, '0')}: Failure ${index + 1}`
+  );
+  const output = [
+    '__BCDEVTOOLSET_STAGE__build::started',
+    ...compilerErrors,
+    '__BCDEVTOOLSET_STAGE__build::failed'
+  ].join('\n');
+
+  const compiled = mcpServer.compileInvokeTestsReport(output, 'failed');
+
+  assert.match(compiled, /error AL90020: Failure 20/);
+  assert.doesNotMatch(compiled, /error AL90021: Failure 21/);
+  assert.match(compiled, /Build error diagnostics omitted: 2 \(the first 20 are shown\)/);
+});
+
+test('retains complete build output when no AL compiler errors can be recognized', () => {
+  const output = [
+    '__BCDEVTOOLSET_STAGE__build::started',
+    'The configured ALTool executable could not be started.',
+    '__BCDEVTOOLSET_STAGE__build::failed',
+    'Access to the executable was denied.'
+  ].join('\n');
+
+  const compiled = mcpServer.compileInvokeTestsReport(output, 'failed');
+
+  assert.match(compiled, /configured ALTool executable could not be started/);
+  assert.match(compiled, /Access to the executable was denied/);
+});
+
+test('includes prepare diagnostics when test container preparation fails', () => {
+  const output = [
+    '__BCDEVTOOLSET_STAGE__build::started',
+    '__BCDEVTOOLSET_STAGE__build::succeeded',
+    '__BCDEVTOOLSET_STAGE__prepare::started',
+    "Container 'bc-test' could not be created.",
+    '__BCDEVTOOLSET_STAGE__prepare::failed',
+    'Docker reported that the requested artifact was unavailable.'
+  ].join('\n');
+
+  const compiled = mcpServer.compileInvokeTestsReport(output, 'failed');
+
+  assert.match(compiled, /Prepare test container and deploy apps: failed/);
+  assert.match(compiled, /Container 'bc-test' could not be created/);
+  assert.match(compiled, /requested artifact was unavailable/);
+  assert.doesNotMatch(compiled, /Execute AL tests/);
 });
 
 test('reports bounded individual AL test failures from the compiled result', () => {
@@ -214,7 +268,8 @@ test('reports bounded individual AL test failures from the compiled result', () 
   assert.match(compiled, /Payroll Tests \/ 50100 Payroll Tests \/ RejectsInvalidPeriod/);
   assert.match(compiled, /Expected an error/);
   assert.match(compiled, /Failure details omitted: 4/);
-  assert.doesNotMatch(compiled, /2 of 3 AL tests failed/);
+  assert.match(compiled, /Execute AL tests diagnostics:/);
+  assert.match(compiled, /2 of 3 AL tests failed/);
 });
 
 test('pre-supplies testing prompt answers for test operations', () => {

@@ -1572,18 +1572,38 @@ function compileInvokeTestsReport(output, operationStatus, operationReport) {
   }
 
   const failedStage = stages.find((stage) => stage.status === 'failed');
-  if (failedStage && !(failedStage.id === 'tests' && testReport)) {
-    const diagnostics = compactFailureDiagnostics(failedStage.output);
+  if (failedStage) {
+    const diagnostics = failedStage.id === 'build'
+      ? compactBuildFailureDiagnostics(failedStage.output)
+      : compactFailureDiagnostics(failedStage.output);
     lines.push('', `${failedStage.name} diagnostics:`, diagnostics || 'No stage diagnostics were captured.');
   }
 
   return truncateOutput(lines.join('\n'));
 }
 
+function compactBuildFailureDiagnostics(output) {
+  const cleaned = cleanFailureDiagnostics(output);
+  const compilerErrors = cleaned
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /\berror\s+[a-z]{2,}\d+\s*:/i.test(line));
+
+  if (compilerErrors.length === 0) {
+    return compactFailureDiagnostics(cleaned);
+  }
+
+  const maximumErrors = 20;
+  const reportedErrors = compilerErrors.slice(0, maximumErrors);
+  const omittedErrorCount = compilerErrors.length - reportedErrors.length;
+  if (omittedErrorCount > 0) {
+    reportedErrors.push(`Build error diagnostics omitted: ${omittedErrorCount} (the first ${maximumErrors} are shown).`);
+  }
+  return reportedErrors.join('\n');
+}
+
 function compactFailureDiagnostics(output) {
-  const cleaned = String(output || '')
-    .replace(/^__BCDEVTOOLSET_STAGE__.*$\r?\n?/gm, '')
-    .trim();
+  const cleaned = cleanFailureDiagnostics(output);
   const limit = 40000;
   if (cleaned.length <= limit) {
     return cleaned;
@@ -1591,6 +1611,12 @@ function compactFailureDiagnostics(output) {
 
   const headLength = 5000;
   return `${cleaned.slice(0, headLength)}\n\n[${cleaned.length - limit} diagnostic characters omitted.]\n\n${cleaned.slice(-(limit - headLength))}`;
+}
+
+function cleanFailureDiagnostics(output) {
+  return String(output || '')
+    .replace(/^__BCDEVTOOLSET_STAGE__.*$\r?\n?/gm, '')
+    .trim();
 }
 
 function limitText(value, maximumLength) {
