@@ -750,6 +750,23 @@ function Test-AutoRestoreBackup {
     return $true
 }
 
+function Test-ShouldExportInitialTestContainerBackup {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration,
+        [Parameter(Mandatory=$false)]
+        [bool] $creationTriggeredByTestOperation = $false
+    )
+
+    if (-not $configuration.PSObject.Properties['sqlBackupPath'] -or
+        [string]::IsNullOrWhiteSpace($configuration.sqlBackupPath) -or
+        $configuration.includeTestToolkit -ne 'true') {
+        return $false
+    }
+
+    return $creationTriggeredByTestOperation -or $configuration.targetType -eq 'Test'
+}
+
 function Test-ConfigurationMultitenant {
     Param (
         [Parameter(Mandatory=$true)]
@@ -2069,7 +2086,9 @@ function New-DockerContainer {
         [Parameter(Mandatory=$true)]
         [bool] $pullFullArtifact,
         [Parameter(Mandatory=$false)]
-        [bool] $honorAutoRestoreBackup = $false
+        [bool] $honorAutoRestoreBackup = $false,
+        [Parameter(Mandatory=$false)]
+        [bool] $deferInitialBackupExport = $false
     )
     
     $selectedConfigurations = @(Select-DockerContainerConfigurations `
@@ -2340,6 +2359,13 @@ Import-NAVServerLicense -LicenseFile '$escapedContainerLicenseFile' -ServerInsta
             if ($Parameters.ContainsKey('bakFolder')) {
                 Write-Host "SQL backup was restored while creating container '$($configuration.container)'. Starting post-restore application version assessment." -ForegroundColor Green
                 Invoke-BcContainerSystemApplicationUpgradeAfterRestore -containerName $configuration.container
+            }
+
+            if (-not $deferInitialBackupExport -and
+                (Test-ShouldExportInitialTestContainerBackup -configuration $configuration)) {
+                Export-InitialTestContainerSqlBackupSet `
+                    -scriptPath $scriptPath `
+                    -configuration $configuration
             }
 
             if ($configuration.PSObject.Properties['autoExtractAssemblies'] -and $configuration.autoExtractAssemblies -eq $true) {

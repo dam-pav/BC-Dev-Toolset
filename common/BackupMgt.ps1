@@ -683,6 +683,55 @@ function Get-ContainerSqlBackupRootPaths {
     return $backupRootPaths
 }
 
+function Export-InitialTestContainerSqlBackupSet {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration
+    )
+
+    Assert-SqlBackupPath `
+        -sqlBackupPath $configuration.sqlBackupPath `
+        -operationName "creating an initial test container SQL backup" `
+        -configurationName $configuration.name
+
+    $exportRootPath = Get-SqlBackupRootPath `
+        -scriptPath $scriptPath `
+        -sqlBackupPath $configuration.sqlBackupPath
+
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $sharedBackupPath = Join-Path $hostHelperFolder "Extensions\$($configuration.container)\SqlBackups\$timestamp"
+    New-Item -ItemType Directory -Path $sharedBackupPath -Force | Out-Null
+    New-Item -ItemType Directory -Path $exportRootPath -Force | Out-Null
+
+    Write-Host ""
+    Write-Host "Creating initial SQL backup set for container '$($configuration.container)'." -ForegroundColor Green
+    Write-Host "Shared working folder: $sharedBackupPath" -ForegroundColor Gray
+    Write-Host "Export folder: $exportRootPath" -ForegroundColor Gray
+
+    Backup-BcContainerDatabases `
+        -containerName $configuration.container `
+        -bakFolder $sharedBackupPath
+
+    Get-ChildItem -Path $exportRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue |
+        Remove-Item -Force
+
+    $backupMap = @(Get-BcContainerDatabaseBackupMap -containerName $configuration.container)
+    foreach ($backupItem in $backupMap) {
+        $sourceFile = Join-Path $sharedBackupPath $backupItem.HelperFileName
+        if (-not (Test-Path -Path $sourceFile -PathType Leaf)) {
+            Write-Host "Expected backup file '$sourceFile' was not created; skipping." -ForegroundColor Yellow
+            continue
+        }
+        Move-Item -Path $sourceFile -Destination (Join-Path $exportRootPath $backupItem.ExportFileName) -Force
+    }
+
+    Remove-Item -Path $sharedBackupPath -Force -Recurse
+
+    Write-Host "Initial SQL backup set exported for container '$($configuration.container)'." -ForegroundColor Green
+}
+
 function Export-BcContainerSqlBackupSet {
     Param (
         [Parameter(Mandatory=$true)]
