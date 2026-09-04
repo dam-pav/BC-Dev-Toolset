@@ -305,7 +305,7 @@ The AL test tool and page script operations run in a Docker container selected f
 
 If *executeTestsInContainerName* is set, or if multiple eligible Container configurations are available, the operation resolves the configured container name or asks which configured container to use. It then asks for explicit confirmation before running tests in that container.
 
-When a selected container does not exist, the operation creates it from the selected configuration and immediately exports an initial SQL backup set to that configuration's *sqlBackupPath*. Because that backup was just created from the new container, restore is skipped for that run.
+When a selected container does not exist, the operation creates it from the selected configuration. If *includeTestToolkit* is `true` and *sqlBackupPath* is non-empty, creation triggered by a Test operation immediately exports an initial SQL backup set regardless of *targetType*. Manual Create/Overwrite Docker container does the same only when *targetType* is also `Test`. Restore is skipped for that test run because the container was just created.
 
 When preparation is required for an existing selected container, the operation restores the SQL backup set from *sqlBackupPath* if compatible backup files exist, publishes dependency apps, publishes all workspace apps including test apps, and then discovers and executes tests separately for each installed workspace extension. Apps without test codeunits are allowed; a workspace app that is not installed causes the operation to stop instead of silently omitting its tests.
 
@@ -430,7 +430,7 @@ These are stored in the `.code-workspace` file. The AL region setting is stored 
 
 - `al.symbolsCountryRegion`: Business Central artifact region. The default is `w1`; this is the same setting used by the AL extension.
 - `selectArtifact`: Artifact selection strategy. The default is `Latest`; another common value is `Closest`.
-- `executeTestsInContainerName`: Optional container name used by Test operations. It can be set in local `.bcdevtoolset/settings.json`; a non-empty local value takes priority over the shared workspace setting. Container configurations with `includeTestToolkit` set to `true` are eligible regardless of `targetType`. If empty and only one eligible Container configuration exists, tests run there without backup restore or app deployment. If empty, or if the value is not found and multiple eligible Container configurations exist, Test operations ask which configured container to use. If the selected container is missing, it is created and an initial SQL backup set is exported before tests continue.
+- `executeTestsInContainerName`: Optional container name used by Test operations. It can be set in local `.bcdevtoolset/settings.json`; a non-empty local value takes priority over the shared workspace setting. Container configurations with `includeTestToolkit` set to `true` are eligible regardless of `targetType`. If empty and only one eligible Container configuration exists, tests run there without backup restore or app deployment. If empty, or if the value is not found and multiple eligible Container configurations exist, Test operations ask which configured container to use. If the selected container is missing, it is created before tests continue and exports an initial SQL backup set when `sqlBackupPath` is non-empty, regardless of `targetType`.
 - `configurations`: Shared list of deployment targets for the workspace.
 
 #### Configurations
@@ -469,7 +469,7 @@ Each `configurations` entry can contain:
 - `sqlMemoryLimit`: Optional SQL Server memory limit passed directly to `New-BcContainer`. Valid only for `Container`. Use a positive whole-number size ending in `M` or `G`, or a percentage from `1%` through `100%`, for example `2G` or `25%`. When omitted or empty, BcContainerHelper chooses its default.
 - `databaseUser`: Optional SQL authentication user for regular SQL Server backup operations. If empty, Windows authentication is used.
 - `databasePassword`: Optional SQL authentication password for regular SQL Server backup operations.
-- `sqlBackupPath`: Local folder used by SQL backup operations for this configuration. Valid only for `Container`. Container backup and manual restore use the path from the selected Container configuration; new-container initialization uses it only when `autoRestoreBackup` is `true`. BC service SQL Server backups export into the configured Container backup folders.
+- `sqlBackupPath`: Local folder used by SQL backup operations for this configuration. Valid only for `Container`. Container backup and manual restore use the path from the selected Container configuration; automatic restore during creation uses it only when `autoRestoreBackup` is `true`. With `includeTestToolkit` set to `true`, Test-operation creation always exports an initial backup here; manual creation exports one only when `targetType` is also `Test`. BC service SQL Server backups export into the configured Container backup folders.
 - `remoteUser`: Optional PowerShell remoting user for remote SQL Server backup operations. If empty, the current Windows identity is used.
 - `remotePassword`: Optional PowerShell remoting password for remote SQL Server backup operations.
 - `serverConfiguration`: List of `KeyName` and `KeyValue` pairs.

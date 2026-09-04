@@ -230,6 +230,46 @@ test('automatic backup restore requires a boolean Container configuration flag w
   assert.doesNotMatch(manualOperation, /autoRestoreBackup/);
 });
 
+test('every newly created test container with a SQL backup path exports its initial backup', () => {
+  const source = fs.readFileSync(workspaceMgtPath, 'utf8');
+  const backupManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'common', 'BackupMgt.ps1'), 'utf8');
+  const containerCreationFunction = source.match(/function New-DockerContainer[\s\S]*?\n}/)?.[0] ?? '';
+  assert.match(
+    containerCreationFunction,
+    /New-BcContainer @Parameters[\s\S]*?Test-ShouldExportInitialTestContainerBackup[\s\S]*?Export-InitialTestContainerSqlBackupSet/
+  );
+  assert.match(backupManagement, /function Export-InitialTestContainerSqlBackupSet[\s\S]*?Backup-BcContainerDatabases/);
+
+  const testManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'common', 'TestMgt.ps1'), 'utf8');
+  assert.doesNotMatch(testManagement, /Export-TestContainerBackupSet/);
+  assert.match(
+    testManagement,
+    /New-DockerContainer[\s\S]*?-deferInitialBackupExport \$true[\s\S]*?Update-ContainerServerConfiguration[\s\S]*?Export-InitialTestContainerSqlBackupSet/
+  );
+
+  const output = runPowerShell(`
+    . '${workspaceMgtPath.replaceAll("'", "''")}'
+    $devTestContainer = [PSCustomObject]@{ targetType = 'Dev'; includeTestToolkit = 'true'; sqlBackupPath = 'backups' }
+    $manualTestContainer = [PSCustomObject]@{ targetType = 'Test'; includeTestToolkit = 'true'; sqlBackupPath = 'backups' }
+    $testWithoutToolkit = [PSCustomObject]@{ targetType = 'Test'; includeTestToolkit = 'false'; sqlBackupPath = 'backups' }
+    [PSCustomObject]@{
+      testOperation = Test-ShouldExportInitialTestContainerBackup -configuration $devTestContainer -creationTriggeredByTestOperation $true
+      manualTest = Test-ShouldExportInitialTestContainerBackup -configuration $manualTestContainer
+      manualDev = Test-ShouldExportInitialTestContainerBackup -configuration $devTestContainer
+      missingToolkit = Test-ShouldExportInitialTestContainerBackup -configuration $testWithoutToolkit -creationTriggeredByTestOperation $true
+    } | ConvertTo-Json -Compress
+  `);
+  const result = JSON.parse(output.split(/\r?\n/).at(-1));
+  assert.deepEqual(result, {
+    testOperation: true,
+    manualTest: true,
+    manualDev: false,
+    missingToolkit: false
+  });
+});
+
 test('container memory limits are validated and passed to New-BcContainer', () => {
   const schema = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'schemas', 'bcdevtoolset-settings.schema.json'), 'utf8'));
   const containerRule = schema.definitions.configuration.allOf.find((rule) =>
