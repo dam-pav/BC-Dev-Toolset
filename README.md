@@ -279,6 +279,8 @@ To retrieve bak files from a SQL Server host you will require credentials with t
 
 You can follow the naming convention manually and prepare a bak file set manually, if you find yourself unable to use the toolset backup scripts. A regular Microsoft artifact-based container is multitenant and contains an application database plus tenant databases.
 
+When preparing backups manually, create a full backup of each database in a separate, new `.bak` file. Do not append backups to an existing file: each file must contain only one backup set. *BcContainerHelper* cannot restore files that accumulate multiple backup sets and reports: `This tool does not support backup files that contain more than one backup set.` If you encounter this error, create a new full backup in a separate file, apply the naming convention above, and retry the restore.
+
 ### Backup
 
 Container backups created by the toolset use *<container\>.<database\>.app.bak* for the application database, *<container\>.<tenant-id\>.tenant.bak* for tenant databases, and *<container\>.<database\>.database.bak* for a single-tenant database. The container name in the exported file name identifies the backup's origin. Existing *.bak* files in the selected *sqlBackupPath* are replaced when a new backup set is exported, so file name collisions are not preserved across backup runs.
