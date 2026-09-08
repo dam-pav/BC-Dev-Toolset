@@ -2359,6 +2359,10 @@ Import-NAVServerLicense -LicenseFile '$escapedContainerLicenseFile' -ServerInsta
             if ($Parameters.ContainsKey('bakFolder')) {
                 Write-Host "SQL backup was restored while creating container '$($configuration.container)'. Starting post-restore application version assessment." -ForegroundColor Green
                 Invoke-BcContainerSystemApplicationUpgradeAfterRestore -containerName $configuration.container
+                $restoredTenants = @($backupEntries |
+                    Where-Object DatabaseRole -eq "tenant" | Select-Object -ExpandProperty DatabaseName)
+                if ($restoredTenants.Count -eq 0) { $restoredTenants = @("default") }
+                Repair-BcContainerAdministratorAfterRestore -configuration $configuration -tenants $restoredTenants
             }
 
             if (-not $deferInitialBackupExport -and

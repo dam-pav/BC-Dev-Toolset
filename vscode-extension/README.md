@@ -126,6 +126,20 @@ Installing BC Dev Toolset also installs the official **Microsoft AL Language** e
 - `Create and export SQL backup set from BC service SQL Server`: Creates SQL backup files from a Business Central service SQL Server environment. You will require credentials with the ability to create remote Powershell sessions to the SQL Server host.
 - `Restore SQL backup set to Docker container`: Restores a saved SQL backup set into a Docker container, either through the manual operation or during automatic container initialization. If more than one Container configuration has a non-empty `sqlBackupPath`, choose which container to restore. Afterward, it reports platform/database/Microsoft application versions and, when matching same-major packages make the detected split safe to upgrade, forcibly closes active BC sessions and upgrades System Application, Base Application, and Application in dependency order with non-destructive schema synchronization.
 
+#### Automatic administrator setup after restore
+
+Manual restores, restores during container creation, and restores during test preparation repair administrator access in every restored tenant. Password authentication creates the configured user if missing and reapplies the configured password for existing users. Windows authentication uses the outbound network identity, including `runas /netonly`. The administrator is enabled, account expiry is cleared, and `SUPER` is granted for all companies when missing. Setup failures stop the operation without rolling back the database restore.
+
+#### Troubleshooting administrator setup
+
+If authentication does not match, correct the selected container configuration and target container authentication setup before retrying. For Windows authentication, ensure the target container can resolve the outbound account.
+
+If an extension blocks CLI User table validation/events, for example because no company is selected:
+
+1. Disable the offending app in the **source environment**, or uninstall it if disabling is unavailable or ineffective.
+2. Create a **new backup**, then restore it to the target container.
+3. After administrator setup completes, enable or reinstall the app in the **restored target environment**.
+
 ### Tests
 
 - `Run AL test tool tests`: Builds all workspace apps in dependency order before preparing the test container, so a failed build stops the operation before backup restore or deployment. It then runs tests once per workspace extension. Business Central discovers codeunits whose `SubType` is `Test` by extension ID, so test suite registration in an `OnInstall` procedure is not required.

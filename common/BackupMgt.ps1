@@ -482,6 +482,136 @@ function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {
     Write-Host "System Application, Base Application, Application, and the database application version are now '$($assessment.TargetVersion)'." -ForegroundColor Green
 }
 
+function Get-BcRestoreWindowsNetworkAccount {
+    # Query the outbound SSPI credential, not WindowsIdentity/whoami: /netonly
+    # preserves the local token while replacing the credentials used on the network.
+    if (-not ('BcDevToolset.RestoreNetworkIdentity' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace BcDevToolset {
+    public static class RestoreNetworkIdentity {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SecHandle { public IntPtr Lower; public IntPtr Upper; }
+        [DllImport("secur32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+        private static extern int AcquireCredentialsHandleW(string principal, string package,
+            uint usage, IntPtr logonId, IntPtr authData, IntPtr getKey, IntPtr keyArgument,
+            out SecHandle credential, out long expiry);
+        [DllImport("secur32.dll", ExactSpelling = true)]
+        private static extern int QueryCredentialsAttributesW(ref SecHandle credential,
+            uint attribute, out IntPtr name);
+        [DllImport("secur32.dll", ExactSpelling = true)]
+        private static extern int FreeCredentialsHandle(ref SecHandle credential);
+        [DllImport("secur32.dll", ExactSpelling = true)]
+        private static extern int FreeContextBuffer(IntPtr buffer);
+        public static string GetAccount() {
+            SecHandle credential;
+            long expiry;
+            int status = AcquireCredentialsHandleW(null, "Negotiate", 2,
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, out credential, out expiry);
+            if (status != 0) throw new InvalidOperationException("Cannot acquire outbound Windows credentials: " + status);
+            try {
+                IntPtr name;
+                status = QueryCredentialsAttributesW(ref credential, 1, out name);
+                if (status != 0) throw new InvalidOperationException("Cannot query outbound Windows identity: " + status);
+                try {
+                    string account = Marshal.PtrToStringUni(name);
+                    if (String.IsNullOrWhiteSpace(account)) throw new InvalidOperationException("Outbound Windows identity is empty.");
+                    return account;
+                }
+                finally { if (name != IntPtr.Zero) FreeContextBuffer(name); }
+            }
+            finally { FreeCredentialsHandle(ref credential); }
+        }
+    }
+}
+'@ -ErrorAction Stop
+    }
+    return [BcDevToolset.RestoreNetworkIdentity]::GetAccount()
+}
+
+function Repair-BcContainerAdministratorAfterRestore {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration,
+        [Parameter(Mandatory=$true)]
+        [string[]] $tenants
+    )
+
+    $authentication = [string]$configuration.authentication
+    $credential = $null
+    $windowsAccount = ""
+    switch ($authentication) {
+        "Windows" { $windowsAccount = Get-BcRestoreWindowsNetworkAccount }
+        { $_ -in @("UserPassword", "NavUserPassword") } {
+            $credential = Get-BcConfigurationCredential -configuration $configuration
+        }
+        default { throw "Post-restore administrator repair does not support authentication '$authentication'. Configure Windows or UserPassword authentication for the target container." }
+    }
+
+    foreach ($tenant in ($tenants | Select-Object -Unique)) {
+        try {
+            Invoke-ScriptInBcContainer -containerName $configuration.container -ScriptBlock {
+                Param ($tenant, $credential, $windowsAccount)
+                $ErrorActionPreference = "Stop"
+                $actualAuthentication = [string](Get-NAVServerConfiguration -ServerInstance $ServerInstance -KeyName ClientServicesCredentialType).Value
+                $expectedAuthentication = if ($windowsAccount) { "Windows" } else { "NavUserPassword" }
+                if ($actualAuthentication -ne $expectedAuthentication) {
+                    throw "Container authentication '$actualAuthentication' does not match configured '$expectedAuthentication'. Correct the container configuration before repairing access."
+                }
+                $userParameters = @{ ServerInstance = $ServerInstance; Tenant = $tenant }
+                $users = @(Get-NAVServerUser @userParameters)
+                if ($windowsAccount) {
+                    # Resolve in the target environment and match SID to handle renamed
+                    # accounts and alternate domain/UPN spellings without duplicates.
+                    $account = New-Object System.Security.Principal.NTAccount($windowsAccount)
+                    $sid = $account.Translate([System.Security.Principal.SecurityIdentifier]).Value
+                    $user = @($users | Where-Object { [string]$_.WindowsSecurityId -eq $sid })
+                    $userParameters.WindowsAccount = $windowsAccount
+                    $displayName = $windowsAccount
+                }
+                else {
+                    $user = @($users | Where-Object { $_.UserName -eq $credential.UserName })
+                    $userParameters.UserName = $credential.UserName
+                    $displayName = $credential.UserName
+                }
+                if ($user.Count -gt 1) { throw "Multiple users match the target administrator '$displayName'." }
+                if ($user.Count -eq 0) {
+                    Write-Host "Creating restored-database administrator '$displayName' in tenant '$tenant'." -ForegroundColor Green
+                    $newParameters = $userParameters.Clone()
+                    if ($credential) {
+                        $newParameters.Password = $credential.Password
+                        $newParameters.ChangePasswordAtNextLogOn = $false
+                    }
+                    New-NAVServerUser @newParameters -State Enabled -ExpiryDate ([datetime]::MinValue) | Out-Null
+                }
+                # Restored password hashes cannot be compared to the local credential.
+                # Reapply the configured password to guarantee target-container access.
+                $updateParameters = $userParameters.Clone()
+                if ($credential) {
+                    $updateParameters.Password = $credential.Password
+                    $updateParameters.ChangePasswordAtNextLogOn = $false
+                }
+                if ($user.Count -eq 1 -and ($credential -or
+                    $user[0].State -ne "Enabled" -or $user[0].ExpiryDate -gt [datetime]::MinValue)) {
+                    Set-NAVServerUser @updateParameters -State Enabled -ExpiryDate ([datetime]::MinValue) -Force | Out-Null
+                }
+                $permissions = @(Get-NAVServerUserPermissionSet @userParameters)
+                $super = @($permissions | Where-Object {
+                    $_.PermissionSetId -eq "SUPER" -and [string]::IsNullOrEmpty([string]$_.CompanyName)
+                })
+                if ($super.Count -eq 0) {
+                    New-NAVServerUserPermissionSet @userParameters -PermissionSetId SUPER | Out-Null
+                }
+                Write-Host "Administrator '$displayName' is enabled with SUPER access in tenant '$tenant'." -ForegroundColor Green
+            } -ArgumentList $tenant, $credential, $windowsAccount -ErrorAction Stop
+        }
+        catch {
+            throw "Database restore completed, but administrator setup failed in container '$($configuration.container)', tenant '$tenant': $($_.Exception.Message) If an extension blocks User table validation/events, disable it (or uninstall it) at the source before taking the backup, then enable or reinstall it in the restored target."
+        }
+    }
+}
+
 function Restore-BcContainerSqlBackupEntries {
     Param (
         [Parameter(Mandatory=$true)]
@@ -490,7 +620,9 @@ function Restore-BcContainerSqlBackupEntries {
         [string] $bakFolder,
         [Parameter(Mandatory=$true)]
         [AllowEmptyCollection()]
-        [array] $backupEntries
+        [array] $backupEntries,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration
     )
 
     $restoreParameters = Get-BcContainerSqlBackupRestoreParameters `
@@ -519,6 +651,9 @@ function Restore-BcContainerSqlBackupEntries {
     }
 
     Invoke-BcContainerSystemApplicationUpgradeAfterRestore -containerName $containerName
+    $tenants = @($backupEntries | Where-Object DatabaseRole -eq "tenant" | Select-Object -ExpandProperty DatabaseName)
+    if ($tenants.Count -eq 0) { $tenants = @("default") }
+    Repair-BcContainerAdministratorAfterRestore -configuration $configuration -tenants $tenants
 }
 
 function Get-BcContainerDatabaseBackupMap {
@@ -850,7 +985,8 @@ function Restore-BcContainerSqlBackupSet {
         Restore-BcContainerSqlBackupEntries `
             -containerName $configuration.container `
             -bakFolder $sharedRestorePath `
-            -backupEntries $backupEntries
+            -backupEntries $backupEntries `
+            -configuration $configuration
 
         Write-Host "SQL backup set restored to container '$($configuration.container)'." -ForegroundColor Green
     }

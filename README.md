@@ -295,6 +295,27 @@ Restore is based on the selected folder's content. It looks for \*.app.bak, \*.t
 
 After a manual restore or a restore performed while creating a container, the tool reports the container platform, database application version, and the installed/package versions of System Application, Base Application, and Application. If the restored database is behind the same-major container platform and all three matching Microsoft packages are available in the container, it automatically publishes, synchronizes with `Mode Add`, and data-upgrades those applications in dependency order. Publication and database-level tenant operations suppress interactive confirmations so the noninteractive operation can run and a retry can replace an app/version left in the catalog by an interrupted attempt; application schema synchronization remains additive and never uses `ForceSync`. The matching package version is the upgrade target because a Business Central service-platform binary build can differ from its application artifact build within the same major release. Before upgrading, the tool forcibly closes active BC sessions. The upgrade stops on the first error, refuses downgrade and cross-major scenarios, and verifies every resulting version.
 
+#### Automatic administrator setup
+
+After a manual restore, a restore during container creation, or a restore during test preparation, the tool ensures administrative access in every restored tenant:
+
+- **Password authentication:** For `UserPassword`/`NavUserPassword`, it creates the configured user if missing and reapplies `bcUser`/`bcPassword` (or legacy `admin`/`password`). Existing users receive the configured target password without a required password change at next login.
+- **Windows authentication:** It uses the current process's outbound network identity, including credentials supplied by `runas /netonly`. This can differ from the local identity shown by `whoami`.
+- **Administrative rights:** It enables the administrator, clears account expiry, and assigns `SUPER` for all companies when missing. Other users are preserved.
+
+Authentication mismatches and user-management errors stop the operation with a diagnostic. The database restore is not rolled back.
+
+#### Troubleshooting administrator setup
+
+**If the reported authentication mode does not match the configuration:** Check the selected container configuration's `authentication` value and the target container's authentication setup. Correct the mismatch before retrying. For Windows authentication, also ensure the target container can resolve the outbound Windows account.
+
+**If an extension blocks user creation:** Extensions that subscribe to User table validation or events can fail when creating users through the CLI, for example because they require company information while no company is selected. Follow these steps when the error identifies such an extension:
+
+1. At the **source environment**, temporarily disable the offending app. If disabling is unavailable or ineffective, uninstall it.
+2. Create a **new backup** after disabling or uninstalling the app.
+3. Restore the new backup to the **target container** and allow administrator setup to complete.
+4. Enable or reinstall the app in the **restored target environment**.
+
 ## Testing
 
 The Tests group contains three operations:
