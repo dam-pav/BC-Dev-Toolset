@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.7.8",
+  "version": "1.7.9",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -65,6 +65,8 @@
     "onCommand:bcDevToolset.operation.updateBcContainerServerConfiguration",
     "onCommand:bcDevToolset.operation.backupBcContainerDatabases",
     "onCommand:bcDevToolset.operation.backupBcServiceDatabases",
+    "onCommand:bcDevToolset.operation.configureWinRm",
+    "onCommand:bcDevToolset.operation.configureStoredCredentials",
     "onCommand:bcDevToolset.operation.restoreBcContainerDatabases",
     "onCommand:bcDevToolset.operation.publishDependencies2Docker",
     "onCommand:bcDevToolset.operation.publishDependencies2Test",
@@ -830,6 +832,14 @@
       {
         "command": "bcDevToolset.operation.backupBcContainerDatabases",
         "title": "BC Dev Toolset: Create and export SQL backup set from Docker container"
+      },
+      {
+        "command": "bcDevToolset.operation.configureStoredCredentials",
+        "title": "BC Dev Toolset: Configure stored credentials"
+      },
+      {
+        "command": "bcDevToolset.operation.configureWinRm",
+        "title": "BC Dev Toolset: Configure WinRM and TrustedHosts"
       },
       {
         "command": "bcDevToolset.operation.backupBcServiceDatabases",

@@ -8,7 +8,7 @@ Also, many developers still find using local containers cumbersome and find all 
 
 The things that the toolset will enable you to do once it is set up:
 
-* Creating exactly the containers your app needs based on what the apps are.
+* Creating exactly the containers your development needs based on what the apps are.
 * Backup and restore of container-compatible SQL backup sets. If present, the backup set is automatically used when creating a new container.
 * Managing the BC service parameters
 * Executing tests, both "classic" and Page Scripting.
@@ -21,9 +21,11 @@ The things that the toolset will enable you to do once it is set up:
 
 ## Introduction
 
-The purpose of this toolset is the management of local Windows or Windows Server development environments for Business Central projects. The goal is to make quick work of preparation of local Docker environments, as well as other routinely executed management procedures, such as editing of *launch.json*. It's a simple, no-brainer approach that might get more sophisticated in the future, but will always focus on simplicity.
+The purpose of this toolset is the management of local Windows or Windows Server development environments for Business Central projects. The goal is to make quick work of preparation of local Docker environments, as well as other routinely executed management procedures, such as editing of *launch.json*.
 
-It relies on information about your project/app that is already available from *app.json* or *repo.code-workspace*. Only the information that is not already there needs to be added to the toolset's own settings. Part of the toolset's settings are developers' own preferences, while others, such as the locations of test environments, can be made available from within the repository, so that developers don't have to manage those manually.
+Do not let yourself be discouraged by it's the impression of complexity at first encounter - for your first and basic use you won't need any of the specifics - they are there only should you need them. I always focus on usability and the power of defaults.
+
+BC Dev's Toolset relies on information about your project/app that is already available from *app.json* or *repo.code-workspace*. Only the information that is not already there needs to be added to the toolset's own settings. Part of the toolset's settings are developers' own preferences, while others, such as the locations of test environments, can be made available from within the repository, so that developers don't have to manage those manually.
 
 > The required container artifact version is retrieved from the apps' app.json files. Every app in the workspace must have the same "application" value; container creation stops and reports each discrepancy when the values differ. If you manage this value manually, make sure you don't fiddle with the "platform" element as well. The "platform" element informs your environment about which symbols to download and the app versions are not always aligned with the container (platform) version. In fact, more usually than not they contain older versions that had no reason to be updated. The chief example is the System app which is not released as often as other apps.
 
@@ -281,11 +283,62 @@ You can follow the naming convention manually and prepare a bak file set manuall
 
 When preparing backups manually, create a full backup of each database in a separate, new `.bak` file. Do not append backups to an existing file: each file must contain only one backup set. *BcContainerHelper* cannot restore files that accumulate multiple backup sets and reports: `This tool does not support backup files that contain more than one backup set.` If you encounter this error, create a new full backup in a separate file, apply the naming convention above, and retry the restore.
 
+### Stored credentials on Windows
+
+Use **Configure stored credentials** in the Workspace operations to select a configuration and credential purpose, enter credentials in a masked prompt, and save them to Windows Credential Manager. Setup enables the matching boolean flag and removes that purpose's plaintext username and password from the original settings or `.code-workspace` file. Other credential pairs and configurations stay as configured. The JSON document is reserialized when saved, so formatting and comments may change. There is no automatic migration; secure and plaintext credentials can be mixed, for example:
+
+```json
+{
+  "name": "Remote BC",
+  "serverType": "OnPrem",
+  "server": "https://bc-host",
+  "serverInstance": "BC230",
+  "remoteCredential": true,
+  "databaseUser": "backup-user",
+  "databasePassword": "your-sql-password"
+}
+```
+
+Credential targets use `BCDevToolset/v1/<identity-hash>/<bc|remote|database>`. For Container configurations, the identity uses only the container name and the Container type; configuration names and project locations do not affect storage. For non-container configurations, it uses a persistent project UUID plus server type, server, management server, and service instance (`databaseServerHost` supplies the server identity when both BC host fields are absent). The UUID is generated automatically on first save in `.bcdevtoolset/credential-scope.json`; no project path is included in the key. Separate projects get separate UUIDs even when they target the same remote resources. Keep this file to retain access to stored credentials after moving the project; copying it to another project deliberately shares its credential scope. Values are trimmed and case-insensitive. It never uses passwords, filesystem locations, or file metadata. Identical container identities share credentials across projects on the same workstation; non-container identities share only within the same project scope; changing an identity field requires setting up credentials again. Entries use Windows generic credentials persisted for the current Windows user on this computer. They can be inspected or removed in Windows Credential Manager.
+
+Users are responsible for reviewing and removing stale credential records in Windows Credential Manager. Removing or modifying a configuration does not automatically delete orphaned credential paths. Before deleting an entry, check whether another configuration or project still uses it, especially for shared containers.
+
+During human backup recovery, successfully entered remoting credentials are reused in memory for subsequent connections in the same backup, including the SQL host. Storage is offered only after the backup files have been successfully exported locally, once per credential purpose (remoting and SQL). Failed backups do not offer storage. Temporary remoting credentials are cleared when the backup ends. Saving updates the source configuration, so later connections use stored credentials. Declining keeps them temporary. BC credential setup is separate: existing container creation, publishing, restore, and test workflows retrieve stored BC credentials through their normal credential resolver without adding password prompts.
+
+Agents use existing stored credentials internally; passwords are never requested through MCP. Missing entries return setup instructions. **Configure stored credentials** itself is human-only and an agent invocation stops without prompting. Credential Manager protects storage at rest, not against other programs executing as the same Windows user.
+
 ### Backup
 
 Container backups created by the toolset use *<container\>.<database\>.app.bak* for the application database, *<container\>.<tenant-id\>.tenant.bak* for tenant databases, and *<container\>.<database\>.database.bak* for a single-tenant database. The container name in the exported file name identifies the backup's origin. Existing *.bak* files in the selected *sqlBackupPath* are replaced when a new backup set is exported, so file name collisions are not preserved across backup runs.
 
-BC service SQL Server backups use the same role suffixes without adding a container name: *<database\>.app.bak*, *<tenant-id\>.tenant.bak*, or *<database\>.database.bak*. They are exported to every distinct *sqlBackupPath* configured on Container configurations.
+BC service SQL Server backups use the same role suffixes without adding a container name: *<database\>.app.bak*, *<tenant-id\>.tenant.bak*, or *<database\>.database.bak*. Choose one OnPrem source and one Container destination configuration. The operation creates one backup set and exports it only to the selected destination's *sqlBackupPath*. Human runs always ask for the destination and ask for the source when multiple eligible OnPrem configurations exist. There is no automatic export to every configuration. Configurations sharing the selected physical folder also see its replacement contents.
+
+Set `databaseServerHost` on the OnPrem source to bypass BC service discovery entirely. Supply `databaseName` and, for a named SQL instance, `databaseInstance`. For multitenant sources, `databaseName` is the application database and `databaseTenants` is a non-empty array of `{ "id": "tenant-id", "databaseName": "SQL tenant database" }` entries with unique IDs. Omit `databaseTenants` for a single-tenant database. An incomplete direct mapping aborts without contacting the BC host or guessing database names.
+
+```json
+{
+  "name": "Remote BC",
+  "serverType": "OnPrem",
+  "serverInstance": "BC230",
+  "databaseServerHost": "DB-SERVER",
+  "databaseInstance": "SQLSERVER2019",
+  "databaseName": "TEST_DARS_DEV_230",
+  "remoteCredential": true,
+  "databaseCredential": true
+}
+```
+
+When `databaseServerHost` is absent or empty, the first backup discovers the database mapping through BC. Only after successful export, it writes the host, SQL instance, database name and any tenant mapping into the selected source's original configuration file. Failed backups do not populate the mapping; an existing explicit host is never overwritten. Update these fields if the service databases change, or remove `databaseServerHost` to rediscover and refresh the mapping on the next successful backup. Saving reformats the original JSON document, as credential setup does.
+
+Remote BC database discovery locates the selected Windows service and imports `NavAdminTool.ps1` from that service's installation directory when management cmdlets are absent from the session. It uses the selected instance's tools even when multiple BC versions are installed. Missing services, missing administration tools, and module import failures stop discovery with a specific explanation. Set `managementServer` to the BC service host when it differs from the SQL host.
+
+Agents supply `sourceConfiguration` and `destinationConfiguration` as exact unique configuration names to `bc_dev_toolset_backup_bc_service_databases`. Call first to review the required inputs, then execute with both names and `execute: true`. Missing, ambiguous, or ineligible selections abort before discovery or filesystem changes; agents are never prompted mid-backup for these selections.
+
+BC service backup stops on SQL backup or copy errors and reports export success only after the selected export completes. Remote SQL failures include nested connection diagnostics and the authentication mode. Existing local backup files are retained if creating the remote backup fails; replacing local files begins only after the remote backup files have been created.
+
+If PowerShell remoting fails during service discovery or remote SQL backup, human runs offer an interactive recovery menu using the shared **Configure WinRM and TrustedHosts** workflow. MCP/agent and non-interactive runs abort without prompting and suggest `bc_dev_toolset_configure_win_rm`, followed by retrying backup. Configure `remoteUser`/`remotePassword` beforehand when explicit Windows credentials are needed.
+
+**Configure WinRM and TrustedHosts** is also a separate Prerequisites operation. It starts local WinRM with Automatic startup and optionally appends one specific host to TrustedHosts, preserving existing entries. For agents, first call `bc_dev_toolset_configure_win_rm` to review inputs; then pass `computerName`, boolean `addTrustedHost`, `execute: true`, and `confirm: true`. All inputs are supplied before execution. Agents require an already elevated extension host; otherwise setup aborts with instructions to use the human operation for Windows elevation. Human runs ask for confirmation and can request elevation. This configures the local client only; enabling remoting on an unreachable remote server requires its administrator.
 
 > Warning: ALL pre-existing *.bak* files in the target folder will be removed during backup.
 
@@ -490,9 +543,14 @@ Each `configurations` entry can contain:
 - `dns`: Optional DNS value passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. `HostDNS` adds the host DNS servers; explicit DNS server values are also allowed. Use a comma-delimited string for multiple DNS servers, for example `8.8.8.8,1.1.1.1`.
 - `memoryLimit`: Optional container memory limit passed directly to `New-BcContainer`. Valid only for `Container`. Use a positive whole-number size ending in `M` or `G`, for example `16G`. When omitted or empty, BcContainerHelper chooses its default (currently `8G` for Hyper-V isolation).
 - `sqlMemoryLimit`: Optional SQL Server memory limit passed directly to `New-BcContainer`. Valid only for `Container`. Use a positive whole-number size ending in `M` or `G`, or a percentage from `1%` through `100%`, for example `2G` or `25%`. When omitted or empty, BcContainerHelper chooses its default.
+- `databaseServerHost`: Optional direct SQL host for OnPrem backups. A non-empty value bypasses BC discovery and requires `databaseName`. Saved with the discovered mapping after a successful backup when missing.
+- `databaseInstance`: Optional named SQL instance for direct backups; empty means the default instance.
+- `databaseName`: Single-tenant database name, or application database name when `databaseTenants` is supplied.
+- `databaseTenants`: Optional non-empty array of `{id, databaseName}` mappings for a multitenant source. Omit for single-tenant backups.
 - `databaseUser`: Optional SQL authentication user for regular SQL Server backup operations. If empty, Windows authentication is used.
 - `databasePassword`: Optional SQL authentication password for regular SQL Server backup operations.
-- `sqlBackupPath`: Local folder used by SQL backup operations for this configuration. Valid only for `Container`. Container backup and manual restore use the path from the selected Container configuration; automatic restore during creation uses it only when `autoRestoreBackup` is `true`. With `includeTestToolkit` set to `true`, Test-operation creation always exports an initial backup here; manual creation exports one only when `targetType` is also `Test`. BC service SQL Server backups export into the configured Container backup folders.
+- `sqlBackupPath`: Local folder used by SQL backup operations for this configuration. Valid only for `Container`. Container backup and manual restore use the path from the selected Container configuration; automatic restore during creation uses it only when `autoRestoreBackup` is `true`. With `includeTestToolkit` set to `true`, Test-operation creation always exports an initial backup here; manual creation exports one only when `targetType` is also `Test`. BC service SQL Server backups export only into the selected Container configuration's backup folder.
+- `bcCredential`, `remoteCredential`, `databaseCredential`: Independent boolean flags enabling Windows Credential Manager for that purpose. `true` makes the corresponding plaintext username and password invalid in the schema and ignored at runtime, including legacy `admin`/`password` for BC. `false` or omission retains existing plaintext behavior. Missing secure credentials stop the operation without falling back to plaintext. Stored entries contain both username and password; the stored username is authoritative in secure mode.
 - `remoteUser`: Optional PowerShell remoting user for remote SQL Server backup operations. If empty, the current Windows identity is used.
 - `remotePassword`: Optional PowerShell remoting password for remote SQL Server backup operations.
 - `serverConfiguration`: List of `KeyName` and `KeyValue` pairs.

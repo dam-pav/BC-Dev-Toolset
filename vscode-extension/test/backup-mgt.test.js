@@ -9,6 +9,51 @@ const test = require('node:test');
 
 const backupMgtPath = path.resolve(__dirname, '..', '..', 'common', 'BackupMgt.ps1');
 
+test('remoting recovery cancels cleanly or repairs and retries with explicit credentials', () => {
+  for (const repair of [false, true]) {
+    const script = `
+      . ${quotePowerShell(backupMgtPath)}
+      $script:attempts = 0
+      $script:repairs = 0
+      $script:answers = [collections.generic.queue[string]]::new()
+      ${repair ? "$script:answers.Enqueue('T'); $script:answers.Enqueue('y')" : "$script:answers.Enqueue('')"}
+      function Read-Host { $script:answers.Dequeue() }
+      function Offer-ConfigurationCredentialStorage {}
+      function Get-Credential { [pscredential]::new('server\\user', (ConvertTo-SecureString 'test' -AsPlainText -Force)) }
+      function Invoke-BackupRemotingRepair { param($computerName, $addTrustedHost) if ($computerName -ne 'taopaipai' -or -not $addTrustedHost) { throw 'Wrong repair' }; $script:repairs++ }
+      function New-PSSession {
+        param($ComputerName, $Credential, $ErrorAction)
+        $script:attempts++
+        if ($script:attempts -eq 1) { throw 'TrustedHosts required' }
+        if (-not $Credential) { throw 'Missing credential' }
+        'connected'
+      }
+      try {
+        $session = New-RemoteBackupSession -computerName 'taopaipai' -configuration ([pscustomobject]@{}) 6>$null
+        @{ Session=$session; Repairs=$script:repairs; Attempts=$script:attempts } | ConvertTo-Json -Compress
+      } catch {
+        @{ Cancelled=$_.Exception.Data['BackupRemotingCancelled']; Repairs=$script:repairs; Attempts=$script:attempts } | ConvertTo-Json -Compress
+      }
+    `;
+    const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 10000 });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), repair
+      ? { Session: 'connected', Repairs: 1, Attempts: 2 }
+      : { Cancelled: true, Repairs: 0, Attempts: 1 });
+  }
+});
+
+test('successful remote sessions are returned without recovery actions', () => {
+  const script = `
+    . ${quotePowerShell(backupMgtPath)}
+    function New-PSSession { param($ComputerName, $ErrorAction) @{ Host=$ComputerName; Mode=$ErrorAction } }
+    New-RemoteBackupSession -computerName 'backup-host' -configuration ([pscustomobject]@{}) | ConvertTo-Json -Compress
+  `;
+  const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { Host: 'backup-host', Mode: 'Stop' });
+});
+
 function runRestoreRepair({ users = [], permissions = [], authentication = 'UserPassword', actualAuthentication = 'NavUserPassword', configurationShape = 'string', failCreate = false } = {}) {
   const script = `
     $ErrorActionPreference = 'Stop'
@@ -430,4 +475,187 @@ test('system application restore upgrade keeps additive sync and dependency orde
   assert.match(upgradeFunction, /Get-NAVServerSession[\s\S]*Remove-NAVServerSession[\s\S]*-Force[\s\S]*-Confirm:\$false/);
   assert.doesNotMatch(upgradeFunction, /ForceSync/);
   assert.doesNotMatch(upgradeFunction, /Test Toolkit|test libraries/i);
+});
+
+
+function discoverRemoteService({ command = '"C:\\BC23\\Service\\Microsoft.Dynamics.Nav.Server.exe" $230', missingService = false, missingTools = false, failImport = false, multitenant = true } = {}) {
+  const script = `
+    . ${quotePowerShell(backupMgtPath)}
+    $script:loaded = $false; $script:removed = $false; $script:imported = ''; $script:seenService = ''
+    function New-RemoteBackupSession { 'session' }
+    function Remove-PSSession { $script:removed = $true }
+    function Invoke-Command { param($Session, $ScriptBlock, [object[]] $ArgumentList, $ErrorAction) & $ScriptBlock @ArgumentList }
+    function Get-CimInstance {
+      if ($${missingService}) { return }
+      [pscustomobject]@{ Name='MicrosoftDynamicsNavServer$230'; PathName=${quotePowerShell(command)} }
+      [pscustomobject]@{ Name='MicrosoftDynamicsNavServer$240'; PathName='"C:\\BC24\\Service\\Microsoft.Dynamics.Nav.Server.exe" $240' }
+    }
+    function Get-Command { param($Name) if ($script:loaded -and ($Name -eq 'Get-NAVServerConfiguration' -or $${multitenant})) { $true } }
+    function Test-Path { param($LiteralPath, $PathType) -not $${missingTools} }
+    function Import-Module {
+      param($Name, $ErrorAction)
+      $script:imported = $Name
+      if ($${failImport}) { throw 'Loader compatibility error' }
+      $script:loaded = $true
+    }
+    function Get-NAVServerConfiguration {
+      param($ServerInstance, $KeyName, $ErrorAction)
+      $script:seenService = $ServerInstance
+      switch ($KeyName) {
+        'DatabaseServer' { 'sql-host' }
+        'DatabaseInstance' { 'SQL' }
+        'DatabaseName' { 'BC App' }
+        'Multitenant' { '${multitenant}' }
+      }
+    }
+    function Get-NAVTenant { [pscustomobject]@{ Id='tenant1'; DatabaseName='BC Tenant' } }
+    try { $info = Get-BcServiceDatabaseInfoRemote -computerName taopaipai -serverInstance '230' -configuration ([pscustomobject]@{}) }
+    catch { $failure = $_.Exception.Message }
+    @{ Info=$info; Error=$failure; Imported=$script:imported; Removed=$script:removed; Instance=$script:seenService } | ConvertTo-Json -Depth 5 -Compress
+  `;
+  const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
+
+test('remote discovery loads administration tools from the exact registered service installation', () => {
+  for (const command of ['"C:\\BC23\\Service\\Microsoft.Dynamics.Nav.Server.exe" $230', 'D:\\Custom BC\\Service\\Microsoft.Dynamics.Nav.Server.exe $230']) {
+    const result = discoverRemoteService({ command });
+    assert.equal(result.Error, null);
+    assert.equal(result.Removed, true);
+    assert.equal(result.Instance, '230');
+    assert.match(result.Imported, /(?:BC23|Custom BC)\\Service\\NavAdminTool.ps1$/);
+    assert.equal(result.Info.DatabaseServer, 'sql-host');
+    assert.deepEqual(result.Info.Tenants, [{ Id: 'tenant1', DatabaseName: 'BC Tenant' }]);
+  }
+});
+
+test('single tenant remote discovery does not require tenant cmdlets', () => {
+  const result = discoverRemoteService({ multitenant: false });
+  assert.equal(result.Error, null);
+  assert.deepEqual(result.Info.Tenants, []);
+});
+
+test('remote discovery reports installation failures and always closes the session', () => {
+  for (const [options, expected] of [
+    [{ missingService: true }, /Check serverInstance and managementServer/],
+    [{ missingTools: true }, /Install or repair/],
+    [{ failImport: true }, /Loader compatibility error/],
+    [{ command: 'relative\\Microsoft.Dynamics.Nav.Server.exe' }, /unsupported executable path/]
+  ]) {
+    const result = discoverRemoteService(options);
+    assert.match(result.Error, expected);
+    assert.equal(result.Removed, true);
+    assert.equal(result.Info, null);
+  }
+});
+
+
+test('service SQL export uses one source and destination and stops on SQL or copy failures', () => {
+  for (const mode of ['sql', 'missing', 'copy', 'success']) {
+    const script = `
+      . ${quotePowerShell(backupMgtPath)}
+      $script:copies=0; $script:backups=0; $script:closed=0; $script:localClears=0; $script:hostSaves=0; $script:messages=@()
+      function Write-Host { param($Object) $script:messages += [string]$Object }
+      function Save-BcDatabaseServerHost { $script:hostSaves++ }
+      function Import-BcServiceBackupDiscoveryModules {}
+      function Select-IndexFromList { 1 }
+      function Read-Host { 'n' }
+      $env:BCDEVTOOLSET_MCP_SESSION_ID=''; $env:BCDEVTOOLSET_NON_INTERACTIVE=''
+      function Get-BcServiceDatabaseInfo { param($configuration) if ($configuration.name -ne 'Source2') { throw 'Wrong source' }; [pscustomobject]@{ DatabaseServer='DB-SERVER'; DatabaseInstance='SQLSERVER2019'; DatabaseName='Test'; Multitenant=$false; Tenants=@() } }
+      function Test-IsLocalSqlServer { $false }
+      function New-RemoteBackupSession { 'session' }
+      function Remove-PSSession { $script:closed++ }
+      function Invoke-Command { [CmdletBinding()]param($Session,$ScriptBlock,[object[]]$ArgumentList) & $ScriptBlock @ArgumentList }
+      function New-Item {}
+      function Get-ChildItem { param($Path) if ($Path -like 'C:\\exports\\*') { $script:localClears++ } }
+      function Remove-Item {}
+      function Get-Command { $true }
+      function Test-Path { '${mode}' -ne 'missing' }
+      function Backup-SqlDatabase {
+        [CmdletBinding()]param($ServerInstance,$Database,$BackupFile,$CopyOnly,$Initialize,$SqlCredential)
+        $script:backups++
+        if ('${mode}' -eq 'sql') {
+          $inner = [Exception]::new('SQL login rejected: diagnostic detail')
+          Write-Error -Exception ([Exception]::new('Failed to connect to server', $inner))
+        }
+      }
+      function Copy-Item {
+        [CmdletBinding()]param($FromSession,$Path,$Destination,[switch]$Force)
+        if ($Destination -ne 'C:\\exports\\two') { throw 'Wrong destination' }
+        $script:copies++
+        if ('${mode}' -eq 'copy') { Write-Error 'Transfer failed' }
+      }
+      $settings = [pscustomobject]@{ configurations=@(
+        [pscustomobject]@{name='Source1';serverType='OnPrem';serverInstance='BC220'},
+        [pscustomobject]@{name='Source2';serverType='OnPrem';serverInstance='BC230';databaseUser='sqluser';databasePassword='test-only'},
+        [pscustomobject]@{name='Local';serverType='Container';sqlBackupPath='C:\\exports\\one'},
+        [pscustomobject]@{name='Test';serverType='Container';sqlBackupPath='C:\\exports\\two'}
+      ) }
+      try { Export-BcServiceSqlBackupSet -scriptPath 'C:\\toolset' -settingsJSON $settings }
+      catch { $failure=$_.Exception.Message }
+      @{ Error=$failure; Copies=$script:copies; Backups=$script:backups; Closed=$script:closed; Clears=$script:localClears; HostSaves=$script:hostSaves; Success=(@($script:messages | Where-Object { $_ -like 'SQL backup set exported*' }).Count) } | ConvertTo-Json -Compress
+    `;
+    const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.Success, mode === 'success' ? 1 : 0);
+    assert.equal(output.HostSaves, mode === 'success' ? 1 : 0);
+    assert.equal(output.Backups, 1);
+    assert.equal(output.Closed, 1);
+    assert.equal(output.Copies, ['sql', 'missing'].includes(mode) ? 0 : 1);
+    if (['sql', 'missing'].includes(mode)) assert.equal(output.Clears, 0);
+    if (mode === 'sql') {
+      assert.match(output.Error, /SQL login rejected: diagnostic detail/);
+      assert.match(output.Error, /configured SQL credentials/);
+    } else if (mode === 'missing') assert.match(output.Error, /without creating/);
+    else if (mode === 'copy') assert.match(output.Error, /Transfer failed/);
+    else assert.equal(output.Error, null);
+  }
+});
+
+
+test('agent service backup selections require explicit unique eligible names without prompting', () => {
+  for (const destination of ['Local', 'Unknown', 'Duplicate', '']) {
+    const script = `
+      . ${quotePowerShell(backupMgtPath)}
+      $env:BCDEVTOOLSET_MCP_SESSION_ID='agent'
+      $env:BCDEVTOOLSET_SERVICE_BACKUP_INPUTS=${quotePowerShell(JSON.stringify({ 'serviceBackup.source': 'Source', 'serviceBackup.destination': destination }))}
+      function Select-IndexFromList { throw 'Unexpected prompt' }
+      $settings = [pscustomobject]@{ configurations=@(
+        [pscustomobject]@{name='Source';serverType='OnPrem';serverInstance='BC230'},
+        [pscustomobject]@{name='Local';serverType='Container';sqlBackupPath='C:\\Local'},
+        [pscustomobject]@{name='Duplicate';serverType='Container';sqlBackupPath='C:\\A'},
+        [pscustomobject]@{name='Duplicate';serverType='Container';sqlBackupPath='C:\\B'}
+      ) }
+      try { $selection=Select-BcServiceSqlBackupConfigurations -settingsJSON $settings; @{Source=$selection.Source.name; Destination=$selection.Destination.name} | ConvertTo-Json -Compress }
+      catch { @{Error=$_.Exception.Message} | ConvertTo-Json -Compress }
+    `;
+    const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    if (destination === 'Local') assert.deepEqual(output, { Source: 'Source', Destination: 'Local' });
+    else assert.match(output.Error, /No backup was started/);
+  }
+});
+
+test('human service backup asks for the destination even with one eligible configuration', () => {
+  const script = `
+    . ${quotePowerShell(backupMgtPath)}
+    $env:BCDEVTOOLSET_MCP_SESSION_ID=''; $env:BCDEVTOOLSET_NON_INTERACTIVE=''
+    $script:titles=@()
+    function Select-IndexFromList { param($Title,$Options) $script:titles += $Title; 0 }
+    $settings=[pscustomobject]@{configurations=@(
+      [pscustomobject]@{name='Source';serverType='OnPrem';serverInstance='BC230'},
+      [pscustomobject]@{name='Local';serverType='Container';sqlBackupPath='C:\\Local'}
+    )}
+    $selection=Select-BcServiceSqlBackupConfigurations -settingsJSON $settings
+    @{Count=$script:titles.Count; Title=$script:titles[0]; Destination=$selection.Destination.name} | ConvertTo-Json -Compress
+  `;
+  const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.Count, 1);
+  assert.match(output.Title, /destination configuration/);
+  assert.equal(output.Destination, 'Local');
 });

@@ -612,6 +612,15 @@ function toSnakeCase(value) {
 }
 
 function getOperationToolDescription(operation) {
+  if (operation.id === 'configureStoredCredentials') {
+    return 'Configure Windows Credential Manager credentials. Human-only setup in VS Code; MCP calls return instructions without prompting or accepting passwords. Other operations resolve bcCredential, remoteCredential and databaseCredential boolean flags internally.';
+  }
+  if (operation.id === 'configureWinRm') {
+    return 'Configure local WinRM startup and optionally append one host to TrustedHosts. Call first for input review, then supply computerName, addTrustedHost, execute:true and confirm:true. No mid-operation prompts or automatic UAC elevation for agents: an already elevated extension host is required, otherwise the operation stops with human setup instructions. Does not enable remoting on an unreachable remote server.';
+  }
+  if (operation.id === 'backupBcServiceDatabases') {
+    return 'Create one SQL backup set from one selected OnPrem configuration into one selected Container configuration backup folder, replacing its .bak files. Call first for input review, then supply sourceConfiguration and destinationConfiguration by exact unique configuration name with execute:true. No mid-operation selection prompts. A configured databaseServerHost uses databaseName, optional databaseInstance and optional databaseTenants to bypass BC discovery. Successful discovered backups save that mapping for later runs. Agent remoting failures abort without interactive recovery. Use bc_dev_toolset_configure_win_rm to configure local WinRM/TrustedHosts separately, then retry backup. Configure remoteUser/remotePassword beforehand if explicit Windows credentials are required.';
+  }
   if (operation.command === 'showHelp') {
     return 'BC Dev Toolset: Show Help. Returns the bundled repository README so you can help users explore, understand, configure, and troubleshoot BC Dev Toolset.';
   }
@@ -706,6 +715,9 @@ function getOperationToolAliases(operationId) {
 }
 
 function getOperationToolInputSchema(operation) {
+  if (operation.id === 'configureStoredCredentials') {
+    return { type: 'object', properties: {}, additionalProperties: false };
+  }
   const properties = {
     workspacePath: {
       type: 'string',
@@ -864,6 +876,10 @@ async function runOperation(args, progress) {
     return textResult(readHelpContent());
   }
 
+  if (operation.id === 'configureStoredCredentials') {
+    return textResult('Run BC Dev Toolset: Configure stored credentials in the human VS Code workflow to enter passwords. Agent operations can use existing stored credentials, but setup never accepts passwords through MCP. No operation was started.', true);
+  }
+
   if (!operation.script) {
     return textResult(`BC Dev Toolset operation '${operationId}' is handled by the VS Code extension UI and is not available through MCP.`, true);
   }
@@ -888,6 +904,10 @@ async function runOperation(args, progress) {
 
   if (operation.requiresConfirmation && args.confirm !== true) {
     return textResult(`BC Dev Toolset operation '${operationId}' requires confirmation. Call again with confirm: true to run it.`, true);
+  }
+
+  if (operation.id === 'configureWinRm' && (typeof args.computerName !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9.:-]*$/.test(args.computerName) || typeof args.addTrustedHost !== 'boolean')) {
+    return textResult('computerName must be a single hostname or IP address without wildcards; addTrustedHost must be a boolean. No operation was started.', true);
   }
 
   if (!fs.existsSync(bridgePath)) {
@@ -985,6 +1005,13 @@ function isContainerBackupOperation(operation) {
 }
 
 function getOperationPromptAnswers(operation, args = {}) {
+  if (operation.id === 'backupBcServiceDatabases') {
+    return { 'serviceBackup.source': args.sourceConfiguration, 'serviceBackup.destination': args.destinationConfiguration };
+  }
+  if (operation.id === 'configureWinRm') {
+    // This operation consumes its validated upfront inputs directly, never prompt overrides.
+    return { 'remoting.computerName': args.computerName, 'remoting.addTrustedHost': args.addTrustedHost };
+  }
   const promptAnswers = {};
   for (const promptInput of getOperationPromptInputs(operation)) {
     if (promptInput.inputName && Object.prototype.hasOwnProperty.call(args, promptInput.inputName)) {

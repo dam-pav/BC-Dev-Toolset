@@ -42,13 +42,7 @@ function Get-BcConfigurationCredential {
         [PSObject] $configuration
     )
 
-    if ($configuration.PSObject.Properties['bcUser'] -and $configuration.PSObject.Properties['bcPassword']) {
-        $securePassword = ConvertTo-SecureString -String $configuration.bcPassword -AsPlainText -Force
-        return New-Object pscredential $configuration.bcUser, $securePassword
-    }
-
-    $securePassword = ConvertTo-SecureString -String $configuration.password -AsPlainText -Force
-    return New-Object pscredential $configuration.admin, $securePassword
+    return (Get-ConfigurationCredential -configuration $configuration -kind bc)
 }
 
 function Get-WorkspaceRootPath {
@@ -1491,6 +1485,8 @@ function Initialize-Context {
     Write-Host "Workspace Name is: $workspaceName" -ForegroundColor Gray
     
     # Set the path for settings.json
+    $resolvedProjectSettingsPath = ''
+    $resolvedLocalSettingsPath = ''
     $localSettingsMergedAsBase = $false
     if ([string]::IsNullOrWhiteSpace($SettingsPath) -and [string]::IsNullOrWhiteSpace($LocalSettingsPath)) {
         $LocalSettingsPath = Join-Path $workspaceRootPath.FullName '.bcdevtoolset' 'settings.json'
@@ -1553,6 +1549,7 @@ function Initialize-Context {
             }
         }
     }
+    Initialize-CredentialConfigurationContext -projectRoot $workspaceRootPath.FullName -settingsFiles @($settingsPath, $resolvedProjectSettingsPath, $resolvedLocalSettingsPath) -workspaceFile $(if ($selectedFile) { $selectedFile.FullName } else { '' })
     # finally, pass the object
     $settingsJSON.Value = $settingsJSONvalue
 }

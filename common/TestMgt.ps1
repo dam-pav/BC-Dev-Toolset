@@ -4,17 +4,9 @@ function Get-BcConfigurationCredentialValues {
         [PSObject] $configuration
     )
 
-    if ($configuration.PSObject.Properties['bcUser'] -and $configuration.PSObject.Properties['bcPassword']) {
-        return [PSCustomObject]@{
-            User = $configuration.bcUser
-            Password = $configuration.bcPassword
-        }
-    }
+    $credential = Get-BcConfigurationCredential -configuration $configuration
+    return [PSCustomObject]@{ User=$credential.UserName; Password=$credential.GetNetworkCredential().Password }
 
-    return [PSCustomObject]@{
-        User = $configuration.admin
-        Password = $configuration.password
-    }
 }
 
 function Copy-BcDevToolsetPsObject {
@@ -498,11 +490,7 @@ function Invoke-Tests {
                     continue
                 }
 
-                $bcCredentials = Get-BcConfigurationCredentialValues -configuration $configuration
-                $credential = New-Object System.Management.Automation.PSCredential (
-                    $bcCredentials.User,
-                    (ConvertTo-SecureString -String $bcCredentials.Password -AsPlainText -Force)
-                )
+                $credential = Get-BcConfigurationCredential -configuration $configuration
                 $installedApps = @(Get-BcContainerAppInfo `
                     -containerName $configuration.container `
                     -installedOnly)
@@ -682,9 +670,6 @@ function Invoke-PageScriptTests {
         $user = $bcCredentials.User
         $password = $bcCredentials.Password
 
-        # Env vars for credentials
-        $env:BC_USER = $user
-        $env:BC_PASSWORD = $password
 
         Write-Host "Running tests against $baseUrl" -ForegroundColor Cyan
         
@@ -705,6 +690,17 @@ function Invoke-PageScriptTests {
             $replayArgs += "-Headed"
         }
 
-        & replay @replayArgs
+        $previousBcUser = $env:BC_USER
+        $previousBcPassword = $env:BC_PASSWORD
+        try {
+            $env:BC_USER = $user
+            $env:BC_PASSWORD = $password
+            & replay @replayArgs
+        } finally {
+            $env:BC_USER = $previousBcUser
+            $env:BC_PASSWORD = $previousBcPassword
+            $password = $null
+            $bcCredentials = $null
+        }
     }
 }
