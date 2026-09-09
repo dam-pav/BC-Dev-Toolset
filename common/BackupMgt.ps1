@@ -1,3 +1,5 @@
+. (Join-Path $PSScriptRoot 'RemotingMgt.ps1')
+
 function Get-SqlBackupRootPath {
     Param (
         [Parameter(Mandatory=$false)]
@@ -1099,17 +1101,39 @@ function Get-BcServiceDatabaseInfoRemote {
         -configuration $configuration
 
     try {
-        Invoke-Command -Session $session -ScriptBlock {
+        Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock {
             Param($serverInstance)
 
             if (-not (Get-Command Get-NAVServerConfiguration -ErrorAction SilentlyContinue)) {
-                Import-Module Microsoft.Dynamics.Nav.Management -ErrorAction SilentlyContinue
-            }
-            if (-not (Get-Command Get-NAVServerConfiguration -ErrorAction SilentlyContinue)) {
-                throw "Get-NAVServerConfiguration was not found on BC service host '$env:COMPUTERNAME'."
-            }
-            if (-not (Get-Command Get-NAVTenant -ErrorAction SilentlyContinue)) {
-                throw "Get-NAVTenant was not found on BC service host '$env:COMPUTERNAME'."
+                # Use the selected Windows service's installation, not the newest installed BC version.
+                $serviceName = if ($serverInstance.StartsWith('MicrosoftDynamicsNavServer$', [StringComparison]::OrdinalIgnoreCase)) {
+                    $serverInstance
+                } else { 'MicrosoftDynamicsNavServer$' + $serverInstance }
+                $services = @(Get-CimInstance -ClassName Win32_Service -Filter "Name LIKE 'MicrosoftDynamicsNavServer%'" -ErrorAction Stop | Where-Object { $_.Name -eq $serviceName })
+                if ($services.Count -ne 1) {
+                    throw "BC service '$serviceName' was not found uniquely on '$env:COMPUTERNAME'. Check serverInstance and managementServer; managementServer must be the BC service host, not just the SQL host."
+                }
+
+                # The administrator-managed service registration authorizes a configurable installation root.
+                # Validate its executable at this boundary; access only a fixed child of that root below.
+                $serviceCommand = $services[0].PathName.Trim()
+                if ($serviceCommand -notmatch '^(?:"(?<exe>[A-Za-z]:\\[^"\r\n]+\\Microsoft\.Dynamics\.Nav\.Server\.exe)"|(?<exe>[A-Za-z]:\\[^"\r\n]+?\\Microsoft\.Dynamics\.Nav\.Server\.exe))(?:\s|$)') {
+                    throw "BC service '$serviceName' has an unsupported executable path. Cannot safely locate its administration shell."
+                }
+                $validatedServiceExecutable = [IO.Path]::GetFullPath($Matches['exe'])
+                $validatedInstallationRoot = [IO.Path]::GetDirectoryName($validatedServiceExecutable)
+                $validatedAdminToolPath = [IO.Path]::Combine($validatedInstallationRoot, 'NavAdminTool.ps1')
+                if (-not (Test-Path -LiteralPath $validatedAdminToolPath -PathType Leaf)) {
+                    throw "BC administration shell was not found at '$validatedAdminToolPath' for service '$serviceName'. Install or repair the administration tools for this BC server version."
+                }
+                try {
+                    Import-Module -Name $validatedAdminToolPath -ErrorAction Stop | Out-Null
+                } catch {
+                    throw "Could not load BC administration shell '$validatedAdminToolPath' in PowerShell $($PSVersionTable.PSVersion). Check this BC version's PowerShell requirements and administration-tool installation. Cause: $($_.Exception.Message)"
+                }
+                if (-not (Get-Command Get-NAVServerConfiguration -ErrorAction SilentlyContinue)) {
+                    throw "BC administration shell '$validatedAdminToolPath' loaded but did not expose Get-NAVServerConfiguration. Check the installed administration tools and PowerShell compatibility."
+                }
             }
 
             function Get-BcServerConfigValueRemote {
@@ -1120,7 +1144,7 @@ function Get-BcServiceDatabaseInfoRemote {
                     [string] $keyName
                 )
 
-                $configValue = Get-NAVServerConfiguration -ServerInstance $serverInstance -KeyName $keyName
+                $configValue = Get-NAVServerConfiguration -ServerInstance $serverInstance -KeyName $keyName -ErrorAction Stop
                 if ($configValue.PSObject.Properties.Name -contains "Value") {
                     return $configValue.Value
                 }
@@ -1136,7 +1160,10 @@ function Get-BcServiceDatabaseInfoRemote {
             $multitenant = ((Get-BcServerConfigValueRemote -serverInstance $serverInstance -keyName "Multitenant") -eq "true")
             $tenants = @()
             if ($multitenant) {
-                $tenants = @(Get-NAVTenant -ServerInstance $serverInstance | ForEach-Object {
+                if (-not (Get-Command Get-NAVTenant -ErrorAction SilentlyContinue)) {
+                    throw "Get-NAVTenant is unavailable for multitenant service '$serverInstance'. Check its BC administration-tool installation."
+                }
+                $tenants = @(Get-NAVTenant -ServerInstance $serverInstance -ErrorAction Stop | ForEach-Object {
                     [PSCustomObject]@{
                         Id = $_.Id
                         DatabaseName = $_.DatabaseName
@@ -1226,7 +1253,7 @@ function Backup-RegularSqlDatabase {
         $backupParameters["SqlCredential"] = $sqlCredential
     }
 
-    Backup-SqlDatabase @backupParameters
+    Backup-SqlDatabase @backupParameters -ErrorAction Stop
 }
 
 function Test-IsLocalSqlServer {
@@ -1279,7 +1306,55 @@ function New-RemoteBackupSession {
         New-PSSession @sessionParameters
     }
     catch {
-        throw "Could not open a PowerShell remoting session to '$computerName'. Enable/configure WinRM remoting, or add the host to TrustedHosts when Kerberos/domain authentication is not available. Original error: $($_.Exception.Message)"
+        $connectionError = $_.Exception.Message
+        if (Test-RemotingAgentWorkflow) {
+            $reason = if ($connectionError -match 'TrustedHosts|Kerberos') { 'WinRM trust/authentication failed' } elseif ($connectionError -match 'Access is denied|AccessDenied|logon failure') { 'Windows credentials or remoting permissions were rejected' } else { 'the WinRM endpoint could not be reached; check server remoting, DNS and firewall access' }
+            throw "Backup stopped: PowerShell remoting to '$computerName' failed. Use bc_dev_toolset_configure_win_rm with computerName='$computerName' and addTrustedHost=true for trust errors (false for local WinRM only), execute=true, confirm=true; then retry the backup. Ensure remoteUser/remotePassword are configured for non-domain authentication. Cause: $reason."
+        }
+        :recovery while ($true) {
+            Write-Host "Cannot connect to '$computerName' through PowerShell remoting." -ForegroundColor Yellow
+            Write-Host "[T] Trust this host  [W] Configure local WinRM  [C] Enter Windows credentials"
+            Write-Host "[R] Retry  [D] Error details  [Enter] Cancel backup"
+            try { $choice = Read-Host -Prompt 'Remoting recovery' } catch { $choice = '' }
+            try {
+                switch ($choice.Trim().ToUpperInvariant()) {
+                    'D' { Write-Host $connectionError -ForegroundColor DarkYellow; continue recovery }
+                    'R' { }
+                    'C' {
+                        $credential = Get-Credential -Message "Windows remoting credentials for $computerName"
+                        if (-not $credential) { continue recovery }
+                        $sessionParameters.Credential = $credential
+                    }
+                    { $_ -in 'T', 'W' } {
+                        $addHost = $_ -eq 'T'
+                        $prompt = if ($addHost) {
+                            "Start local WinRM and add '$computerName' to TrustedHosts? Existing entries are preserved; server identity is not verified. [y/N]"
+                        } else {
+                            'Start local WinRM and set startup to Automatic? This does not enable remoting on the remote server. [y/N]'
+                        }
+                        if ((Read-Host -Prompt $prompt) -notmatch '^(y|yes)$') { continue recovery }
+                        Invoke-WinRmConfiguration -computerName $computerName -addTrustedHost $addHost
+                        if ($addHost -and -not $sessionParameters.Credential) {
+                            $credential = Get-Credential -Message "Windows remoting credentials for $computerName"
+                            if (-not $credential) { continue recovery }
+                            $sessionParameters.Credential = $credential
+                        }
+                    }
+                    default {
+                        $cancelled = [System.OperationCanceledException]::new("Backup cancelled: remoting to '$computerName' is unavailable.")
+                        $cancelled.Data['BackupRemotingCancelled'] = $true
+                        throw $cancelled
+                    }
+                }
+                Write-Host 'Retrying connection...' -ForegroundColor Gray
+                return (New-PSSession @sessionParameters)
+            }
+            catch {
+                if ($_.Exception.Data['BackupRemotingCancelled']) { throw }
+                $connectionError = $_.Exception.Message
+                Write-Host 'Connection or repair did not succeed. Choose D for details.' -ForegroundColor Yellow
+            }
+        }
     }
 }
 
@@ -1326,6 +1401,7 @@ function Backup-RemoteSqlDatabases {
         [PSCredential] $sqlCredential
     )
 
+    $ErrorActionPreference = 'Stop'
     $safeFolderName = ($configuration.serverInstance -replace '[\\/:*?"<>|]', '_')
     $remoteBackupPath = Join-Path "C:\ProgramData\BC-Dev-Toolset\SqlBackups" $safeFolderName
     $remoteServerInstance = "localhost"
@@ -1338,8 +1414,10 @@ function Backup-RemoteSqlDatabases {
         -configuration $configuration
 
     try {
-        Invoke-Command -Session $session -ScriptBlock {
+        Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock {
             Param($remoteBackupPath, $remoteServerInstance, $backupRequests, $sqlCredential)
+
+            $ErrorActionPreference = 'Stop'
 
             if (-not (Get-Command Backup-SqlDatabase -ErrorAction SilentlyContinue)) {
                 Import-Module SqlServer -ErrorAction SilentlyContinue
@@ -1368,7 +1446,22 @@ function Backup-RemoteSqlDatabases {
                 if ($sqlCredential) {
                     $backupParameters["SqlCredential"] = $sqlCredential
                 }
-                Backup-SqlDatabase @backupParameters
+                try {
+                    Backup-SqlDatabase @backupParameters -ErrorAction Stop
+                } catch {
+                    # SMO commonly wraps the useful SQL connection error in nested exceptions.
+                    $causes = @()
+                    $cause = $_.Exception
+                    while ($null -ne $cause) {
+                        if ($cause.Message -and $cause.Message -notin $causes) { $causes += $cause.Message }
+                        $cause = $cause.InnerException
+                    }
+                    $authentication = if ($sqlCredential) { 'configured SQL credentials (databaseUser/databasePassword)' } else { 'Windows authentication from the remote session' }
+                    throw "SQL backup failed for '$($request.DatabaseName)' on '$remoteServerInstance' at '$env:COMPUTERNAME', using $authentication. Cause: $($causes -join ' --> ')"
+                }
+                if (-not (Test-Path -LiteralPath $backupFile -PathType Leaf)) {
+                    throw "SQL backup returned without creating '$backupFile'. No files will be exported."
+                }
             }
         } -ArgumentList $remoteBackupPath, $remoteServerInstance, $backupRequests, $sqlCredential
 
@@ -1379,7 +1472,7 @@ function Backup-RemoteSqlDatabases {
             -FromSession $session `
             -Path (Join-Path $remoteBackupPath "*.bak") `
             -Destination $localExportPath `
-            -Force
+            -Force -ErrorAction Stop
 
         Invoke-Command -Session $session -ScriptBlock {
             Param($remoteBackupPath)
@@ -1427,6 +1520,36 @@ function Get-BcServiceSqlBackupRequests {
     return $backupRequests
 }
 
+function Select-BcServiceSqlBackupConfigurations {
+    Param ([Parameter(Mandatory=$true)][PSObject] $settingsJSON)
+
+    $sources = @($settingsJSON.configurations | Where-Object { $_.serverType -eq 'OnPrem' -and -not [string]::IsNullOrWhiteSpace($_.serverInstance) })
+    $destinations = @(Get-ContainerSqlBackupConfigurations -settingsJSON $settingsJSON)
+    if ($sources.Count -eq 0) { throw 'No OnPrem source configurations with a serverInstance found.' }
+    if ($destinations.Count -eq 0) { throw 'No Container destination configurations with a sqlBackupPath found.' }
+
+    if (Test-RemotingAgentWorkflow) {
+        if ([string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_SERVICE_BACKUP_INPUTS)) {
+            throw 'Supply sourceConfiguration and destinationConfiguration names upfront to bc_dev_toolset_backup_bc_service_databases with execute=true. No backup was started.'
+        }
+        $inputs = $env:BCDEVTOOLSET_SERVICE_BACKUP_INPUTS | ConvertFrom-Json -ErrorAction Stop
+        $selectedSources = @($sources | Where-Object { $_.name -eq $inputs.'serviceBackup.source' })
+        $selectedDestinations = @($destinations | Where-Object { $_.name -eq $inputs.'serviceBackup.destination' })
+        if ([string]::IsNullOrWhiteSpace($inputs.'serviceBackup.source') -or [string]::IsNullOrWhiteSpace($inputs.'serviceBackup.destination') -or $selectedSources.Count -ne 1 -or $selectedDestinations.Count -ne 1) {
+            throw "Select unique eligible configuration names. Sources: $($sources.name -join ', '). Destinations: $($destinations.name -join ', '). No backup was started."
+        }
+        return [pscustomobject]@{ Source=$selectedSources[0]; Destination=$selectedDestinations[0] }
+    }
+
+    $sourceIndex = 0
+    if ($sources.Count -gt 1) {
+        $sourceIndex = Select-IndexFromList -Title 'Select source configuration for BC service SQL backup:' -Options @($sources | ForEach-Object { "$($_.name) -> $($_.server) / $($_.serverInstance)" })
+    }
+    # Always ask for the destination, including when only one is eligible.
+    $destinationIndex = Select-IndexFromList -Title 'Select destination configuration for BC service SQL backup (existing .bak files will be replaced):' -Options @($destinations | ForEach-Object { "$($_.name) -> $($_.sqlBackupPath)" })
+    return [pscustomobject]@{ Source=$sources[$sourceIndex]; Destination=$destinations[$destinationIndex] }
+}
+
 function Export-BcServiceSqlBackupSet {
     Param (
         [Parameter(Mandatory=$true)]
@@ -1435,90 +1558,66 @@ function Export-BcServiceSqlBackupSet {
         [PSObject] $settingsJSON
     )
 
+    $ErrorActionPreference = 'Stop'
     Import-BcServiceBackupDiscoveryModules
-    $exportRootPaths = @(Get-ContainerSqlBackupRootPaths `
-        -scriptPath $scriptPath `
-        -settingsJSON $settingsJSON)
+    $selection = Select-BcServiceSqlBackupConfigurations -settingsJSON $settingsJSON
+    $configuration = $selection.Source
+    $serverInstance = $configuration.serverInstance
+    $exportRootPath = Get-SqlBackupRootPath -scriptPath $scriptPath -sqlBackupPath $selection.Destination.sqlBackupPath
+    Write-Host "Creating SQL backup set from '$($configuration.name)' (BC service '$serverInstance')." -ForegroundColor Green
+    Write-Host "Destination: '$($selection.Destination.name)' -> $exportRootPath (existing .bak files will be replaced)." -ForegroundColor Yellow
 
-    if ($exportRootPaths.Count -eq 0) {
-        throw "No container configuration has a 'sqlBackupPath' setting. Please set it on at least one Container configuration before creating a SQL backup from a BC service."
+    $serviceDatabaseInfo = Get-BcServiceDatabaseInfo `
+        -configuration $configuration `
+        -serverInstance $serverInstance
+    Assert-BcServiceDatabaseInfo `
+        -serviceDatabaseInfo $serviceDatabaseInfo `
+        -serverInstance $serverInstance
+
+    $databaseServer = $serviceDatabaseInfo.DatabaseServer
+    $databaseInstance = $serviceDatabaseInfo.DatabaseInstance
+    $databaseName = $serviceDatabaseInfo.DatabaseName
+
+    if ([string]::IsNullOrWhiteSpace($databaseServer)) {
+        $databaseServer = "localhost"
+    }
+    $databaseServerInstance = $databaseServer
+    if (-not [string]::IsNullOrWhiteSpace($databaseInstance)) {
+        $databaseServerInstance = "$databaseServer\$databaseInstance"
     }
 
-    $configurationFound = $false
-    foreach ($configuration in $($settingsJSON.configurations | Where-Object serverType -eq "OnPrem")) {
-        if ([string]::IsNullOrWhiteSpace($configuration.serverInstance)) {
-            Write-Host "Skipping OnPrem configuration '$($configuration.name)' because serverInstance is empty." -ForegroundColor Yellow
-            continue
+    $sqlCredential = $null
+    if ($configuration.PSObject.Properties.Name -contains "databaseUser" -and -not [string]::IsNullOrWhiteSpace($configuration.databaseUser)) {
+        $securePassword = ConvertTo-SecureString -String $configuration.databasePassword -AsPlainText -Force
+        $sqlCredential = New-Object pscredential $configuration.databaseUser, $securePassword
+    }
+
+    $backupRequests = @(Get-BcServiceSqlBackupRequests `
+        -serviceDatabaseInfo $serviceDatabaseInfo `
+        -serverInstance $serverInstance)
+
+    New-Item -ItemType Directory -Path $exportRootPath -Force | Out-Null
+
+    if (Test-IsLocalSqlServer -databaseServer $databaseServer) {
+        Get-ChildItem -Path $exportRootPath -Filter "*.bak" -File -ErrorAction Stop |
+            Remove-Item -Force -ErrorAction Stop
+        foreach ($request in $backupRequests) {
+            Backup-RegularSqlDatabase `
+                -databaseServerInstance $databaseServerInstance `
+                -databaseName $request.DatabaseName `
+                -backupFile (Join-Path $exportRootPath $request.FileName) `
+                -sqlCredential $sqlCredential
         }
-
-        $configurationFound = $true
-        $serverInstance = $configuration.serverInstance
-
-        Write-Host ""
-        Write-Host "Creating SQL backup set for BC service instance '$serverInstance'." -ForegroundColor Green
-        Write-Host "Export folders:" -ForegroundColor Gray
-        foreach ($exportRootPath in $exportRootPaths) {
-            Write-Host " - $exportRootPath" -ForegroundColor Gray
-        }
-
-        $serviceDatabaseInfo = Get-BcServiceDatabaseInfo `
+    } else {
+        Write-Host "Remote SQL Server detected. Backups will be created on '$databaseServer' and copied back to '$exportRootPath'." -ForegroundColor Yellow
+        Backup-RemoteSqlDatabases `
+            -computerName $databaseServer `
+            -databaseInstance $databaseInstance `
+            -backupRequests $backupRequests `
+            -localExportPath $exportRootPath `
             -configuration $configuration `
-            -serverInstance $serverInstance
-        Assert-BcServiceDatabaseInfo `
-            -serviceDatabaseInfo $serviceDatabaseInfo `
-            -serverInstance $serverInstance
-
-        $databaseServer = $serviceDatabaseInfo.DatabaseServer
-        $databaseInstance = $serviceDatabaseInfo.DatabaseInstance
-        $databaseName = $serviceDatabaseInfo.DatabaseName
-
-        if ([string]::IsNullOrWhiteSpace($databaseServer)) {
-            $databaseServer = "localhost"
-        }
-        $databaseServerInstance = $databaseServer
-        if (-not [string]::IsNullOrWhiteSpace($databaseInstance)) {
-            $databaseServerInstance = "$databaseServer\$databaseInstance"
-        }
-
-        $sqlCredential = $null
-        if ($configuration.PSObject.Properties.Name -contains "databaseUser" -and -not [string]::IsNullOrWhiteSpace($configuration.databaseUser)) {
-            $securePassword = ConvertTo-SecureString -String $configuration.databasePassword -AsPlainText -Force
-            $sqlCredential = New-Object pscredential $configuration.databaseUser, $securePassword
-        }
-
-        $backupRequests = @(Get-BcServiceSqlBackupRequests `
-            -serviceDatabaseInfo $serviceDatabaseInfo `
-            -serverInstance $serverInstance)
-
-        foreach ($exportRootPath in $exportRootPaths) {
-            New-Item -ItemType Directory -Path $exportRootPath -Force | Out-Null
-            Get-ChildItem -Path $exportRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue |
-                Remove-Item -Force
-
-            if (Test-IsLocalSqlServer -databaseServer $databaseServer) {
-                foreach ($request in $backupRequests) {
-                    Backup-RegularSqlDatabase `
-                        -databaseServerInstance $databaseServerInstance `
-                        -databaseName $request.DatabaseName `
-                        -backupFile (Join-Path $exportRootPath $request.FileName) `
-                        -sqlCredential $sqlCredential
-                }
-            } else {
-                Write-Host "Remote SQL Server detected. Backups will be created on '$databaseServer' and copied back to '$exportRootPath'." -ForegroundColor Yellow
-                Backup-RemoteSqlDatabases `
-                    -computerName $databaseServer `
-                    -databaseInstance $databaseInstance `
-                    -backupRequests $backupRequests `
-                    -localExportPath $exportRootPath `
-                    -configuration $configuration `
-                    -sqlCredential $sqlCredential
-            }
-        }
-
-        Write-Host "SQL backup set exported for BC service instance '$serverInstance'." -ForegroundColor Green
+            -sqlCredential $sqlCredential
     }
 
-    if (-not $configurationFound) {
-        Write-Host "No OnPrem configurations found." -ForegroundColor Red
-    }
+    Write-Host "SQL backup set exported from '$($configuration.name)' to '$($selection.Destination.name)'." -ForegroundColor Green
 }

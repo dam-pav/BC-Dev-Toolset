@@ -8,7 +8,7 @@ Also, many developers still find using local containers cumbersome and find all 
 
 The things that the toolset will enable you to do once it is set up:
 
-* Creating exactly the containers your app needs based on what the apps are.
+* Creating exactly the containers your development needs based on what the apps are.
 * Backup and restore of container-compatible SQL backup sets. If present, the backup set is automatically used when creating a new container.
 * Managing the BC service parameters
 * Executing tests, both "classic" and Page Scripting.
@@ -21,9 +21,11 @@ The things that the toolset will enable you to do once it is set up:
 
 ## Introduction
 
-The purpose of this toolset is the management of local Windows or Windows Server development environments for Business Central projects. The goal is to make quick work of preparation of local Docker environments, as well as other routinely executed management procedures, such as editing of *launch.json*. It's a simple, no-brainer approach that might get more sophisticated in the future, but will always focus on simplicity.
+The purpose of this toolset is the management of local Windows or Windows Server development environments for Business Central projects. The goal is to make quick work of preparation of local Docker environments, as well as other routinely executed management procedures, such as editing of *launch.json*.
 
-It relies on information about your project/app that is already available from *app.json* or *repo.code-workspace*. Only the information that is not already there needs to be added to the toolset's own settings. Part of the toolset's settings are developers' own preferences, while others, such as the locations of test environments, can be made available from within the repository, so that developers don't have to manage those manually.
+Do not let yourself be discouraged by it's the impression of complexity at first encounter - for your first and basic use you won't need any of the specifics - they are there only should you need them. I always focus on usability and the power of defaults.
+
+BC Dev's Toolset relies on information about your project/app that is already available from *app.json* or *repo.code-workspace*. Only the information that is not already there needs to be added to the toolset's own settings. Part of the toolset's settings are developers' own preferences, while others, such as the locations of test environments, can be made available from within the repository, so that developers don't have to manage those manually.
 
 > The required container artifact version is retrieved from the apps' app.json files. Every app in the workspace must have the same "application" value; container creation stops and reports each discrepancy when the values differ. If you manage this value manually, make sure you don't fiddle with the "platform" element as well. The "platform" element informs your environment about which symbols to download and the app versions are not always aligned with the container (platform) version. In fact, more usually than not they contain older versions that had no reason to be updated. The chief example is the System app which is not released as often as other apps.
 
@@ -285,7 +287,17 @@ When preparing backups manually, create a full backup of each database in a sepa
 
 Container backups created by the toolset use *<container\>.<database\>.app.bak* for the application database, *<container\>.<tenant-id\>.tenant.bak* for tenant databases, and *<container\>.<database\>.database.bak* for a single-tenant database. The container name in the exported file name identifies the backup's origin. Existing *.bak* files in the selected *sqlBackupPath* are replaced when a new backup set is exported, so file name collisions are not preserved across backup runs.
 
-BC service SQL Server backups use the same role suffixes without adding a container name: *<database\>.app.bak*, *<tenant-id\>.tenant.bak*, or *<database\>.database.bak*. They are exported to every distinct *sqlBackupPath* configured on Container configurations.
+BC service SQL Server backups use the same role suffixes without adding a container name: *<database\>.app.bak*, *<tenant-id\>.tenant.bak*, or *<database\>.database.bak*. Choose one OnPrem source and one Container destination configuration. The operation creates one backup set and exports it only to the selected destination's *sqlBackupPath*. Human runs always ask for the destination and ask for the source when multiple eligible OnPrem configurations exist. There is no automatic export to every configuration. Configurations sharing the selected physical folder also see its replacement contents.
+
+Remote BC database discovery locates the selected Windows service and imports `NavAdminTool.ps1` from that service's installation directory when management cmdlets are absent from the session. It uses the selected instance's tools even when multiple BC versions are installed. Missing services, missing administration tools, and module import failures stop discovery with a specific explanation. Set `managementServer` to the BC service host when it differs from the SQL host.
+
+Agents supply `sourceConfiguration` and `destinationConfiguration` as exact unique configuration names to `bc_dev_toolset_backup_bc_service_databases`. Call first to review the required inputs, then execute with both names and `execute: true`. Missing, ambiguous, or ineligible selections abort before discovery or filesystem changes; agents are never prompted mid-backup for these selections.
+
+BC service backup stops on SQL backup or copy errors and reports export success only after the selected export completes. Remote SQL failures include nested connection diagnostics and the authentication mode. Existing local backup files are retained if creating the remote backup fails; replacing local files begins only after the remote backup files have been created.
+
+If PowerShell remoting fails during service discovery or remote SQL backup, human runs offer an interactive recovery menu using the shared **Configure WinRM and TrustedHosts** workflow. MCP/agent and non-interactive runs abort without prompting and suggest `bc_dev_toolset_configure_win_rm`, followed by retrying backup. Configure `remoteUser`/`remotePassword` beforehand when explicit Windows credentials are needed.
+
+**Configure WinRM and TrustedHosts** is also a separate Prerequisites operation. It starts local WinRM with Automatic startup and optionally appends one specific host to TrustedHosts, preserving existing entries. For agents, first call `bc_dev_toolset_configure_win_rm` to review inputs; then pass `computerName`, boolean `addTrustedHost`, `execute: true`, and `confirm: true`. All inputs are supplied before execution. Agents require an already elevated extension host; otherwise setup aborts with instructions to use the human operation for Windows elevation. Human runs ask for confirmation and can request elevation. This configures the local client only; enabling remoting on an unreachable remote server requires its administrator.
 
 > Warning: ALL pre-existing *.bak* files in the target folder will be removed during backup.
 
@@ -492,7 +504,7 @@ Each `configurations` entry can contain:
 - `sqlMemoryLimit`: Optional SQL Server memory limit passed directly to `New-BcContainer`. Valid only for `Container`. Use a positive whole-number size ending in `M` or `G`, or a percentage from `1%` through `100%`, for example `2G` or `25%`. When omitted or empty, BcContainerHelper chooses its default.
 - `databaseUser`: Optional SQL authentication user for regular SQL Server backup operations. If empty, Windows authentication is used.
 - `databasePassword`: Optional SQL authentication password for regular SQL Server backup operations.
-- `sqlBackupPath`: Local folder used by SQL backup operations for this configuration. Valid only for `Container`. Container backup and manual restore use the path from the selected Container configuration; automatic restore during creation uses it only when `autoRestoreBackup` is `true`. With `includeTestToolkit` set to `true`, Test-operation creation always exports an initial backup here; manual creation exports one only when `targetType` is also `Test`. BC service SQL Server backups export into the configured Container backup folders.
+- `sqlBackupPath`: Local folder used by SQL backup operations for this configuration. Valid only for `Container`. Container backup and manual restore use the path from the selected Container configuration; automatic restore during creation uses it only when `autoRestoreBackup` is `true`. With `includeTestToolkit` set to `true`, Test-operation creation always exports an initial backup here; manual creation exports one only when `targetType` is also `Test`. BC service SQL Server backups export only into the selected Container configuration's backup folder.
 - `remoteUser`: Optional PowerShell remoting user for remote SQL Server backup operations. If empty, the current Windows identity is used.
 - `remotePassword`: Optional PowerShell remoting password for remote SQL Server backup operations.
 - `serverConfiguration`: List of `KeyName` and `KeyValue` pairs.

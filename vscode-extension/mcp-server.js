@@ -612,6 +612,12 @@ function toSnakeCase(value) {
 }
 
 function getOperationToolDescription(operation) {
+  if (operation.id === 'configureWinRm') {
+    return 'Configure local WinRM startup and optionally append one host to TrustedHosts. Call first for input review, then supply computerName, addTrustedHost, execute:true and confirm:true. No mid-operation prompts or automatic UAC elevation for agents: an already elevated extension host is required, otherwise the operation stops with human setup instructions. Does not enable remoting on an unreachable remote server.';
+  }
+  if (operation.id === 'backupBcServiceDatabases') {
+    return 'Create one SQL backup set from one selected OnPrem configuration into one selected Container configuration backup folder, replacing its .bak files. Call first for input review, then supply sourceConfiguration and destinationConfiguration by exact unique configuration name with execute:true. No mid-operation selection prompts. Agent remoting failures abort without interactive recovery. Use bc_dev_toolset_configure_win_rm to configure local WinRM/TrustedHosts separately, then retry backup. Configure remoteUser/remotePassword beforehand if explicit Windows credentials are required.';
+  }
   if (operation.command === 'showHelp') {
     return 'BC Dev Toolset: Show Help. Returns the bundled repository README so you can help users explore, understand, configure, and troubleshoot BC Dev Toolset.';
   }
@@ -890,6 +896,10 @@ async function runOperation(args, progress) {
     return textResult(`BC Dev Toolset operation '${operationId}' requires confirmation. Call again with confirm: true to run it.`, true);
   }
 
+  if (operation.id === 'configureWinRm' && (typeof args.computerName !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9.:-]*$/.test(args.computerName) || typeof args.addTrustedHost !== 'boolean')) {
+    return textResult('computerName must be a single hostname or IP address without wildcards; addTrustedHost must be a boolean. No operation was started.', true);
+  }
+
   if (!fs.existsSync(bridgePath)) {
     return textResult(`BC Dev Toolset operation bridge was not found at ${bridgePath}.`, true);
   }
@@ -985,6 +995,13 @@ function isContainerBackupOperation(operation) {
 }
 
 function getOperationPromptAnswers(operation, args = {}) {
+  if (operation.id === 'backupBcServiceDatabases') {
+    return { 'serviceBackup.source': args.sourceConfiguration, 'serviceBackup.destination': args.destinationConfiguration };
+  }
+  if (operation.id === 'configureWinRm') {
+    // This operation consumes its validated upfront inputs directly, never prompt overrides.
+    return { 'remoting.computerName': args.computerName, 'remoting.addTrustedHost': args.addTrustedHost };
+  }
   const promptAnswers = {};
   for (const promptInput of getOperationPromptInputs(operation)) {
     if (promptInput.inputName && Object.prototype.hasOwnProperty.call(args, promptInput.inputName)) {

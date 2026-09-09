@@ -11,8 +11,17 @@ Initialize-Context `
     -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
 
-Export-BcServiceSqlBackupSet `
-    -scriptPath $scriptRoot `
-    -settingsJSON $settingsJSON
+try {
+    Export-BcServiceSqlBackupSet `
+        -scriptPath $scriptRoot `
+        -settingsJSON $settingsJSON
+}
+catch {
+    if ($_.Exception.Data['BackupRemotingCancelled']) {
+        Write-Host $_.Exception.Message -ForegroundColor Yellow
+        return
+    }
+    throw
+}
 
 Write-Done

@@ -101,10 +101,25 @@
     ]
   },
   {
+    "id": "configureWinRm",
+    "title": "Configure WinRM and TrustedHosts",
+    "script": "operations/ConfigureWinRm.ps1",
+    "category": "Prerequisites",
+    "requiresConfirmation": true,
+    "promptInputs": [
+      { "promptId": "remoting.computerName", "inputName": "computerName", "type": "text", "question": "Remote hostname or IP address (one host, no wildcards).", "inputSchema": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9.:-]*$" } },
+      { "promptId": "remoting.addTrustedHost", "inputName": "addTrustedHost", "type": "confirm", "question": "Also add this host to local TrustedHosts? Existing entries are preserved; server identity is not verified. False configures only local WinRM startup." }
+    ]
+  },
+  {
     "id": "backupBcServiceDatabases",
     "title": "Create and export SQL backup set from BC service SQL Server",
     "script": "operations/BackupBcServiceDatabases.ps1",
-    "category": "Backup"
+    "category": "Backup",
+    "promptInputs": [
+      { "promptId": "serviceBackup.source", "inputName": "sourceConfiguration", "type": "text", "question": "Exact unique name of the OnPrem source configuration with a serverInstance. Only this source will be backed up." },
+      { "promptId": "serviceBackup.destination", "inputName": "destinationConfiguration", "type": "text", "question": "Exact unique name of the Container destination configuration with a sqlBackupPath. Existing .bak files in this folder will be replaced." }
+    ]
   },
   {
     "id": "restoreBcContainerDatabases",
