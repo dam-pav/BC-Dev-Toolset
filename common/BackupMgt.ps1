@@ -554,7 +554,23 @@ function Repair-BcContainerAdministratorAfterRestore {
             Invoke-ScriptInBcContainer -containerName $configuration.container -ScriptBlock {
                 Param ($tenant, $credential, $windowsAccount)
                 $ErrorActionPreference = "Stop"
-                $actualAuthentication = [string](Get-NAVServerConfiguration -ServerInstance $ServerInstance -KeyName ClientServicesCredentialType).Value
+                # -KeyName can return the value directly instead of a settings object.
+                # Keep this conversion inside the container script; host helpers are not available here.
+                $authenticationSetting = Get-NAVServerConfiguration -ServerInstance $ServerInstance -KeyName ClientServicesCredentialType
+                $actualAuthentication = if ($authenticationSetting -is [string]) {
+                    $authenticationSetting
+                }
+                elseif ($null -ne $authenticationSetting -and $authenticationSetting.PSObject.Properties['Value']) {
+                    [string]$authenticationSetting.Value
+                }
+                elseif ($null -ne $authenticationSetting -and $authenticationSetting.PSObject.Properties['KeyValue']) {
+                    [string]$authenticationSetting.KeyValue
+                }
+                else { "" }
+                if ([string]::IsNullOrWhiteSpace($actualAuthentication)) {
+                    throw "Could not read ClientServicesCredentialType from Get-NAVServerConfiguration for server instance '$ServerInstance'. No administrator changes were made in this tenant."
+                }
+                $actualAuthentication = $actualAuthentication.Trim()
                 $expectedAuthentication = if ($windowsAccount) { "Windows" } else { "NavUserPassword" }
                 if ($actualAuthentication -ne $expectedAuthentication) {
                     throw "Container authentication '$actualAuthentication' does not match configured '$expectedAuthentication'. Correct the container configuration before repairing access."
