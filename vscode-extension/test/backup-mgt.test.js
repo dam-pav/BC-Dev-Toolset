@@ -9,7 +9,7 @@ const test = require('node:test');
 
 const backupMgtPath = path.resolve(__dirname, '..', '..', 'common', 'BackupMgt.ps1');
 
-function runRestoreRepair({ users = [], permissions = [], authentication = 'UserPassword', actualAuthentication = 'NavUserPassword', failCreate = false } = {}) {
+function runRestoreRepair({ users = [], permissions = [], authentication = 'UserPassword', actualAuthentication = 'NavUserPassword', configurationShape = 'string', failCreate = false } = {}) {
   const script = `
     $ErrorActionPreference = 'Stop'
     . ${quotePowerShell(backupMgtPath)}
@@ -33,7 +33,18 @@ function runRestoreRepair({ users = [], permissions = [], authentication = 'User
       $ServerInstance = 'BC'
       & $ScriptBlock @ArgumentList
     }
-    function Get-NAVServerConfiguration { [pscustomobject]@{ Value = ${quotePowerShell(actualAuthentication)} } }
+    function Get-NAVServerConfiguration {
+      param($ServerInstance, $KeyName)
+      if ($ServerInstance -ne 'BC' -or $KeyName -ne 'ClientServicesCredentialType') { throw 'Unexpected configuration query' }
+      $value = ${quotePowerShell(actualAuthentication)}
+      switch (${quotePowerShell(configurationShape)}) {
+        'string' { $value }
+        'Value' { [pscustomobject]@{ Value = $value } }
+        'KeyValue' { [pscustomobject]@{ KeyValue = $value } }
+        'null' { $null }
+        'unknown' { [pscustomobject]@{ Unexpected = $value } }
+      }
+    }
     function Get-NAVServerUser { $script:users }
     function Get-NAVServerUserPermissionSet { $script:permissions }
     function New-NAVServerUser {
@@ -72,6 +83,23 @@ test('restore creates the configured administrator and grants SUPER once in each
   ]);
   assert.ok(result.Calls.filter(call => call.Action === 'create').every(call => call.UserName === 'admin' && call.SecurePassword));
   assert.ok(result.Calls.filter(call => call.Action === 'grant').every(call => call.PermissionSetId === 'SUPER'));
+});
+
+test('restore reads scalar and wrapped authentication settings', () => {
+  for (const configurationShape of ['string', 'Value', 'KeyValue']) {
+    const result = runRestoreRepair({ configurationShape });
+    assert.equal(result.Error, null, configurationShape);
+    assert.equal(result.Calls.filter(call => call.Action === 'create').length, 2);
+  }
+});
+
+test('unreadable authentication stops before user changes without reporting a configuration mismatch', () => {
+  for (const options of [{ actualAuthentication: '' }, { actualAuthentication: '  ' }, { configurationShape: 'null' }, { configurationShape: 'unknown' }]) {
+    const result = runRestoreRepair(options);
+    assert.match(result.Error, /Could not read.*ClientServicesCredentialType/);
+    assert.doesNotMatch(result.Error, /does not match configured/);
+    assert.deepEqual(result.Calls, []);
+  }
 });
 
 test('restore repairs existing disabled password users without duplicate users or SUPER grants', () => {
