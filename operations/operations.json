@@ -101,6 +101,12 @@
     ]
   },
   {
+    "id": "configureStoredCredentials",
+    "title": "Configure stored credentials",
+    "script": "operations/ConfigureStoredCredentials.ps1",
+    "category": "Workspace"
+  },
+  {
     "id": "configureWinRm",
     "title": "Configure WinRM and TrustedHosts",
     "script": "operations/ConfigureWinRm.ps1",

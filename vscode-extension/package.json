@@ -66,6 +66,7 @@
     "onCommand:bcDevToolset.operation.backupBcContainerDatabases",
     "onCommand:bcDevToolset.operation.backupBcServiceDatabases",
     "onCommand:bcDevToolset.operation.configureWinRm",
+    "onCommand:bcDevToolset.operation.configureStoredCredentials",
     "onCommand:bcDevToolset.operation.restoreBcContainerDatabases",
     "onCommand:bcDevToolset.operation.publishDependencies2Docker",
     "onCommand:bcDevToolset.operation.publishDependencies2Test",
@@ -831,6 +832,10 @@
       {
         "command": "bcDevToolset.operation.backupBcContainerDatabases",
         "title": "BC Dev Toolset: Create and export SQL backup set from Docker container"
+      },
+      {
+        "command": "bcDevToolset.operation.configureStoredCredentials",
+        "title": "BC Dev Toolset: Configure stored credentials"
       },
       {
         "command": "bcDevToolset.operation.configureWinRm",

@@ -133,6 +133,10 @@
           "type": "boolean",
           "description": "Optional override for whether update launch.json operations include this configuration. Applies to all server types. When omitted, the effective value is true for Dev targets and false otherwise."
         },
+        "databaseServerHost": {
+          "type": "string",
+          "description": "Direct hostname or IP address of the SQL Server Windows host. When non-empty, skips BC service discovery and requires databaseName; set databaseInstance for a named SQL instance and databaseTenants for multitenancy. After a successful discovered backup, the host and full database mapping are saved automatically."
+        },
         "databaseUser": {
           "type": "string",
           "description": "Optional SQL user for database operations."
@@ -168,6 +172,50 @@
                 "description": "Server configuration value."
               }
             }
+          }
+        },
+        "bcCredential": {
+          "type": "boolean",
+          "description": "Use Windows Credential Manager for bc credentials. True disables bcUser and bcPassword; false or omission keeps plaintext support. Target is calculated from configuration identity. Set up with Configure stored credentials."
+        },
+        "remoteCredential": {
+          "type": "boolean",
+          "description": "Use Windows Credential Manager for remote credentials. True disables remoteUser and remotePassword; false or omission keeps plaintext support. Target is calculated from configuration identity. Set up with Configure stored credentials."
+        },
+        "databaseCredential": {
+          "type": "boolean",
+          "description": "Use Windows Credential Manager for database credentials. True disables databaseUser and databasePassword; false or omission keeps plaintext support. Target is calculated from configuration identity. Set up with Configure stored credentials."
+        },
+        "databaseInstance": {
+          "type": "string",
+          "description": "SQL instance name for direct BC service backups. Empty or omitted means the default SQL instance."
+        },
+        "databaseName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Single-tenant database name, or application database name when databaseTenants is present. Required when databaseServerHost is non-empty."
+        },
+        "databaseTenants": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Explicit multitenant mapping for direct backups. Omit for single-tenant databases. Each entry supplies a unique tenant ID and its SQL database name.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "databaseName"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "databaseName": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
           }
         }
       },
@@ -297,7 +345,10 @@
                 "anyOf": [
                   {
                     "type": "string",
-                    "enum": ["", "HostDNS"]
+                    "enum": [
+                      "",
+                      "HostDNS"
+                    ]
                   },
                   {
                     "type": "string"
@@ -615,6 +666,111 @@
                 "doNotSuggest": true
               }
             }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "bcCredential": {
+                "const": true
+              }
+            },
+            "required": [
+              "bcCredential"
+            ]
+          },
+          "then": {
+            "properties": {
+              "bcPassword": {
+                "not": {},
+                "errorMessage": "bcPassword is invalid when bcCredential is true.",
+                "doNotSuggest": true
+              },
+              "password": {
+                "not": {},
+                "errorMessage": "Legacy password is invalid when bcCredential is true."
+              },
+              "bcUser": {
+                "not": {},
+                "errorMessage": "bcUser is invalid when bcCredential is true.",
+                "doNotSuggest": true
+              },
+              "admin": {
+                "not": {},
+                "errorMessage": "Legacy admin is invalid when bcCredential is true.",
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "remoteCredential": {
+                "const": true
+              }
+            },
+            "required": [
+              "remoteCredential"
+            ]
+          },
+          "then": {
+            "properties": {
+              "remotePassword": {
+                "not": {},
+                "errorMessage": "remotePassword is invalid when remoteCredential is true.",
+                "doNotSuggest": true
+              },
+              "remoteUser": {
+                "not": {},
+                "errorMessage": "remoteUser is invalid when remoteCredential is true.",
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "databaseCredential": {
+                "const": true
+              }
+            },
+            "required": [
+              "databaseCredential"
+            ]
+          },
+          "then": {
+            "properties": {
+              "databasePassword": {
+                "not": {},
+                "errorMessage": "databasePassword is invalid when databaseCredential is true.",
+                "doNotSuggest": true
+              },
+              "databaseUser": {
+                "not": {},
+                "errorMessage": "databaseUser is invalid when databaseCredential is true.",
+                "doNotSuggest": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "databaseServerHost": {
+                "type": "string",
+                "pattern": "\\S"
+              }
+            },
+            "required": [
+              "databaseServerHost"
+            ]
+          },
+          "then": {
+            "required": [
+              "databaseName"
+            ]
           }
         }
       ]

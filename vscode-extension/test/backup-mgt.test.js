@@ -18,6 +18,7 @@ test('remoting recovery cancels cleanly or repairs and retries with explicit cre
       $script:answers = [collections.generic.queue[string]]::new()
       ${repair ? "$script:answers.Enqueue('T'); $script:answers.Enqueue('y')" : "$script:answers.Enqueue('')"}
       function Read-Host { $script:answers.Dequeue() }
+      function Offer-ConfigurationCredentialStorage {}
       function Get-Credential { [pscredential]::new('server\\user', (ConvertTo-SecureString 'test' -AsPlainText -Force)) }
       function Invoke-BackupRemotingRepair { param($computerName, $addTrustedHost) if ($computerName -ne 'taopaipai' -or -not $addTrustedHost) { throw 'Wrong repair' }; $script:repairs++ }
       function New-PSSession {
@@ -554,10 +555,12 @@ test('service SQL export uses one source and destination and stops on SQL or cop
   for (const mode of ['sql', 'missing', 'copy', 'success']) {
     const script = `
       . ${quotePowerShell(backupMgtPath)}
-      $script:copies=0; $script:backups=0; $script:closed=0; $script:localClears=0; $script:messages=@()
+      $script:copies=0; $script:backups=0; $script:closed=0; $script:localClears=0; $script:hostSaves=0; $script:messages=@()
       function Write-Host { param($Object) $script:messages += [string]$Object }
+      function Save-BcDatabaseServerHost { $script:hostSaves++ }
       function Import-BcServiceBackupDiscoveryModules {}
       function Select-IndexFromList { 1 }
+      function Read-Host { 'n' }
       $env:BCDEVTOOLSET_MCP_SESSION_ID=''; $env:BCDEVTOOLSET_NON_INTERACTIVE=''
       function Get-BcServiceDatabaseInfo { param($configuration) if ($configuration.name -ne 'Source2') { throw 'Wrong source' }; [pscustomobject]@{ DatabaseServer='DB-SERVER'; DatabaseInstance='SQLSERVER2019'; DatabaseName='Test'; Multitenant=$false; Tenants=@() } }
       function Test-IsLocalSqlServer { $false }
@@ -591,12 +594,13 @@ test('service SQL export uses one source and destination and stops on SQL or cop
       ) }
       try { Export-BcServiceSqlBackupSet -scriptPath 'C:\\toolset' -settingsJSON $settings }
       catch { $failure=$_.Exception.Message }
-      @{ Error=$failure; Copies=$script:copies; Backups=$script:backups; Closed=$script:closed; Clears=$script:localClears; Success=(@($script:messages | Where-Object { $_ -like 'SQL backup set exported*' }).Count) } | ConvertTo-Json -Compress
+      @{ Error=$failure; Copies=$script:copies; Backups=$script:backups; Closed=$script:closed; Clears=$script:localClears; HostSaves=$script:hostSaves; Success=(@($script:messages | Where-Object { $_ -like 'SQL backup set exported*' }).Count) } | ConvertTo-Json -Compress
     `;
     const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const output = JSON.parse(result.stdout);
     assert.equal(output.Success, mode === 'success' ? 1 : 0);
+    assert.equal(output.HostSaves, mode === 'success' ? 1 : 0);
     assert.equal(output.Backups, 1);
     assert.equal(output.Closed, 1);
     assert.equal(output.Copies, ['sql', 'missing'].includes(mode) ? 0 : 1);
