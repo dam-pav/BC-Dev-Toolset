@@ -5,13 +5,17 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
+const { authorizeRoot, resolveWithinRoot, assertWithinRoot } = require('../path-security');
 
-const root = path.resolve(__dirname, '../..');
+const root = authorizeRoot(path.resolve(__dirname, '../..'), 'Repository root');
 
 test('source collection ignores literals, comments, caches and nested apps', () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'bc-object-usage-'));
+  const temporaryRoot = authorizeRoot(os.tmpdir(), 'Test temporary root');
+  const workspace = assertWithinRoot(temporaryRoot,
+    fs.mkdtempSync(resolveWithinRoot(temporaryRoot, 'bc-object-usage-'))); // nosemgrep -- fixed prefix contained within the authorized temporary root
   try {
-    fs.writeFileSync(path.join(workspace, 'objects.al'), `
+    fs.writeFileSync( // nosemgrep -- fixed fixture path checked within this test's unique temporary workspace
+      resolveWithinRoot(workspace, 'objects.al'), `
       // table 1 Fake {}
       /* page 2 Fake {} */
       namespace Example.Test;
@@ -28,13 +32,13 @@ test('source collection ignores literals, comments, caches and nested apps', () 
       profile MyProfile { Caption = 'table 4 Fake {}'; }
       permissionset 50005 Permissions {}
     `);
-    fs.writeFileSync(path.join(workspace, 'empty.al'), '');
+    fs.writeFileSync(resolveWithinRoot(workspace, 'empty.al'), ''); // nosemgrep -- fixed fixture path checked within this test's unique temporary workspace
     for (const folder of ['.alpackages', 'nested', 'src']) {
-      fs.mkdirSync(path.join(workspace, folder));
-      fs.writeFileSync(path.join(workspace, folder, 'object.al'), 'codeunit 50006 Real {}');
+      fs.mkdirSync(resolveWithinRoot(workspace, folder)); // nosemgrep -- allowlisted folder checked within this test's unique temporary workspace
+      fs.writeFileSync(resolveWithinRoot(workspace, folder, 'object.al'), 'codeunit 50006 Real {}'); // nosemgrep -- allowlisted fixture path checked within this test's unique temporary workspace
     }
-    fs.writeFileSync(path.join(workspace, 'nested', 'app.json'), '{}');
-    const scriptPath = path.join(root, 'visualization/ObjectIdUsage.ps1').replaceAll("'", "''");
+    fs.writeFileSync(resolveWithinRoot(workspace, 'nested', 'app.json'), '{}'); // nosemgrep -- fixed fixture path checked within this test's unique temporary workspace
+    const scriptPath = resolveWithinRoot(root, 'visualization', 'ObjectIdUsage.ps1').replaceAll("'", "''");
     const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command',
       `. '${scriptPath}'; @(Get-AppObjectIdUsage -AuthorizedAppRoot $env:TEST_APP_ROOT) | ConvertTo-Json -Depth 5 -Compress`
     ], { encoding: 'utf8', env: { ...process.env, TEST_APP_ROOT: workspace } });
@@ -47,7 +51,7 @@ test('source collection ignores literals, comments, caches and nested apps', () 
       { type: 'tableextension', id: 50002 }, { type: 'tableextension', id: 50004 }
     ]);
   } finally {
-    fs.rmSync(workspace, { recursive: true, force: true });
+    fs.rmSync(assertWithinRoot(temporaryRoot, workspace), { recursive: true, force: true }); // nosemgrep -- only this test's mkdtemp-created workspace, checked within the authorized temporary root
   }
 });
 
@@ -63,7 +67,7 @@ function loadVisualization() {
     window: { location: { search: '' } }, URLSearchParams,
     fetch: () => ({ then: () => ({ then: () => ({ catch() {} }) }) })
   });
-  const html = fs.readFileSync(path.join(root, 'visualization/WorkspaceAnalysis.html'), 'utf8');
+  const html = fs.readFileSync(resolveWithinRoot(root, 'visualization', 'WorkspaceAnalysis.html'), 'utf8'); // nosemgrep -- fixed source path checked within the authorized repository root
   vm.runInContext(html.match(/<script>([\s\S]*?)<\/script>/)[1], context);
   return { context, elements };
 }
