@@ -672,6 +672,22 @@ function Restore-BcContainerSqlBackupEntries {
     Invoke-BcContainerSystemApplicationUpgradeAfterRestore -containerName $containerName
     $tenants = @($backupEntries | Where-Object DatabaseRole -eq "tenant" | Select-Object -ExpandProperty DatabaseName)
     if ($tenants.Count -eq 0) { $tenants = @("default") }
+    else {
+        $mountedTenantIds = @(Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
+            $ErrorActionPreference = "Stop"
+            Get-NAVTenant -ServerInstance $ServerInstance -ErrorAction Stop | Select-Object -ExpandProperty Id
+        } -ErrorAction Stop)
+        # BcContainerHelper also backs up the unmounted template database as tenant.bak.
+        # Restore it, but only repair its users if a tenant with that ID actually exists.
+        $tenants = @($tenants | Where-Object { $_ -ne "tenant" -or $_ -in $mountedTenantIds })
+        $missingTenants = @($tenants | Where-Object { $_ -notin $mountedTenantIds })
+        if ($missingTenants.Count -gt 0) {
+            throw "Database restore completed, but restored tenants are not mounted in container '$containerName': $($missingTenants -join ', '). Check tenant mounting before repairing administrator access."
+        }
+        if ($tenants.Count -eq 0) {
+            throw "Database restore completed, but no restored tenants are mounted in container '$containerName'. Check tenant mounting before repairing administrator access."
+        }
+    }
     Repair-BcContainerAdministratorAfterRestore -configuration $configuration -tenants $tenants
 }
 

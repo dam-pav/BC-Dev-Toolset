@@ -23,7 +23,7 @@ The things that the toolset will enable you to do once it is set up:
 
 The purpose of this toolset is the management of local Windows or Windows Server development environments for Business Central projects. The goal is to make quick work of preparation of local Docker environments, as well as other routinely executed management procedures, such as editing of *launch.json*.
 
-Do not let yourself be discouraged by it's the impression of complexity at first encounter - for your first and basic use you won't need any of the specifics - they are there only should you need them. I always focus on usability and the power of defaults.
+Do not let yourself be discouraged by the impression of complexity at first glance - for your first and basic use you won't need any of the specifics - they are there only should you need them. I always focus on usability and the power of defaults.
 
 BC Dev's Toolset relies on information about your project/app that is already available from *app.json* or *repo.code-workspace*. Only the information that is not already there needs to be added to the toolset's own settings. Part of the toolset's settings are developers' own preferences, while others, such as the locations of test environments, can be made available from within the repository, so that developers don't have to manage those manually.
 
