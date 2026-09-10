@@ -244,6 +244,8 @@ test('shared restore repairs access after restore and upgrade with the selected 
     . ${quotePowerShell(backupMgtPath)}
     $script:events = [System.Collections.Generic.List[string]]::new()
     function Restore-DatabasesInBcContainer { $script:events.Add('restore') }
+    function Invoke-ScriptInBcContainer { param($containerName, $ScriptBlock) & $ScriptBlock }
+    function Get-NAVTenant { [pscustomobject]@{ Id='north' }; [pscustomobject]@{ Id='south' } }
     function Invoke-BcContainerSystemApplicationUpgradeAfterRestore { $script:events.Add('upgrade') }
     function Repair-BcContainerAdministratorAfterRestore {
       param($configuration, $tenants)
@@ -258,6 +260,33 @@ test('shared restore repairs access after restore and upgrade with the selected 
   const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), ['restore', 'upgrade', 'repair:north,south']);
+});
+
+test('restore distinguishes the template database from mounted tenants and rejects missing tenants', () => {
+  for (const mounted of [['default'], ['default', 'tenant'], []]) {
+    const script = `
+      $ErrorActionPreference = 'Stop'
+      . ${quotePowerShell(backupMgtPath)}
+      function Restore-DatabasesInBcContainer {
+        param($tenant)
+        if (($tenant -join ',') -ne 'default,tenant') { throw 'Template must still be restored' }
+      }
+      function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {}
+      function Invoke-ScriptInBcContainer { param($ScriptBlock) & $ScriptBlock }
+      function Get-NAVTenant {
+        foreach ($id in (ConvertFrom-Json ${quotePowerShell(JSON.stringify(mounted))})) { [pscustomobject]@{ Id=$id } }
+      }
+      function Repair-BcContainerAdministratorAfterRestore { param($tenants) 'repair:' + ($tenants -join ',') }
+      $entries = @('default', 'tenant') | ForEach-Object { [pscustomobject]@{ DatabaseRole='tenant'; DatabaseName=$_ } }
+      try {
+        Restore-BcContainerSqlBackupEntries -containerName target -bakFolder 'C:\\restore' -backupEntries $entries -configuration ([pscustomobject]@{})
+      } catch { 'error:' + $_.Exception.Message }
+    `;
+    const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    if (mounted.length) assert.equal(result.stdout.trim(), `repair:${mounted.join(',')}`);
+    else assert.match(result.stdout, /error:Database restore completed, but restored tenants are not mounted.*default/);
+  }
 });
 
 function quotePowerShell(value) {
