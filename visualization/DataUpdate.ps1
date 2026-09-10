@@ -3,6 +3,7 @@
 $scriptRoot = (get-item $PSScriptRoot).Parent
 
 . $scriptRoot/common/WorkspaceMgt.ps1
+. $PSScriptRoot/ObjectIdUsage.ps1
 
 $settingsJSON = @{}
 $workspaceJSON = @{}
@@ -88,6 +89,7 @@ $pool_range = @{
 
 Write-Host "Retrieving ranges from projects within the workspace..." -ForegroundColor Blue
 $ranges = @()
+$objectUsage = @()
 foreach ($appPath in $workspaceJSON.folders.path) {
     $appJSON = @{}
     Get-AppJSON `
@@ -95,7 +97,15 @@ foreach ($appPath in $workspaceJSON.folders.path) {
         -appPath $appPath  `
         -appJSON ([ref]$appJSON)
     
-    if ($null -ne $appJSON.application) {
+    if ($appJSON.id) {
+        $resolvedAppPath = Resolve-WorkspaceFolderPath -scriptPath $scriptRoot -folderPath $appPath
+        $objects = @(Get-AppObjectIdUsage -AuthorizedAppRoot $resolvedAppPath | Sort-Object type, id -Unique)
+        $objectUsage += @{
+            app_id = $appJSON.id
+            name = $appJSON.name
+            path = $appPath
+            objects = $objects
+        }
         foreach ($currentRange in $appJSON.idRanges) {
             $range = @{
                 name = $($appJSON.name)
@@ -110,6 +120,7 @@ foreach ($appPath in $workspaceJSON.folders.path) {
 $existingData = @{
     pool_range = $pool_range
     ranges = $ranges
+    object_usage = $objectUsage
 }
 
 Write-Host "Writing $dataFileName..." -ForegroundColor Blue
