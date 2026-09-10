@@ -358,7 +358,8 @@ test('passes tenant IDs to BcContainerHelper so a stopped service can be restore
   });
 });
 
-test('uses the direct backup-file restore path for a stopped single-tenant service', () => {
+// Exercises a Windows drive through PowerShell's filesystem provider (unavailable on Linux).
+test('uses the direct backup-file restore path for a stopped single-tenant service', { skip: process.platform !== 'win32' && 'Requires Windows drive path semantics; covered by AL compatibility Windows CI' }, () => {
   const script = [
     `. ${quotePowerShell(backupMgtPath)}`,
     "$entries = @([pscustomobject]@{ DatabaseName='CRONUS'; DatabaseRole='database'; HelperFileName='database.bak' })",
@@ -518,7 +519,8 @@ function discoverRemoteService({ command = '"C:\\BC23\\Service\\Microsoft.Dynami
   return JSON.parse(result.stdout);
 }
 
-test('remote discovery loads administration tools from the exact registered service installation', () => {
+// The remote Windows script runs locally in this harness, including System.IO Windows path parsing.
+test('remote discovery loads administration tools from the exact registered service installation', { skip: process.platform !== 'win32' && 'Requires Windows service installation paths; covered by AL compatibility Windows CI' }, () => {
   for (const command of ['"C:\\BC23\\Service\\Microsoft.Dynamics.Nav.Server.exe" $230', 'D:\\Custom BC\\Service\\Microsoft.Dynamics.Nav.Server.exe $230']) {
     const result = discoverRemoteService({ command });
     assert.equal(result.Error, null);
@@ -551,7 +553,8 @@ test('remote discovery reports installation failures and always closes the sessi
 });
 
 
-test('service SQL export uses one source and destination and stops on SQL or copy failures', () => {
+// The mocked remoting executes Windows export paths through the local PowerShell provider.
+test('service SQL export uses one source and destination and stops on SQL or copy failures', { skip: process.platform !== 'win32' && 'Requires Windows export paths; covered by AL compatibility Windows CI' }, () => {
   for (const mode of ['sql', 'missing', 'copy', 'success']) {
     const script = `
       . ${quotePowerShell(backupMgtPath)}
