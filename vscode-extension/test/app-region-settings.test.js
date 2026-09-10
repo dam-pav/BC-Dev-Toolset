@@ -39,7 +39,8 @@ function reconcileRegions(workspacePath) {
     `. '${workspaceMgtScript.replaceAll("'", "''")}'`,
     `$Script:bcDevToolsetWorkspaceRootPath = '${workspacePath.replaceAll("'", "''")}'`,
     "$workspace = Get-Content -LiteralPath (Join-Path $Script:bcDevToolsetWorkspaceRootPath 'sample.code-workspace') -Raw | ConvertFrom-Json",
-    `Remove-RedundantAppRegionSettings -scriptPath '${repositoryRoot.replaceAll("'", "''")}' -workspaceJSON $workspace`
+    // Emit the exception message directly so terminal width and ANSI rendering cannot alter assertions.
+    `try { Remove-RedundantAppRegionSettings -scriptPath '${repositoryRoot.replaceAll("'", "''")}' -workspaceJSON $workspace } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }`
   ].join('; ');
   return childProcess.spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command], {
     encoding: 'utf8',

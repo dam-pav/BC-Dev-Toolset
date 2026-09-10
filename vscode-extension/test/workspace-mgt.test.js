@@ -19,7 +19,9 @@ function runPowerShell(script, environment = {}) {
 }
 
 test('assembly probing path helpers update local VS Code settings and gitignore safely', () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-assemblies-'));
+  const temporaryWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-assemblies-'));
+  // Windows CI may expose TEMP using an 8.3 alias; compare paths using the physical directory name.
+  const workspace = fs.realpathSync.native(temporaryWorkspace); // nosemgrep -- directory created and owned by this test
   const probingRoot = path.join(workspace, '.assemblies');
   const script = `
     . '${workspaceMgtPath.replaceAll("'", "''")}'
