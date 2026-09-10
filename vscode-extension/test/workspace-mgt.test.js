@@ -19,7 +19,9 @@ function runPowerShell(script, environment = {}) {
 }
 
 test('assembly probing path helpers update local VS Code settings and gitignore safely', () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-assemblies-'));
+  const temporaryWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-assemblies-'));
+  // Windows CI may expose TEMP using an 8.3 alias; compare paths using the physical directory name.
+  const workspace = fs.realpathSync.native(temporaryWorkspace); // nosemgrep -- directory created and owned by this test
   const probingRoot = path.join(workspace, '.assemblies');
   const script = `
     . '${workspaceMgtPath.replaceAll("'", "''")}'
@@ -475,7 +477,7 @@ test('AL compilation uses the required AL extension bundled tool instead of glob
 
   assert.ok(packageJson.extensionDependencies.includes('ms-dynamics-smb.al'));
   assert.match(extensionSource, /vscode\.extensions\.getExtension\('ms-dynamics-smb\.al'\)/);
-  assert.match(extensionSource, /'bin', process\.platform, executableName/);
+  assert.match(extensionSource, /discoverAlTool\(alExtension\.extensionPath\)/);
   assert.match(extensionSource, /operationsRequiringAlTool\.has\(operation\.id\)[\s\S]*?-ValidatedAlToolPath/);
   assert.match(operationBridge, /\[string\] \$ValidatedAlToolPath = ''/);
   assert.match(operationBridge, /\$env:BCDEVTOOLSET_ALTOOL_PATH = \[System\.IO\.Path\]::GetFullPath\(\$ValidatedAlToolPath\)/);

@@ -97,6 +97,10 @@ The extension is a VS Code host for the BC-Dev-Toolset runtime. It installs all 
 
 Installing BC Dev Toolset also installs the official **Microsoft AL Language** extension automatically. It is a required VS Code extension dependency and supplies the platform-specific, signed ALTool used by the build and AL test operations.
 
+ALTool discovery checks `bin` and `bin/<platform>` in the registered AL extension, then searches only that installation for relocated executables. Candidates must launch within five seconds and advertise the AL CLI compile command. Discovery enforces path containment, skips directory links, limits enumeration to 50,000 entries, and rejects ambiguous fallback candidates. The output channel records the AL extension version and selected executable. This handles relocation; CLI changes can still require a toolset update.
+
+The `AL compatibility` workflow runs daily, on relevant pull requests, and manually against current stable and prerelease Microsoft AL packages on Windows. It validates the extension and compiles a dependency-free fixture through `BuildAllApps.ps1`, verifying that an `.app` was produced. Run the same smoke check locally with `node vscode-extension/scripts/check-al-compatibility.js <AL-extension-installation-directory>` (requires PowerShell 7). This checks discovery and compilation, not container deployment or projects requiring external symbols. Latest and stable release packaging also run `npm run validate` before packaging.
+
 - Windows with PowerShell available. The extension uses `pwsh` by default.
 - Have access to or be an administrator on your workstation. The "Prerequisites" category operations require elevated access.
 - .NET SDK 9 or 10 and MSDyn365BC.AL.Runner for the standalone `AL Runner Test` operation; the install-prerequisites operation can configure both.

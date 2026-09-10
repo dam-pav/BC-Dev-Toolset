@@ -59,6 +59,10 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "notes_path=$NOTE_PATH" >> "$GITHUB_OUTPUT"
 
+      - name: Validate extension
+        working-directory: vscode-extension
+        run: npm run validate
+
       - name: Package VSIX assets
         shell: bash
         run: |

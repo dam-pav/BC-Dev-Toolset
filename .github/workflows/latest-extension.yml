@@ -91,6 +91,11 @@ jobs:
           VERSION="$(node -e "const pkg = require('./vscode-extension/package.json'); process.stdout.write(pkg.version);")"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Validate extension
+        if: ${{ github.event_name == 'push' }}
+        working-directory: vscode-extension
+        run: npm run validate
+
       - name: Package latest VSIX
         if: ${{ github.event_name == 'push' }}
         shell: bash
