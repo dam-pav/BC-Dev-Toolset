@@ -169,8 +169,8 @@ If an extension blocks CLI User table validation/events, for example because no 
 
 ### Visualization
 
-- `Prepare object id range data for visualization`: Builds object ID range data for the current workspace.
-- `Show object id range visualization data`: Opens the generated object ID range visualization output.
+- `Prepare object id range data for visualization`: Collects declared ranges and actual numbered AL object IDs per workspace app and object type. Source scanning ignores comments and literals, includes all conditional compilation branches, and excludes dependency caches and nested apps. Repeated IDs within an app/type count once.
+- `Show object id range visualization data`: Opens the range pool chart, followed by an expandable app/type tree of contiguous occupied ID ranges (gaps excluded) and a counts matrix with app, object type, and grand totals. Prepare data again to add actual usage to older visualization files.
 
 ### Prerequisites
 
