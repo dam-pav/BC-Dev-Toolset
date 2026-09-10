@@ -48,7 +48,9 @@ test('reports missing tools', t => {
 test('does not traverse a junction outside the extension', t => {
   const outside = fixture(t, ['altool.exe']);
   const root = fixture(t, []);
-  fs.symlinkSync(outside, resolveWithinRoot(root, 'bin'), process.platform === 'win32' ? 'junction' : 'dir');
+  const validatedLinkPath = resolveWithinRoot(root, 'bin');
+  // Both roots are owned mkdtemp fixtures; the link is contained in root and intentionally targets the separate fixture to test escape rejection.
+  fs.symlinkSync(outside, validatedLinkPath, process.platform === 'win32' ? 'junction' : 'dir'); // nosemgrep -- authorized test target; link containment validated above
   let probes = 0;
   assert.throws(() => discoverAlTool(root, { platform: 'win32', probe: () => { probes++; return help(); } }), /No compatible ALTool/);
   assert.equal(probes, 0);
