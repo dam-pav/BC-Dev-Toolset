@@ -34,13 +34,25 @@ jobs:
       - name: Validate extension
         working-directory: vscode-extension
         run: npm run validate
+      - name: Provision VS Code CLI
+        shell: pwsh
+        run: |
+          $codeRoot = Join-Path $env:RUNNER_TEMP 'al-compatibility-vscode'
+          $archive = Join-Path $env:RUNNER_TEMP 'al-compatibility-vscode.zip'
+          Invoke-WebRequest -Uri 'https://update.code.visualstudio.com/latest/win32-x64-archive/stable' -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $codeRoot
+          $codeCli = Join-Path $codeRoot 'bin/code.cmd'
+          if (-not (Test-Path -LiteralPath $codeCli -PathType Leaf)) { throw 'Downloaded VS Code package does not contain bin/code.cmd' }
+          & $codeCli --version
+          if ($LASTEXITCODE -ne 0) { throw 'Provisioned VS Code CLI could not start' }
+          "BC_COMPAT_CODE_CLI=$codeCli" >> $env:GITHUB_ENV
       - name: Install current Microsoft AL extension and compile fixture
         shell: pwsh
         run: |
           $extensionRoot = Join-Path $env:RUNNER_TEMP 'al-compatibility-extensions'
           $installArgs = @('--extensions-dir', $extensionRoot, '--install-extension', 'ms-dynamics-smb.al', '--force')
           if ('${{ matrix.channel }}' -eq 'prerelease') { $installArgs += '--pre-release' }
-          & code @installArgs
+          & $env:BC_COMPAT_CODE_CLI @installArgs
           if ($LASTEXITCODE -ne 0) { throw 'AL extension installation failed' }
           $alExtensions = @(Get-ChildItem -LiteralPath $extensionRoot -Directory -Filter 'ms-dynamics-smb.al-*')
           if ($alExtensions.Count -ne 1) { throw 'Expected exactly one AL extension installation' }
