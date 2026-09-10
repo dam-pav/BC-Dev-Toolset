@@ -13,6 +13,7 @@ const {
   updateCodexMcpConfigContent
 } = require('./codex-mcp-config');
 const bridgeIdentity = require('./mcp-bridge-identity');
+const { discoverAlTool } = require('./al-tool-discovery');
 const { assertWithinRoot, authorizeRoot, resolveWithinRoot } = require('./path-security');
 
 let extensionContext;
@@ -35,7 +36,7 @@ const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
 const mcpServerDefinitionRevision = 18;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 17;
+const runtimeToolsetRevision = 18;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -1260,12 +1261,8 @@ function getValidatedBundledAlToolPath() {
     throw new Error('The Microsoft AL Language extension is required to run AL compilation operations.');
   }
 
-  const executableName = process.platform === 'win32' ? 'altool.exe' : 'altool';
-  const validatedAlToolPath = resolveWithinRoot(alExtension.extensionPath, 'bin', process.platform, executableName);
-  if (!fs.existsSync(validatedAlToolPath)) { // nosemgrep -- fixed segments resolve beneath the trusted AL extension root
-    throw new Error(`The Microsoft AL Language extension does not contain ALTool for ${process.platform}: ${validatedAlToolPath}`);
-  }
-
+  const validatedAlToolPath = discoverAlTool(alExtension.extensionPath);
+  writeOutput(`AL extension ${alExtension.packageJSON.version}; ALTool: ${validatedAlToolPath}`);
   return validatedAlToolPath;
 }
 

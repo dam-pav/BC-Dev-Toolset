@@ -22,7 +22,7 @@ function Resolve-AlToolPath {
 
     $LASTEXITCODE = 0
     $helpOutput = @(& $validatedAlToolPath compile --help 2>&1)
-    if ($LASTEXITCODE -ne 0 -or (($helpOutput -join "`n") -notmatch 'invoking alc.exe')) {
+    if ($LASTEXITCODE -ne 0 -or (($helpOutput -join "`n") -notmatch '\baltool\s+compile\b')) {
         throw "The configured ALTool is not a compatible Microsoft AL compiler: '$validatedAlToolPath'."
     }
 

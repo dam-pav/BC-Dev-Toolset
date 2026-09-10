@@ -475,7 +475,7 @@ test('AL compilation uses the required AL extension bundled tool instead of glob
 
   assert.ok(packageJson.extensionDependencies.includes('ms-dynamics-smb.al'));
   assert.match(extensionSource, /vscode\.extensions\.getExtension\('ms-dynamics-smb\.al'\)/);
-  assert.match(extensionSource, /'bin', process\.platform, executableName/);
+  assert.match(extensionSource, /discoverAlTool\(alExtension\.extensionPath\)/);
   assert.match(extensionSource, /operationsRequiringAlTool\.has\(operation\.id\)[\s\S]*?-ValidatedAlToolPath/);
   assert.match(operationBridge, /\[string\] \$ValidatedAlToolPath = ''/);
   assert.match(operationBridge, /\$env:BCDEVTOOLSET_ALTOOL_PATH = \[System\.IO\.Path\]::GetFullPath\(\$ValidatedAlToolPath\)/);

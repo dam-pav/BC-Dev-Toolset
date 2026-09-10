@@ -1,0 +1,48 @@
+name: AL compatibility
+
+on:
+  pull_request:
+    paths:
+      - 'vscode-extension/**'
+      - 'operations/BuildAllApps.ps1'
+      - 'common/**'
+      - '.github/workflows/al-compatibility.yml'
+  schedule:
+    - cron: '30 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [stable, prerelease]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Validate extension
+        working-directory: vscode-extension
+        run: npm run validate
+      - name: Install current Microsoft AL extension and compile fixture
+        shell: pwsh
+        run: |
+          $extensionRoot = Join-Path $env:RUNNER_TEMP 'al-compatibility-extensions'
+          $installArgs = @('--extensions-dir', $extensionRoot, '--install-extension', 'ms-dynamics-smb.al', '--force')
+          if ('${{ matrix.channel }}' -eq 'prerelease') { $installArgs += '--pre-release' }
+          & code @installArgs
+          if ($LASTEXITCODE -ne 0) { throw 'AL extension installation failed' }
+          $alExtensions = @(Get-ChildItem -LiteralPath $extensionRoot -Directory -Filter 'ms-dynamics-smb.al-*')
+          if ($alExtensions.Count -ne 1) { throw 'Expected exactly one AL extension installation' }
+          node vscode-extension/scripts/check-al-compatibility.js $alExtensions[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw 'AL compatibility smoke test failed' }
