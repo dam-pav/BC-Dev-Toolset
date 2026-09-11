@@ -15,11 +15,12 @@ function Get-SqlBackupRootPath {
     }
 
     if ([System.IO.Path]::IsPathRooted($sqlBackupPath)) {
-        return $sqlBackupPath
+        return [System.IO.Path]::GetFullPath($sqlBackupPath)
     }
 
     $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
-    return (Join-Path $workspaceRootPath.FullName $sqlBackupPath)
+    # Normalize without Resolve-Path so missing backup folders can still be diagnosed.
+    return [System.IO.Path]::GetFullPath((Join-Path $workspaceRootPath.FullName $sqlBackupPath))
 }
 
 function Copy-SqlBackupSetToSharedFolder {
@@ -793,6 +794,8 @@ function Test-DockerContainerRunning {
 
 function Select-ContainerSqlBackupConfigurations {
     Param (
+        [Parameter(Mandatory=$false)]
+        [string] $scriptPath = "",
         [Parameter(Mandatory=$true)]
         [PSObject] $settingsJSON,
         [Parameter(Mandatory=$true)]
@@ -813,7 +816,8 @@ function Select-ContainerSqlBackupConfigurations {
 
     $options = @()
     foreach ($configuration in $qualifiedConfigurations) {
-        $options += "$($configuration.name) ($($configuration.container)) -> $($configuration.sqlBackupPath)"
+        $backupRootPath = Get-SqlBackupRootPath -scriptPath $scriptPath -sqlBackupPath $configuration.sqlBackupPath
+        $options += "$($configuration.name) ($($configuration.container)) -> $backupRootPath"
     }
 
     if ($IncludeAllOption) {
@@ -911,6 +915,7 @@ function Export-BcContainerSqlBackupSet {
     )
 
     $selectedConfigurations = @(Select-ContainerSqlBackupConfigurations `
+        -scriptPath $scriptPath `
         -settingsJSON $settingsJSON `
         -operationName "SQL backup export" `
         -IncludeAllOption)
@@ -971,6 +976,7 @@ function Restore-BcContainerSqlBackupSet {
     )
 
     $selectedConfigurations = @(Select-ContainerSqlBackupConfigurations `
+        -scriptPath $scriptPath `
         -settingsJSON $settingsJSON `
         -operationName "SQL backup restore")
 
