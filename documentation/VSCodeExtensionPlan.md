@@ -128,7 +128,7 @@ Suggested path:
 
 Scope: workspace-specific configuration, suitable for source control when it contains no secrets.
 
-The artifact region uses the AL extension's `settings.al.symbolsCountryRegion` value. Examples under `settings.dam-pav.bcdevtoolset`:
+The artifact region uses the AL extension's `settings.al.symbolsCountryRegion` value. Examples under `settings.bcDevToolset`:
 
 - app folder conventions
 - workspace environments without secrets
@@ -233,7 +233,7 @@ Acceptance criteria:
 
 Deliverables:
 
-- Keep workspace-specific attributes in `.code-workspace` under `settings.dam-pav.bcdevtoolset`.
+- Keep workspace-specific attributes in `.code-workspace` under `settings.bcDevToolset`.
 - Add support for `.bcdevtoolset/settings.json`.
 - Locate `.bcdevtoolset/settings.json` beside the active `.code-workspace` file and do not require or force it to be a workspace folder.
 - Merge configuration in a predictable order.

@@ -2,6 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+process.env.BCDEVTOOLSET_MCP_TOOL_SETTINGS = JSON.stringify({"bc_dev_toolset_backup_bc_service_databases": true, "bc_dev_toolset_configure_win_rm": true});
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const { __test: mcp } = require('../mcp-server');

@@ -193,8 +193,11 @@ function Get-TestSelectArtifact {
         [PSObject] $workspaceJSON
     )
 
-    if ($workspaceJSON.settings."dam-pav.bcdevtoolset".selectArtifact) {
-        return $workspaceJSON.settings."dam-pav.bcdevtoolset".selectArtifact
+    $workspaceToolsetSettings = $workspaceJSON.settings.bcDevToolset
+    if ($null -eq $workspaceToolsetSettings) { $workspaceToolsetSettings = $workspaceJSON.settings."dam-pav.bcdevtoolset" }
+
+    if ($workspaceToolsetSettings.selectArtifact) {
+        return $workspaceToolsetSettings.selectArtifact
     }
 
     return "Latest"

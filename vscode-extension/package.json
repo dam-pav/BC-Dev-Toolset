@@ -12,7 +12,7 @@
     "directory": "vscode-extension"
   },
   "scripts": {
-    "validate": "node --check extension.js && node --check mcp-server.js && node --check mcp-bridge-identity.js && node --check codex-mcp-config.js && node --test",
+    "validate": "node --check extension.js && node --check mcp-server.js && node --check mcp-bridge-identity.js && node --check codex-mcp-config.js && node --check mcp-tool-settings.js && node --check configuration-settings.js && node --check settings-migration.js && node --test",
     "test": "node --test test",
     "prepare:runtime": "node ./build/prepare-runtime-package.js",
     "package": "npm run prepare:runtime && npx @vscode/vsce package --no-dependencies",
@@ -79,639 +79,858 @@
     "onCommand:bcDevToolset.operation.publishRuntimeApps2Test",
     "onCommand:bcDevToolset.operation.unpublishDockerApps",
     "onCommand:bcDevToolset.operation.unpublishTestApps",
-    "onCommand:bcDevToolset.operation.prepareObjectIdRangeVisualizationData"
+    "onCommand:bcDevToolset.operation.prepareObjectIdRangeVisualizationData",
+    "onCommand:bcDevToolset.configureMcpTools"
   ],
   "main": "./extension.js",
   "contributes": {
-    "configuration": {
-      "title": "BC Dev Toolset",
-      "properties": {
-        "bcDevToolset.toolsetPath": {
-          "type": "string",
-          "default": "",
-          "description": "Central BC-Dev-Toolset installation path. Defaults to %LOCALAPPDATA%\\BC-Dev-Toolset\\toolset on Windows."
-        },
-        "bcDevToolset.powershellExecutable": {
-          "type": "string",
-          "default": "pwsh",
-          "description": "PowerShell executable used to run BC-Dev-Toolset operations."
-        },
-        "bcDevToolset.localSettingsPath": {
-          "type": "string",
-          "default": ".bcdevtoolset/settings.json",
-          "description": "Workspace-relative local settings file passed to PowerShell operations when it exists."
-        },
-        "bcDevToolset.codexMcpIntegration.enabled": {
-          "type": "boolean",
-          "scope": "machine",
-          "default": false,
-          "description": "Automatically keep the opted-in BC Dev Toolset entry in the global Codex MCP configuration synchronized with this extension installation. The Configure Codex MCP Integration command enables this setting."
-        },
-        "bcDevToolset.shortcuts": {
-          "type": "string",
-          "enum": [
-            "None",
-            "Desktop",
-            "StartMenu"
-          ],
-          "default": "None",
-          "description": "Shortcut mode used for container creation flows."
-        },
-        "bcDevToolset.hostHelperFolder": {
-          "type": "string",
-          "default": "C:\\ProgramData\\BcContainerHelper",
-          "description": "BcContainerHelper host helper folder used by runtime operations."
-        },
-        "dam-pav.bcdevtoolset": {
-          "type": "object",
-          "scope": "resource",
-          "default": {
-            "selectArtifact": "Latest",
-            "executeTestsInContainerName": "",
-            "configurations": [
-              {
-                "name": "sample",
-                "serverType": "",
-                "targetType": "",
-                "server": "",
-                "serverInstance": "",
-                "container": "",
-                "port": "",
-                "environmentType": "",
-                "environmentName": "",
-                "includeTestToolkit": "",
-                "tenant": "",
-                "authentication": "",
-                "bcUser": "",
-                "bcPassword": "",
-                "network": "",
-                "hostIP": "",
-                "databaseUser": "",
-                "databasePassword": "",
-                "remoteUser": "",
-                "remotePassword": ""
-              }
-            ]
+    "configuration": [
+      {
+        "id": "bcDevToolset",
+        "title": "BC Dev Toolset",
+        "order": 0,
+        "properties": {
+          "bcDevToolset.toolsetPath": {
+            "type": "string",
+            "default": "",
+            "description": "Central BC-Dev-Toolset installation path. Defaults to %LOCALAPPDATA%\\BC-Dev-Toolset\\toolset on Windows."
           },
-          "description": "Shared BC Dev Toolset settings stored in the workspace file.",
-          "additionalProperties": true,
-          "properties": {
-            "selectArtifact": {
-              "type": "string",
-              "enum": [
-                "Latest",
-                "First",
-                "All",
-                "Closest",
-                "SecondToLastMajor",
-                "Current",
-                "NextMinor",
-                "NextMajor",
-                "Daily",
-                "Weekly"
-              ],
-              "default": "Latest",
-              "description": "Business Central artifact selection strategy."
+          "bcDevToolset.powershellExecutable": {
+            "type": "string",
+            "default": "pwsh",
+            "description": "PowerShell executable used to run BC-Dev-Toolset operations."
+          },
+          "bcDevToolset.localSettingsPath": {
+            "type": "string",
+            "default": ".bcdevtoolset/settings.json",
+            "description": "Workspace-relative local settings file passed to PowerShell operations when it exists."
+          },
+          "bcDevToolset.codexMcpIntegration.enabled": {
+            "type": "boolean",
+            "scope": "machine",
+            "default": false,
+            "description": "Automatically keep the opted-in BC Dev Toolset entry in the global Codex MCP configuration synchronized with this extension installation. The Configure Codex MCP Integration command enables this setting."
+          },
+          "bcDevToolset.shortcuts": {
+            "type": "string",
+            "enum": [
+              "None",
+              "Desktop",
+              "StartMenu"
+            ],
+            "default": "None",
+            "description": "Shortcut mode used for container creation flows."
+          },
+          "bcDevToolset.hostHelperFolder": {
+            "type": "string",
+            "default": "C:\\ProgramData\\BcContainerHelper",
+            "description": "BcContainerHelper host helper folder used by runtime operations."
+          },
+          "bcDevToolset": {
+            "type": "object",
+            "scope": "resource",
+            "default": {
+              "selectArtifact": "Latest",
+              "executeTestsInContainerName": "",
+              "configurations": [
+                {
+                  "name": "sample",
+                  "serverType": "",
+                  "targetType": "",
+                  "server": "",
+                  "serverInstance": "",
+                  "container": "",
+                  "port": "",
+                  "environmentType": "",
+                  "environmentName": "",
+                  "includeTestToolkit": "",
+                  "tenant": "",
+                  "authentication": "",
+                  "bcUser": "",
+                  "bcPassword": "",
+                  "network": "",
+                  "hostIP": "",
+                  "databaseUser": "",
+                  "databasePassword": "",
+                  "remoteUser": "",
+                  "remotePassword": ""
+                }
+              ]
             },
-            "executeTestsInContainerName": {
-              "type": "string",
-              "default": "",
-              "description": "Optional container name used by Test operations. New workspaces set this to their default Local-Test container. If empty and only one eligible container configuration exists, tests run there without backup restore or app deployment. Otherwise Test operations ask which eligible container to use when needed. If the selected container is missing, it is created before tests continue and exports an initial SQL backup set when sqlBackupPath is non-empty, regardless of targetType."
-            },
-            "sqlBackupPath": {
-              "not": {},
-              "errorMessage": "Field \"sqlBackupPath\" has moved. Set it inside each relevant \"configurations\" entry.",
-              "doNotSuggest": true
-            },
-            "configurations": {
-              "type": "array",
-              "description": "Shared Business Central target configurations.",
-              "items": {
-                "type": "object",
-                "additionalProperties": true,
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "description": "Configuration display name."
-                  },
-                  "serverType": {
-                    "type": "string",
-                    "enum": [
-                      "",
-                      "Container",
-                      "Cloud",
-                      "OnPrem"
-                    ],
-                    "description": "Business Central server type."
-                  },
-                  "targetType": {
-                    "type": "string",
-                    "enum": [
-                      "",
-                      "Dev",
-                      "Test",
-                      "Production"
-                    ],
-                    "description": "Target environment role."
-                  },
-                  "autoUpdateLaunchJson": {
-                    "type": "boolean",
-                    "description": "Optional override for whether update launch.json operations include this configuration. Applies to all server types. When omitted, the effective value is true for Dev targets and false otherwise."
-                  },
-                  "databaseUser": {
-                    "type": "string",
-                    "description": "Optional SQL user for database operations."
-                  },
-                  "databasePassword": {
-                    "type": "string",
-                    "description": "Optional SQL password for database operations."
-                  },
-                  "remoteUser": {
-                    "type": "string",
-                    "description": "Optional PowerShell remoting user."
-                  },
-                  "remotePassword": {
-                    "type": "string",
-                    "description": "Optional PowerShell remoting password."
-                  },
-                  "serverConfiguration": {
-                    "type": "array",
-                    "description": "Additional Business Central server configuration entries.",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "KeyName": {
-                          "type": "string",
-                          "description": "Server configuration key."
-                        },
-                        "KeyValue": {
-                          "type": [
-                            "string",
-                            "number",
-                            "boolean"
-                          ],
-                          "description": "Server configuration value."
-                        }
-                      }
-                    }
-                  }
-                },
-                "allOf": [
-                  {
-                    "if": {
-                      "properties": {
-                        "serverType": {
-                          "const": "Container"
-                        }
-                      },
-                      "required": [
-                        "serverType"
-                      ]
+            "description": "Shared BC Dev Toolset settings stored in the workspace file.",
+            "additionalProperties": true,
+            "properties": {
+              "selectArtifact": {
+                "type": "string",
+                "enum": [
+                  "Latest",
+                  "First",
+                  "All",
+                  "Closest",
+                  "SecondToLastMajor",
+                  "Current",
+                  "NextMinor",
+                  "NextMajor",
+                  "Daily",
+                  "Weekly"
+                ],
+                "default": "Latest",
+                "description": "Business Central artifact selection strategy."
+              },
+              "executeTestsInContainerName": {
+                "type": "string",
+                "default": "",
+                "description": "Optional container name used by Test operations. New workspaces set this to their default Local-Test container. If empty and only one eligible container configuration exists, tests run there without backup restore or app deployment. Otherwise Test operations ask which eligible container to use when needed. If the selected container is missing, it is created before tests continue and exports an initial SQL backup set when sqlBackupPath is non-empty, regardless of targetType."
+              },
+              "sqlBackupPath": {
+                "not": {},
+                "errorMessage": "Field \"sqlBackupPath\" has moved. Set it inside each relevant \"configurations\" entry.",
+                "doNotSuggest": true
+              },
+              "configurations": {
+                "type": "array",
+                "description": "Shared Business Central target configurations.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "Configuration display name."
                     },
-                    "then": {
-                      "properties": {
-                        "container": {
-                          "type": "string",
-                          "description": "Docker container name for Container targets."
-                        },
-                        "environmentType": {
-                          "type": "string",
-                          "enum": [
-                            "",
-                            "Sandbox",
-                            "OnPrem"
-                          ],
-                          "description": "Business Central environment type."
-                        },
-                        "multitenant": {
-                          "type": "boolean",
-                          "description": "Explicit multitenant mode passed to New-BcContainer. When omitted, Create Docker container infers the mode from a compatible backup set; if the backup does not determine the mode, the parameter is omitted and BcContainerHelper decides. Creation aborts when an explicit value conflicts with the backup type."
-                        },
-                        "includeTestToolkit": {
-                          "type": [
-                            "string",
-                            "boolean"
-                          ],
-                          "description": "Whether container environments should include the test toolkit."
-                        },
-                        "authentication": {
-                          "type": "string",
-                          "enum": [
-                            "",
-                            "UserPassword",
-                            "Windows",
-                            "AAD"
-                          ],
-                          "description": "Authentication mode."
-                        },
-                        "bcUser": {
-                          "type": "string",
-                          "description": "Business Central service user name."
-                        },
-                        "bcPassword": {
-                          "type": "string",
-                          "description": "Business Central service password."
-                        },
-                        "sqlBackupPath": {
-                          "type": "string",
-                          "description": "Path used for SQL backup files for this Container configuration."
-                        },
-                        "admin": {
-                          "type": "string",
-                          "description": "Obsolete. Use \"bcUser\" instead.",
-                          "deprecated": true,
-                          "deprecationMessage": "Field \"admin\" is obsolete and will be removed in the next major release. Use \"bcUser\" instead.",
-                          "markdownDeprecationMessage": "Field `admin` is obsolete and will be removed in the next major release. Use `bcUser` instead."
-                        },
-                        "password": {
-                          "type": "string",
-                          "description": "Obsolete. Use \"bcPassword\" instead.",
-                          "deprecated": true,
-                          "deprecationMessage": "Field \"password\" is obsolete and will be removed in the next major release. Use \"bcPassword\" instead.",
-                          "markdownDeprecationMessage": "Field `password` is obsolete and will be removed in the next major release. Use `bcPassword` instead."
-                        },
-                        "network": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "enum": [
-                                "",
-                                "NAT",
-                                "nat",
-                                "transparent",
-                                "l2bridge",
-                                "l2tunnel",
-                                "overlay",
-                                "none"
-                              ]
-                            },
-                            {
-                              "type": "string"
-                            }
-                          ],
-                          "description": "Optional Docker network passed to New-BcContainer for Container targets. Known network names are verified and missing creatable networks are created with the matching Docker driver; custom network names are allowed and are not managed by the toolset."
-                        },
-                        "hostIP": {
-                          "type": "string",
-                          "description": "Optional host.containerhelper.internal IP address passed to New-BcContainer."
-                        },
-                        "updateHosts": {
-                          "type": [
-                            "string",
-                            "boolean"
-                          ],
-                          "enum": [
-                            "",
-                            "true",
-                            "false",
-                            true,
-                            false
-                          ],
-                          "default": true,
-                          "description": "Whether New-BcContainer should update the host machine's hosts file. Defaults to true when omitted."
-                        },
-                        "macAddress": {
-                          "type": "string",
-                          "description": "Optional container MAC address passed to New-BcContainer. Use only with a transparent network."
-                        },
-                        "IP": {
-                          "type": "string",
-                          "description": "Optional static container IP address passed to New-BcContainer. Use only with a transparent network; leave empty when the network should assign an address."
-                        },
-                        "dns": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "enum": [
-                                "",
-                                "HostDNS"
-                              ]
-                            },
-                            {
-                              "type": "string"
-                            }
-                          ],
-                          "description": "Optional DNS value passed to New-BcContainer. Use only with a transparent network. BcContainerHelper recognizes HostDNS; explicit DNS server values are also allowed."
-                        },
-                        "memoryLimit": {
-                          "type": "string",
-                          "pattern": "^(?:|[1-9][0-9]*[mMgG])$",
-                          "patternErrorMessage": "Use a positive whole-number memory size ending in M or G, for example 16384M or 16G.",
-                          "description": "Optional Hyper-V/container memory limit passed directly to New-BcContainer, for example 16G. When omitted or empty, BcContainerHelper chooses its default."
-                        },
-                        "sqlMemoryLimit": {
-                          "type": "string",
-                          "pattern": "^(?:|[1-9][0-9]*[mMgG]|(?:100|[1-9][0-9]?)%)$",
-                          "patternErrorMessage": "Use a positive whole-number size ending in M or G, or a percentage from 1% through 100%; for example 2G or 25%.",
-                          "description": "Optional SQL Server memory limit passed directly to New-BcContainer, for example 2G or 25%. When omitted or empty, BcContainerHelper chooses its default."
-                        },
-                        "autoExtractAssemblies": {
-                          "type": "boolean",
-                          "default": false,
-                          "description": "Whether Service and .NET assemblies are extracted automatically after this container is built. Manual extraction ignores this setting."
-                        },
-                        "autoRestoreBackup": {
-                          "type": "boolean",
-                          "default": true,
-                          "description": "Whether Create Docker container and Test operations automatically restore a compatible SQL backup set from sqlBackupPath. Defaults to true when omitted. Manual restore operations ignore this setting."
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "if": {
-                      "properties": {
-                        "serverType": {
-                          "const": "Cloud"
-                        }
-                      },
-                      "required": [
-                        "serverType"
-                      ]
-                    },
-                    "then": {
-                      "properties": {
-                        "environmentType": {
-                          "type": "string",
-                          "enum": [
-                            "",
-                            "Sandbox",
-                            "OnPrem"
-                          ],
-                          "description": "Business Central environment type."
-                        },
-                        "environmentName": {
-                          "type": "string",
-                          "description": "Cloud environment name."
-                        },
-                        "tenant": {
-                          "type": "string",
-                          "description": "Tenant identifier for Cloud or OnPrem targets."
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "if": {
-                      "properties": {
-                        "serverType": {
-                          "const": "OnPrem"
-                        }
-                      },
-                      "required": [
-                        "serverType"
-                      ]
-                    },
-                    "then": {
-                      "properties": {
-                        "server": {
-                          "type": "string",
-                          "description": "Server name for OnPrem targets."
-                        },
-                        "serverInstance": {
-                          "type": "string",
-                          "description": "Server instance for OnPrem targets."
-                        },
-                        "port": {
-                          "type": "string",
-                          "description": "Port for OnPrem targets."
-                        },
-                        "tenant": {
-                          "type": "string",
-                          "description": "Tenant identifier for Cloud or OnPrem targets."
-                        },
-                        "authentication": {
-                          "type": "string",
-                          "enum": [
-                            "",
-                            "UserPassword",
-                            "Windows",
-                            "AAD"
-                          ],
-                          "description": "Authentication mode."
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "if": {
-                      "required": [
-                        "serverType"
+                    "serverType": {
+                      "type": "string",
+                      "enum": [
+                        "",
+                        "Container",
+                        "Cloud",
+                        "OnPrem"
                       ],
-                      "not": {
+                      "description": "Business Central server type."
+                    },
+                    "targetType": {
+                      "type": "string",
+                      "enum": [
+                        "",
+                        "Dev",
+                        "Test",
+                        "Production"
+                      ],
+                      "description": "Target environment role."
+                    },
+                    "autoUpdateLaunchJson": {
+                      "type": "boolean",
+                      "description": "Optional override for whether update launch.json operations include this configuration. Applies to all server types. When omitted, the effective value is true for Dev targets and false otherwise."
+                    },
+                    "databaseUser": {
+                      "type": "string",
+                      "description": "Optional SQL user for database operations."
+                    },
+                    "databasePassword": {
+                      "type": "string",
+                      "description": "Optional SQL password for database operations."
+                    },
+                    "remoteUser": {
+                      "type": "string",
+                      "description": "Optional PowerShell remoting user."
+                    },
+                    "remotePassword": {
+                      "type": "string",
+                      "description": "Optional PowerShell remoting password."
+                    },
+                    "serverConfiguration": {
+                      "type": "array",
+                      "description": "Additional Business Central server configuration entries.",
+                      "items": {
+                        "type": "object",
                         "properties": {
-                          "serverType": {
-                            "const": "OnPrem"
+                          "KeyName": {
+                            "type": "string",
+                            "description": "Server configuration key."
+                          },
+                          "KeyValue": {
+                            "type": [
+                              "string",
+                              "number",
+                              "boolean"
+                            ],
+                            "description": "Server configuration value."
                           }
                         }
                       }
-                    },
-                    "then": {
-                      "properties": {
-                        "server": {
-                          "not": {},
-                          "errorMessage": "Field \"server\" is not valid when \"serverType\" is not \"OnPrem\".",
-                          "doNotSuggest": true
-                        },
-                        "serverInstance": {
-                          "not": {},
-                          "errorMessage": "Field \"serverInstance\" is not valid when \"serverType\" is not \"OnPrem\".",
-                          "doNotSuggest": true
-                        },
-                        "port": {
-                          "not": {},
-                          "errorMessage": "Field \"port\" is not valid when \"serverType\" is not \"OnPrem\".",
-                          "doNotSuggest": true
-                        }
-                      }
                     }
                   },
-                  {
-                    "if": {
-                      "required": [
-                        "serverType"
-                      ],
-                      "not": {
+                  "allOf": [
+                    {
+                      "if": {
                         "properties": {
                           "serverType": {
                             "const": "Container"
                           }
-                        }
-                      }
-                    },
-                    "then": {
-                      "properties": {
-                        "container": {
-                          "not": {},
-                          "errorMessage": "Field \"container\" is not valid when \"serverType\" is not \"Container\".",
-                          "doNotSuggest": true
                         },
-                        "includeTestToolkit": {
-                          "not": {},
-                          "errorMessage": "Field \"includeTestToolkit\" is not valid when \"serverType\" is not \"Container\".",
-                          "doNotSuggest": true
-                        },
-                        "multitenant": {
-                          "not": {},
-                          "errorMessage": "Field \"multitenant\" is not valid when \"serverType\" is not \"Container\".",
-                          "doNotSuggest": true
-                        },
-                        "bcUser": {
-                          "not": {},
-                          "errorMessage": "Field \"bcUser\" is not valid when \"serverType\" is not \"Container\".",
-                          "doNotSuggest": true
-                        },
-                        "bcPassword": {
-                          "not": {},
-                          "errorMessage": "Field \"bcPassword\" is not valid when \"serverType\" is not \"Container\".",
-                          "doNotSuggest": true
-                        },
-                        "sqlBackupPath": {
-                          "not": {},
-                          "errorMessage": "Field \"sqlBackupPath\" is not valid when \"serverType\" is not \"Container\".",
-                          "doNotSuggest": true
-                        },
-                        "admin": {
-                          "not": {},
-                          "errorMessage": "Field \"admin\" is not valid when \"serverType\" is not \"Container\".",
-                          "doNotSuggest": true
-                        },
-                        "password": {
-                          "not": {},
-                          "errorMessage": "Field \"password\" is not valid when \"serverType\" is not \"Container\".",
-                          "doNotSuggest": true
-                        },
-                        "autoExtractAssemblies": {
-                          "not": {},
-                          "errorMessage": "Field \"autoExtractAssemblies\" is not valid when \"serverType\" is not \"Container\".",
-                          "doNotSuggest": true
-                        },
-                        "autoRestoreBackup": {
-                          "not": {},
-                          "errorMessage": "Field \"autoRestoreBackup\" is not valid when \"serverType\" is not \"Container\".",
-                          "doNotSuggest": true
-                        },
-                        "memoryLimit": {
-                          "not": {},
-                          "errorMessage": "Field \"memoryLimit\" is not valid when \"serverType\" is not \"Container\".",
-                          "doNotSuggest": true
-                        },
-                        "sqlMemoryLimit": {
-                          "not": {},
-                          "errorMessage": "Field \"sqlMemoryLimit\" is not valid when \"serverType\" is not \"Container\".",
-                          "doNotSuggest": true
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "if": {
-                      "required": [
-                        "serverType"
-                      ],
-                      "not": {
+                        "required": [
+                          "serverType"
+                        ]
+                      },
+                      "then": {
                         "properties": {
-                          "serverType": {
+                          "container": {
+                            "type": "string",
+                            "description": "Docker container name for Container targets."
+                          },
+                          "environmentType": {
+                            "type": "string",
                             "enum": [
-                              "Container",
-                              "Cloud"
-                            ]
+                              "",
+                              "Sandbox",
+                              "OnPrem"
+                            ],
+                            "description": "Business Central environment type."
+                          },
+                          "multitenant": {
+                            "type": "boolean",
+                            "description": "Explicit multitenant mode passed to New-BcContainer. When omitted, Create Docker container infers the mode from a compatible backup set; if the backup does not determine the mode, the parameter is omitted and BcContainerHelper decides. Creation aborts when an explicit value conflicts with the backup type."
+                          },
+                          "includeTestToolkit": {
+                            "type": [
+                              "string",
+                              "boolean"
+                            ],
+                            "description": "Whether container environments should include the test toolkit."
+                          },
+                          "authentication": {
+                            "type": "string",
+                            "enum": [
+                              "",
+                              "UserPassword",
+                              "Windows",
+                              "AAD"
+                            ],
+                            "description": "Authentication mode."
+                          },
+                          "bcUser": {
+                            "type": "string",
+                            "description": "Business Central service user name."
+                          },
+                          "bcPassword": {
+                            "type": "string",
+                            "description": "Business Central service password."
+                          },
+                          "sqlBackupPath": {
+                            "type": "string",
+                            "description": "Path used for SQL backup files for this Container configuration."
+                          },
+                          "admin": {
+                            "type": "string",
+                            "description": "Obsolete. Use \"bcUser\" instead.",
+                            "deprecated": true,
+                            "deprecationMessage": "Field \"admin\" is obsolete and will be removed in the next major release. Use \"bcUser\" instead.",
+                            "markdownDeprecationMessage": "Field `admin` is obsolete and will be removed in the next major release. Use `bcUser` instead."
+                          },
+                          "password": {
+                            "type": "string",
+                            "description": "Obsolete. Use \"bcPassword\" instead.",
+                            "deprecated": true,
+                            "deprecationMessage": "Field \"password\" is obsolete and will be removed in the next major release. Use \"bcPassword\" instead.",
+                            "markdownDeprecationMessage": "Field `password` is obsolete and will be removed in the next major release. Use `bcPassword` instead."
+                          },
+                          "network": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "",
+                                  "NAT",
+                                  "nat",
+                                  "transparent",
+                                  "l2bridge",
+                                  "l2tunnel",
+                                  "overlay",
+                                  "none"
+                                ]
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ],
+                            "description": "Optional Docker network passed to New-BcContainer for Container targets. Known network names are verified and missing creatable networks are created with the matching Docker driver; custom network names are allowed and are not managed by the toolset."
+                          },
+                          "hostIP": {
+                            "type": "string",
+                            "description": "Optional host.containerhelper.internal IP address passed to New-BcContainer."
+                          },
+                          "updateHosts": {
+                            "type": [
+                              "string",
+                              "boolean"
+                            ],
+                            "enum": [
+                              "",
+                              "true",
+                              "false",
+                              true,
+                              false
+                            ],
+                            "default": true,
+                            "description": "Whether New-BcContainer should update the host machine's hosts file. Defaults to true when omitted."
+                          },
+                          "macAddress": {
+                            "type": "string",
+                            "description": "Optional container MAC address passed to New-BcContainer. Use only with a transparent network."
+                          },
+                          "IP": {
+                            "type": "string",
+                            "description": "Optional static container IP address passed to New-BcContainer. Use only with a transparent network; leave empty when the network should assign an address."
+                          },
+                          "dns": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "",
+                                  "HostDNS"
+                                ]
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ],
+                            "description": "Optional DNS value passed to New-BcContainer. Use only with a transparent network. BcContainerHelper recognizes HostDNS; explicit DNS server values are also allowed."
+                          },
+                          "memoryLimit": {
+                            "type": "string",
+                            "pattern": "^(?:|[1-9][0-9]*[mMgG])$",
+                            "patternErrorMessage": "Use a positive whole-number memory size ending in M or G, for example 16384M or 16G.",
+                            "description": "Optional Hyper-V/container memory limit passed directly to New-BcContainer, for example 16G. When omitted or empty, BcContainerHelper chooses its default."
+                          },
+                          "sqlMemoryLimit": {
+                            "type": "string",
+                            "pattern": "^(?:|[1-9][0-9]*[mMgG]|(?:100|[1-9][0-9]?)%)$",
+                            "patternErrorMessage": "Use a positive whole-number size ending in M or G, or a percentage from 1% through 100%; for example 2G or 25%.",
+                            "description": "Optional SQL Server memory limit passed directly to New-BcContainer, for example 2G or 25%. When omitted or empty, BcContainerHelper chooses its default."
+                          },
+                          "autoExtractAssemblies": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "Whether Service and .NET assemblies are extracted automatically after this container is built. Manual extraction ignores this setting."
+                          },
+                          "autoRestoreBackup": {
+                            "type": "boolean",
+                            "default": true,
+                            "description": "Whether Create Docker container and Test operations automatically restore a compatible SQL backup set from sqlBackupPath. Defaults to true when omitted. Manual restore operations ignore this setting."
                           }
                         }
                       }
                     },
-                    "then": {
-                      "properties": {
-                        "environmentType": {
-                          "not": {},
-                          "errorMessage": "Field \"environmentType\" is not valid when \"serverType\" is not \"Container\" or \"Cloud\".",
-                          "doNotSuggest": true
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "if": {
-                      "required": [
-                        "serverType"
-                      ],
-                      "not": {
+                    {
+                      "if": {
                         "properties": {
                           "serverType": {
                             "const": "Cloud"
                           }
-                        }
-                      }
-                    },
-                    "then": {
-                      "properties": {
-                        "environmentName": {
-                          "not": {},
-                          "errorMessage": "Field \"environmentName\" is not valid when \"serverType\" is not \"Cloud\".",
-                          "doNotSuggest": true
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "if": {
-                      "required": [
-                        "serverType"
-                      ],
-                      "not": {
+                        },
+                        "required": [
+                          "serverType"
+                        ]
+                      },
+                      "then": {
                         "properties": {
-                          "serverType": {
+                          "environmentType": {
+                            "type": "string",
                             "enum": [
-                              "Cloud",
+                              "",
+                              "Sandbox",
                               "OnPrem"
-                            ]
+                            ],
+                            "description": "Business Central environment type."
+                          },
+                          "environmentName": {
+                            "type": "string",
+                            "description": "Cloud environment name."
+                          },
+                          "tenant": {
+                            "type": "string",
+                            "description": "Tenant identifier for Cloud or OnPrem targets."
                           }
                         }
                       }
                     },
-                    "then": {
-                      "properties": {
-                        "tenant": {
-                          "not": {},
-                          "errorMessage": "Field \"tenant\" is not valid when \"serverType\" is not \"Cloud\" or \"OnPrem\".",
-                          "doNotSuggest": true
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "if": {
-                      "required": [
-                        "serverType"
-                      ],
-                      "not": {
+                    {
+                      "if": {
                         "properties": {
                           "serverType": {
+                            "const": "OnPrem"
+                          }
+                        },
+                        "required": [
+                          "serverType"
+                        ]
+                      },
+                      "then": {
+                        "properties": {
+                          "server": {
+                            "type": "string",
+                            "description": "Server name for OnPrem targets."
+                          },
+                          "serverInstance": {
+                            "type": "string",
+                            "description": "Server instance for OnPrem targets."
+                          },
+                          "port": {
+                            "type": "string",
+                            "description": "Port for OnPrem targets."
+                          },
+                          "tenant": {
+                            "type": "string",
+                            "description": "Tenant identifier for Cloud or OnPrem targets."
+                          },
+                          "authentication": {
+                            "type": "string",
                             "enum": [
-                              "Container",
-                              "OnPrem"
-                            ]
+                              "",
+                              "UserPassword",
+                              "Windows",
+                              "AAD"
+                            ],
+                            "description": "Authentication mode."
                           }
                         }
                       }
                     },
-                    "then": {
-                      "properties": {
-                        "authentication": {
-                          "not": {},
-                          "errorMessage": "Field \"authentication\" is not valid when \"serverType\" is not \"Container\" or \"OnPrem\".",
-                          "doNotSuggest": true
+                    {
+                      "if": {
+                        "required": [
+                          "serverType"
+                        ],
+                        "not": {
+                          "properties": {
+                            "serverType": {
+                              "const": "OnPrem"
+                            }
+                          }
+                        }
+                      },
+                      "then": {
+                        "properties": {
+                          "server": {
+                            "not": {},
+                            "errorMessage": "Field \"server\" is not valid when \"serverType\" is not \"OnPrem\".",
+                            "doNotSuggest": true
+                          },
+                          "serverInstance": {
+                            "not": {},
+                            "errorMessage": "Field \"serverInstance\" is not valid when \"serverType\" is not \"OnPrem\".",
+                            "doNotSuggest": true
+                          },
+                          "port": {
+                            "not": {},
+                            "errorMessage": "Field \"port\" is not valid when \"serverType\" is not \"OnPrem\".",
+                            "doNotSuggest": true
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "required": [
+                          "serverType"
+                        ],
+                        "not": {
+                          "properties": {
+                            "serverType": {
+                              "const": "Container"
+                            }
+                          }
+                        }
+                      },
+                      "then": {
+                        "properties": {
+                          "container": {
+                            "not": {},
+                            "errorMessage": "Field \"container\" is not valid when \"serverType\" is not \"Container\".",
+                            "doNotSuggest": true
+                          },
+                          "includeTestToolkit": {
+                            "not": {},
+                            "errorMessage": "Field \"includeTestToolkit\" is not valid when \"serverType\" is not \"Container\".",
+                            "doNotSuggest": true
+                          },
+                          "multitenant": {
+                            "not": {},
+                            "errorMessage": "Field \"multitenant\" is not valid when \"serverType\" is not \"Container\".",
+                            "doNotSuggest": true
+                          },
+                          "bcUser": {
+                            "not": {},
+                            "errorMessage": "Field \"bcUser\" is not valid when \"serverType\" is not \"Container\".",
+                            "doNotSuggest": true
+                          },
+                          "bcPassword": {
+                            "not": {},
+                            "errorMessage": "Field \"bcPassword\" is not valid when \"serverType\" is not \"Container\".",
+                            "doNotSuggest": true
+                          },
+                          "sqlBackupPath": {
+                            "not": {},
+                            "errorMessage": "Field \"sqlBackupPath\" is not valid when \"serverType\" is not \"Container\".",
+                            "doNotSuggest": true
+                          },
+                          "admin": {
+                            "not": {},
+                            "errorMessage": "Field \"admin\" is not valid when \"serverType\" is not \"Container\".",
+                            "doNotSuggest": true
+                          },
+                          "password": {
+                            "not": {},
+                            "errorMessage": "Field \"password\" is not valid when \"serverType\" is not \"Container\".",
+                            "doNotSuggest": true
+                          },
+                          "autoExtractAssemblies": {
+                            "not": {},
+                            "errorMessage": "Field \"autoExtractAssemblies\" is not valid when \"serverType\" is not \"Container\".",
+                            "doNotSuggest": true
+                          },
+                          "autoRestoreBackup": {
+                            "not": {},
+                            "errorMessage": "Field \"autoRestoreBackup\" is not valid when \"serverType\" is not \"Container\".",
+                            "doNotSuggest": true
+                          },
+                          "memoryLimit": {
+                            "not": {},
+                            "errorMessage": "Field \"memoryLimit\" is not valid when \"serverType\" is not \"Container\".",
+                            "doNotSuggest": true
+                          },
+                          "sqlMemoryLimit": {
+                            "not": {},
+                            "errorMessage": "Field \"sqlMemoryLimit\" is not valid when \"serverType\" is not \"Container\".",
+                            "doNotSuggest": true
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "required": [
+                          "serverType"
+                        ],
+                        "not": {
+                          "properties": {
+                            "serverType": {
+                              "enum": [
+                                "Container",
+                                "Cloud"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "then": {
+                        "properties": {
+                          "environmentType": {
+                            "not": {},
+                            "errorMessage": "Field \"environmentType\" is not valid when \"serverType\" is not \"Container\" or \"Cloud\".",
+                            "doNotSuggest": true
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "required": [
+                          "serverType"
+                        ],
+                        "not": {
+                          "properties": {
+                            "serverType": {
+                              "const": "Cloud"
+                            }
+                          }
+                        }
+                      },
+                      "then": {
+                        "properties": {
+                          "environmentName": {
+                            "not": {},
+                            "errorMessage": "Field \"environmentName\" is not valid when \"serverType\" is not \"Cloud\".",
+                            "doNotSuggest": true
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "required": [
+                          "serverType"
+                        ],
+                        "not": {
+                          "properties": {
+                            "serverType": {
+                              "enum": [
+                                "Cloud",
+                                "OnPrem"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "then": {
+                        "properties": {
+                          "tenant": {
+                            "not": {},
+                            "errorMessage": "Field \"tenant\" is not valid when \"serverType\" is not \"Cloud\" or \"OnPrem\".",
+                            "doNotSuggest": true
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "required": [
+                          "serverType"
+                        ],
+                        "not": {
+                          "properties": {
+                            "serverType": {
+                              "enum": [
+                                "Container",
+                                "OnPrem"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "then": {
+                        "properties": {
+                          "authentication": {
+                            "not": {},
+                            "errorMessage": "Field \"authentication\" is not valid when \"serverType\" is not \"Container\" or \"OnPrem\".",
+                            "doNotSuggest": true
+                          }
                         }
                       }
                     }
+                  ]
+                }
+              },
+              "mcpTools": {
+                "type": "object",
+                "description": "MCP tools declared to AI clients. Restart the MCP server/client after changes. Use Configure MCP Tools to edit these switches.",
+                "properties": {
+                  "bc_dev_toolset_get_workspace": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Read workspace folders, the active AL project, and effective AL settings."
+                  },
+                  "bc_dev_toolset_get_operation_status": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Check progress and results of a running operation."
+                  },
+                  "bc_dev_toolset_answer_operation_prompt": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Answer a pending question and resume the operation."
+                  },
+                  "bc_dev_toolset_initialize_workspace": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Create and configure a Business Central development workspace."
+                  },
+                  "bc_dev_toolset_show_help": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Read the toolset setup, usage, and troubleshooting guide."
+                  },
+                  "bc_dev_toolset_clear_app_artifacts": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Remove generated app packages and translation artifacts."
+                  },
+                  "bc_dev_toolset_build_all_apps": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Compile all workspace apps with their dependencies and AL settings."
+                  },
+                  "bc_dev_toolset_new_docker_container": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Create or replace a container for the workspace application version."
+                  },
+                  "bc_dev_toolset_extract_container_assemblies": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Extract container assemblies for AL assembly probing."
+                  },
+                  "bc_dev_toolset_add_test_toolkit_to_bc_container": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Install the Business Central test toolkit in an existing container."
+                  },
+                  "bc_dev_toolset_update_launch_json": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Update launch configurations for all workspace apps."
+                  },
+                  "bc_dev_toolset_update_bc_license_container": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Import configured license files into containers."
+                  },
+                  "bc_dev_toolset_show_active_licenses": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Show active Business Central license details."
+                  },
+                  "bc_dev_toolset_update_bc_container_server_configuration": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Apply configured server settings to containers."
+                  },
+                  "bc_dev_toolset_backup_bc_container_databases": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Export a SQL database backup set from a container."
+                  },
+                  "bc_dev_toolset_configure_stored_credentials": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Explain how to set up stored credentials in VS Code."
+                  },
+                  "bc_dev_toolset_configure_win_rm": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Configure local WinRM and optionally add a host to TrustedHosts."
+                  },
+                  "bc_dev_toolset_backup_bc_service_databases": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Back up an on-premises BC database to a container backup folder."
+                  },
+                  "bc_dev_toolset_restore_bc_container_databases": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Restore a SQL database backup set into a container."
+                  },
+                  "bc_dev_toolset_invoke_tests": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Build workspace apps, prepare a container, and run AL tests."
+                  },
+                  "bc_dev_toolset_invoke_page_script_tests": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Run Business Central page script tests."
+                  },
+                  "bc_dev_toolset_al_runner_test": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Run workspace AL tests using AL Runner."
+                  },
+                  "bc_dev_toolset_publish_dependencies2_docker": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Publish configured dependencies to an existing container."
+                  },
+                  "bc_dev_toolset_publish_dependencies2_test": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Publish configured dependencies to test environments."
+                  },
+                  "bc_dev_toolset_publish_apps2_docker": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Publish all workspace apps to a container."
+                  },
+                  "bc_dev_toolset_publish_apps2_production": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Publish all workspace apps to production environments."
+                  },
+                  "bc_dev_toolset_publish_apps2_test": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Publish all workspace apps to test environments."
+                  },
+                  "bc_dev_toolset_create_runtime_package": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Create deployment runtime packages for workspace apps."
+                  },
+                  "bc_dev_toolset_publish_runtime_apps2_docker": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Publish stored runtime packages to an existing container."
+                  },
+                  "bc_dev_toolset_publish_runtime_apps2_production": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Publish stored runtime packages to production environments."
+                  },
+                  "bc_dev_toolset_publish_runtime_apps2_test": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Publish stored runtime packages to test environments."
+                  },
+                  "bc_dev_toolset_unpublish_docker_apps": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Unpublish workspace apps from a container."
+                  },
+                  "bc_dev_toolset_unpublish_test_apps": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Unpublish workspace apps from test environments."
+                  },
+                  "bc_dev_toolset_prepare_object_id_range_visualization_data": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Collect AL object ID usage for range visualization."
+                  },
+                  "bc_dev_toolset_init_prerequisites": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Install or update development prerequisites."
+                  },
+                  "bc_dev_toolset_uninstall_prerequisites": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Remove selected development prerequisites."
+                  },
+                  "bc_dev_toolset_show_bc_container_helper_versions": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "List installed and available BcContainerHelper versions."
+                  },
+                  "bc_dev_toolset_update_power_shell": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Install or update Microsoft PowerShell."
+                  },
+                  "list_bc_dev_toolset_operations": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "List available operation IDs, optionally filtered by category."
+                  },
+                  "run_bc_dev_toolset_operation": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Run an enabled operation by its ID."
+                  },
+                  "show_active_container_licenses": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Show active container licenses through the legacy alias."
                   }
-                ]
+                },
+                "additionalProperties": {
+                  "type": "boolean"
+                }
               }
             }
           }
         }
       }
-    },
+    ],
     "jsonValidation": [
       {
         "fileMatch": [
@@ -896,6 +1115,10 @@
       {
         "command": "bcDevToolset.operation.prepareObjectIdRangeVisualizationData",
         "title": "BC Dev Toolset: Prepare object id range data for visualization"
+      },
+      {
+        "command": "bcDevToolset.configureMcpTools",
+        "title": "BC Dev Toolset: Configure MCP Tools"
       }
     ]
   }

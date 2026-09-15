@@ -329,5 +329,11 @@
     "title": "Disable Codex MCP integration",
     "command": "disableCodexMcp",
     "category": "MCP Configuration"
+  },
+  {
+    "id": "configureMcpTools",
+    "title": "Configure MCP Tools",
+    "command": "configureMcpTools",
+    "category": "MCP Configuration"
   }
 ]
