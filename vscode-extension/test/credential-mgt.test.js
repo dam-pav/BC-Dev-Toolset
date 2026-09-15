@@ -1,3 +1,4 @@
+process.env.BCDEVTOOLSET_MCP_TOOL_SETTINGS = JSON.stringify({bc_dev_toolset_configure_stored_credentials: true});
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -20,7 +21,7 @@ test('native storage updates only the chosen credential pair in settings and wor
         Initialize-WindowsCredentialStore
         $configuration=[pscustomobject]@{name=('test-'+[guid]::NewGuid());serverType='Container';container=('test-'+[guid]::NewGuid());bcUser='plain';bcPassword='plain';remoteUser='plain';remotePassword='plain';databaseUser='plain';databasePassword='plain';password='legacy'}
         $other=[pscustomobject]@{name='other';serverType='Container';container=$configuration.container;bcPassword='untouched'}
-        $doc=if ($${workspace}) { @{settings=@{'dam-pav.bcdevtoolset'=@{configurations=@($configuration,$other)}}} } else { @{configurations=@($configuration,$other)} }
+        $doc=if ($${workspace}) { @{settings=@{'bcDevToolset'=@{configurations=@($configuration,$other)}}} } else { @{configurations=@($configuration,$other)} }
         $doc | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath ${quote(file)}
         Initialize-CredentialConfigurationContext -settingsFiles $(if (-not $${workspace}) { @(${quote(file)}) } else { @() }) -workspaceFile $(if ($${workspace}) { ${quote(file)} } else { '' })
         $targets=@(); $passed=0
@@ -31,7 +32,7 @@ test('native storage updates only the chosen credential pair in settings and wor
             $credential=[pscredential]::new('stored',(ConvertTo-SecureString 'synthetic-value' -AsPlainText -Force))
             Save-ConfigurationCredential -configuration $configuration -kind $kind -credential $credential 6>$null
             $saved=Get-Content -LiteralPath ${quote(file)} -Raw | ConvertFrom-Json
-            $entries=if ($${workspace}) { $saved.settings.'dam-pav.bcdevtoolset'.configurations } else { $saved.configurations }
+            $entries=if ($${workspace}) { $saved.settings.'bcDevToolset'.configurations } else { $saved.configurations }
             if (-not $entries[0].($kind+'Credential') -or $entries[0].PSObject.Properties[$kind+'Password'] -or $entries[0].PSObject.Properties[$kind+'User'] -or $entries[1].bcPassword -ne 'untouched') { throw 'Incorrect file update' }
             $configuration | Add-Member NoteProperty ($kind+'Password') 'ignored' -Force
             $resolved=Get-ConfigurationCredential -configuration $configuration -kind $kind

@@ -195,8 +195,10 @@ The Marketplace supports a pre-release channel for this extension. If you opt in
 
 The extension uses three settings layers:
 
+At startup, legacy `dam-pav.bcdevtoolset` and `dam-pav.bcDevToolset` setting names are automatically migrated to `bcDevToolset` in user, workspace, and folder settings. Contents are preserved and completion is reported without a confirmation dialog. Conflicting destinations or unsaved files are left unchanged and reported.
+
 - VS Code extension settings under `bcDevToolset.*`
-- Workspace settings under `dam-pav.bcdevtoolset` in the `.code-workspace` file
+- Workspace settings under `bcDevToolset` in the `.code-workspace` file
 - Local settings in `.bcdevtoolset/settings.json`
 
 ### VS Code extension settings
@@ -210,7 +212,7 @@ The extension uses three settings layers:
 
 ### Workspace settings
 
-These are stored in the workspace file. The AL extension's `al.symbolsCountryRegion` setting selects the Business Central artifact region and defaults to `w1`; the remaining settings are under `dam-pav.bcdevtoolset`.
+These are stored in the workspace file. The AL extension's `al.symbolsCountryRegion` setting selects the Business Central artifact region and defaults to `w1`; the remaining settings are under `bcDevToolset`.
 
 - `selectArtifact`: Artifact selection strategy. Default: `Latest`. Another common value is `Closest`.
 - `executeTestsInContainerName`: Optional container name used by Test operations. It can be set in local `.bcdevtoolset/settings.json`; a non-empty local value takes priority over the shared workspace setting. Container configurations with `includeTestToolkit` set to `true` are eligible regardless of `targetType`. If empty and only one eligible Container configuration exists, tests run there without backup restore or app deployment. If empty, or if the value is not found and multiple eligible Container configurations exist, Test operations ask which configured container to use. If the selected container is missing, it is created before tests continue and exports an initial SQL backup set when `sqlBackupPath` is non-empty, regardless of `targetType`.
@@ -269,3 +271,7 @@ These are stored in `.bcdevtoolset/settings.json` and are intended for developer
 - `configurations`: Developer-local target definitions. These use the same structure as workspace `configurations` and are merged with them at runtime.
 
 The extension adds JSON validation for `.bcdevtoolset/settings.json`, so VS Code can help you keep the local settings file in shape while editing it.
+
+### MCP tool selection
+
+Run **BC Dev Toolset: Configure MCP Tools** to select tools for User or Workspace settings. Selections are stored as booleans in `"bcDevToolset": { "mcpTools": { ... } }`. Workspace entries override user defaults per tool. Restart the MCP server/client after changes.

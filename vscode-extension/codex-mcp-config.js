@@ -16,6 +16,7 @@ function updateCodexMcpConfigContent(content, values) {
     'tool_timeout_sec = 7200',
     '',
     `[${environmentTableName}]`,
+    'BCDEVTOOLSET_MCP_TOOL_SETTINGS_SOURCE = "bridge"',
     `BCDEVTOOLSET_MCP_TOOLSET_PATH = ${quoteTomlString(values.toolsetPath)}`,
     `BCDEVTOOLSET_MCP_BRIDGE_STATE_DIR = ${quoteTomlString(values.bridgeStateDirectory)}`,
     ''

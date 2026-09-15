@@ -291,7 +291,7 @@ test('container memory limits are validated and passed to New-BcContainer', () =
   assert.deepEqual(nonContainerRule.then.properties.sqlMemoryLimit.not, {});
 
   const packageJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'package.json'), 'utf8'));
-  const embeddedConfiguration = packageJson.contributes.configuration.properties['dam-pav.bcdevtoolset']
+  const embeddedConfiguration = packageJson.contributes.configuration.find((group) => group.id === 'bcDevToolset').properties['bcDevToolset']
     .properties.configurations.items;
   const embeddedContainerRule = embeddedConfiguration.allOf.find((rule) =>
     rule.if?.properties?.serverType?.const === 'Container');
@@ -430,7 +430,7 @@ test('local executeTestsInContainerName is supported and takes priority over the
 
   const source = fs.readFileSync(workspaceMgtPath, 'utf8');
   assert.match(source, /\$executeTestsInContainerName = \[string\]\$settingsJSONvalue\.executeTestsInContainerName/);
-  assert.match(source, /IsNullOrWhiteSpace\(\$executeTestsInContainerName\)[\s\S]*?workspaceJSON\.value\.settings\."dam-pav\.bcdevtoolset"\.executeTestsInContainerName/);
+  assert.match(source, /IsNullOrWhiteSpace\(\$executeTestsInContainerName\)[\s\S]*?workspaceToolsetSettings\.executeTestsInContainerName/);
   assert.match(source, /Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value \$testContainerName/);
 });
 

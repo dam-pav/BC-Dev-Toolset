@@ -85,10 +85,10 @@ test('workspace initialization recognizes BC apps nested in a workspace folder',
     { path: 'src/app' }
   ]);
   assert.deepEqual(initializedWorkspace.settings['files.exclude'], { 'src/app': true });
-  assert.ok(initializedWorkspace.settings['dam-pav.bcdevtoolset']);
-  assert.equal(initializedWorkspace.settings['dam-pav.bcdevtoolset'].selectArtifact, 'Latest');
+  assert.ok(initializedWorkspace.settings['bcDevToolset']);
+  assert.equal(initializedWorkspace.settings['bcDevToolset'].selectArtifact, 'Latest');
   assert.equal(initializedWorkspace.settings['al.symbolsCountryRegion'], 'w1');
-  assert.equal('country' in initializedWorkspace.settings['dam-pav.bcdevtoolset'], false);
+  assert.equal('country' in initializedWorkspace.settings['bcDevToolset'], false);
   assert.equal(fs.existsSync(settingsPath), true); // nosemgrep -- path is contained by the test-owned workspace root
   const localSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- settingsPath is contained by the test-owned workspace root
   assert.equal(localSettings.executeTestsInContainerName, 'sample-Test');
@@ -271,7 +271,7 @@ test('workspace initialization migrates the obsolete country setting to the AL r
   fs.writeFileSync(resolveWithinRoot(workspacePath, 'app.json'), '{}\n'); // nosemgrep -- path is contained by the test-owned workspace root
   fs.writeFileSync(workspaceFile, JSON.stringify({ // nosemgrep -- workspaceFile is resolved within the authorized test-owned workspace root
     folders: [{ path: '.' }],
-    settings: { 'dam-pav.bcdevtoolset': { country: 'de', selectArtifact: 'Closest' } }
+    settings: { 'bcDevToolset': { country: 'de', selectArtifact: 'Closest' } }
   }));
 
   const result = runInitializeWorkspace(workspacePath, workspaceFile);
@@ -279,5 +279,5 @@ test('workspace initialization migrates the obsolete country setting to the AL r
   assert.equal(result.status, 0, result.stderr);
   const initializedWorkspace = JSON.parse(fs.readFileSync(workspaceFile, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
   assert.equal(initializedWorkspace.settings['al.symbolsCountryRegion'], 'de');
-  assert.equal('country' in initializedWorkspace.settings['dam-pav.bcdevtoolset'], false);
+  assert.equal('country' in initializedWorkspace.settings['bcDevToolset'], false);
 });

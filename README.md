@@ -69,6 +69,33 @@ MCP operations with declared inputs use a non-mutating preflight call first: omi
 
 You do not need to know the MCP tool names for normal use. Ask the agent for the BC Dev Toolset action you want, and the MCP server exposes focused operation tools for the agent to choose from.
 
+#### MCP tool switches
+
+All extension settings use the `bcDevToolset` prefix. On startup, the extension automatically renames `dam-pav.bcdevtoolset` and `dam-pav.bcDevToolset` entries in the current user profile, open workspace, and workspace-folder settings. Entire values, including unknown properties and arrays, are preserved. A notification reports completed migration; no confirmation is requested. Entries whose destination already exists are left intact and reported for review. Unsaved or invalid settings files are left unchanged and retried on a later startup.
+
+MCP tool selections are stored inside the `bcDevToolset` object under `mcpTools`. Run **BC Dev Toolset: Configure MCP Tools**, choose **User** or **Workspace**, and select the tools to expose. The picker saves only changed switches and preserves the other fields in the object. JSON settings also provide completion for all tool names.
+
+**Get Workspace**, **Invoke AL Tests**, **Get Operation Status**, and **Answer Operation Prompt** are on by default. All other tools default to off. Workspace switches override user switches individually; omitted switches inherit the user value or built-in default. In a multi-root workspace, save these settings in the `.code-workspace` file. Native per-setting Preferences checkboxes are no longer contributed, because they write separate dotted keys.
+
+Changes apply after restarting the MCP server/client. Running servers retain their startup selection; there are no live tool-list updates. Disabled tools are omitted from discovery and their calls are rejected. The generic operation runner and legacy alias also require the underlying operation's tool switch to be on. These switches replace the old generic/legacy exposure environment flags. MCP resources and Command Palette operations remain available independently.
+
+**Get Operation Status** and **Answer Operation Prompt** are enabled by default to support operation follow-ups. An enabled operation can also resume its own pending session when called again with answers. Apply settings between operations to avoid interrupting the client connection.
+
+For example, to additionally expose AL builds:
+
+```json
+"bcDevToolset": {
+  "selectArtifact": "Latest",
+  "mcpTools": {
+    "bc_dev_toolset_build_all_apps": true
+  }
+}
+```
+
+The managed Codex MCP configuration requests the effective tool selection from the authenticated bridge for its startup workspace. Each MCP process captures that selection once, so different workspaces can declare different tools without overwriting a global selection. Keep the matching VS Code extension host running and restart the MCP client after changes. If the bridge is missing or cannot provide the settings, discovery fails with recovery instructions. Development Hosts skip automatic Codex configuration maintenance; run **Configure Codex MCP Integration** there explicitly when testing this integration.
+
+Manually configured clients can use `BCDEVTOOLSET_MCP_TOOL_SETTINGS_SOURCE=bridge` for workspace selection, or pass a fixed boolean map as JSON in `BCDEVTOOLSET_MCP_TOOL_SETTINGS`. Without either, the four default tools are declared.
+
 #### Codex
 
 Codex does not automatically discover MCP servers contributed through the VS Code extension API. Run `BC Dev Toolset: Configure Codex MCP Integration` to add or update the `bc-dev-toolset` MCP server entry in your Codex configuration. The operation enables automatic configuration maintenance and adds managed global Codex instructions so Codex knows to use BC Dev Toolset MCP operations in your AL workspaces. After an extension upgrade, the extension updates the versioned MCP server path on its first activation; restart Codex afterward to load the new server. Run `BC Dev Toolset: Disable Codex MCP Integration` to opt out and remove the managed configuration. You do not need to add these instructions to each AL repository.
@@ -89,26 +116,25 @@ The Codex MCP server uses the VS Code terminal bridge belonging to the current w
    winget install -e --id Microsoft.VisualStudioCode
    ```
 
-   > **At this point you install the BC-Dev-Toolset extension.**
-   >
-   > The extension includes an operation named Install Prerequisites that can take care of the steps below. Simply type into the Command Palette: ***BC Dev Toolset: Install prerequisites***.
-   >
-   > - installs the latest version of Docker Engine
-   > - configures the required Windows features
-   > - installs git
-   > - installs BcContainerHelper
-   > - installs Node.js and @microsoft/bc-replay for page script tests
-   > - installs .NET SDK 10 when SDK 9/10 is missing, then installs or updates MSDyn365BC.AL.Runner
-   > - stops before installing later components if the required Windows container features cannot be enabled, and offers an optional guarded cleanup flow
-   >
-   > The companion ***BC Dev Toolset: Uninstall prerequisites*** operation detects each prerequisite and asks separately before removing it. Pressing Enter keeps the component installed.
-   >
-   > If Docker Desktop is already present, the operation reports it and skips the Docker Engine installation, PATH, and service setup steps.
-   >
-   > If you later change your mind and you would rather like to use Docker Engine after all, simply uninstall Docker Desktop and run the Install prerequisites operation again.
-   >
-   > The prerequisites can also be installed manually. Just follow the steps below.
-   >
+   **At this point you install the BC-Dev-Toolset extension.**
+
+   The extension includes an operation named Install Prerequisites that can take care of the steps below. Simply type into the Command Palette: ***BC Dev Toolset: Install prerequisites***.
+
+   - installs the latest version of Docker Engine
+   - configures the required Windows features
+   - installs git
+   - installs BcContainerHelper
+   - installs Node.js and @microsoft/bc-replay for page script tests
+   - installs .NET SDK 10 when SDK 9/10 is missing, then installs or updates MSDyn365BC.AL.Runner
+   - stops before installing later components if the required Windows container features cannot be enabled, and offers an optional guarded cleanup flow
+
+   The companion ***BC Dev Toolset: Uninstall prerequisites*** operation detects each prerequisite and asks separately before removing it. Pressing Enter keeps the component installed.
+
+   If Docker Desktop is already present, the operation reports it and skips the Docker Engine installation, PATH, and service setup steps.
+
+   If you later change your mind and you would rather like to use Docker Engine after all, simply uninstall Docker Desktop and run the Install prerequisites operation again.
+
+   The prerequisites can also be installed manually. Just follow the steps below.
 3. Try the container solution that works for you
 
    If you are not running Docker Desktop (or even if you are) I advise using the VS Code plugin named *Container Tools*, released by Microsoft.
@@ -435,7 +461,7 @@ to remove the files from git. You will need to commit these changes. Beware, thi
       "Project/Test-App": true
     },
     "al.symbolsCountryRegion": "w1",
-    "dam-pav.bcdevtoolset": {
+    "bcDevToolset": {
       "selectArtifact": "Latest",
       "executeTestsInContainerName": "",
       "configurations":  [
@@ -487,7 +513,7 @@ The most obvious role of a workspace is to define the folders included. The path
 BC Dev Toolset uses three settings layers:
 
 - Extension settings in VS Code under `bcDevToolset.*`
-- Workspace settings in the `.code-workspace` file under `dam-pav.bcdevtoolset`
+- Workspace settings in the `.code-workspace` file under `bcDevToolset`
 - Local settings in `.bcdevtoolset/settings.json`
 
 ### Extension settings
@@ -502,7 +528,7 @@ These are VS Code extension settings. They belong to the developer's VS Code set
 
 ### Workspace settings
 
-These are stored in the `.code-workspace` file. The AL region setting is stored directly under `settings`; the remaining toolset settings are under `dam-pav.bcdevtoolset`. Use them for shared project settings that should travel with the workspace.
+These are stored in the `.code-workspace` file. The AL region setting is stored directly under `settings`; the remaining toolset settings are under `bcDevToolset`. Use them for shared project settings that should travel with the workspace.
 
 - `al.symbolsCountryRegion`: Business Central artifact region. The default is `w1`; this is the same setting used by the AL extension.
 - `selectArtifact`: Artifact selection strategy. The default is `Latest`; another common value is `Closest`.

@@ -108,7 +108,11 @@ function Find-BcConfigurationDocument {
         $text = [IO.File]::ReadAllText($validatedPath)
         try { $document = $text | ConvertFrom-Json -ErrorAction Stop }
         catch { throw 'Configuration JSON could not be parsed; no credentials or settings were changed.' }
-        $configurations = if ($descriptor.IsWorkspace) { $document.settings.'dam-pav.bcdevtoolset'.configurations } else { $document.configurations }
+        $configurations = if ($descriptor.IsWorkspace) {
+            $workspaceToolsetSettings = $document.settings.bcDevToolset
+            if ($null -eq $workspaceToolsetSettings) { $workspaceToolsetSettings = $document.settings.'dam-pav.bcdevtoolset' }
+            $workspaceToolsetSettings.configurations
+        } else { $document.configurations }
         foreach ($candidate in $configurations) {
             if ([string]::IsNullOrWhiteSpace($candidate.name)) { continue }
             # Storage is shared by endpoint, but update only the selected configuration entry.

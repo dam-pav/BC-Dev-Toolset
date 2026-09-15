@@ -13,6 +13,9 @@ const {
   updateCodexMcpConfigContent
 } = require('./codex-mcp-config');
 const bridgeIdentity = require('./mcp-bridge-identity');
+const { readEffectiveToolSettings, toolSchemas, toolDefaults, resolveToolSettings, mergeToolSelection } = require('./mcp-tool-settings');
+const { migrateSettingsOnStartup } = require('./settings-migration');
+const { configurationPrefix, legacyConfigurationPrefix, createConfigurationAccess, affectsToolsetConfiguration } = require('./configuration-settings');
 const { discoverAlTool } = require('./al-tool-discovery');
 const { assertWithinRoot, authorizeRoot, resolveWithinRoot } = require('./path-security');
 
@@ -34,9 +37,9 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 18;
+const mcpServerDefinitionRevision = 22;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 18;
+const runtimeToolsetRevision = 20;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -93,12 +96,13 @@ const runtimeDirectories = [
   'visualization'
 ];
 
-function activate(context) {
+async function activate(context) {
   extensionContext = context;
   outputChannel = vscode.window.createOutputChannel('BC Dev Toolset');
+  context.subscriptions.push(outputChannel);
+  await migrateSettingsOnStartup(vscode, context, writeOutput);
 
   context.subscriptions.push(
-    outputChannel,
     vscode.window.onDidCloseTerminal((terminal) => {
       if (terminal === operationTerminal) {
         operationTerminal = undefined;
@@ -109,11 +113,12 @@ function activate(context) {
     vscode.commands.registerCommand('bcDevToolset.openLocalSettingsJson', openLocalSettingsJson),
     vscode.commands.registerCommand('bcDevToolset.showObjectIdRangeVisualizationData', showObjectIdRangeVisualizationData),
     vscode.commands.registerCommand('bcDevToolset.showMcpStatus', showMcpStatus),
+    vscode.commands.registerCommand('bcDevToolset.configureMcpTools', configureMcpTools),
     vscode.commands.registerCommand('bcDevToolset.configureCodexMcp', configureCodexMcp),
     vscode.commands.registerCommand('bcDevToolset.disableCodexMcp', disableCodexMcp),
     vscode.commands.registerCommand('bcDevToolset.runOperation', runOperation),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (!codexMcpSettingUpdateInProgress && event.affectsConfiguration('bcDevToolset.codexMcpIntegration.enabled')) {
+      if (!codexMcpSettingUpdateInProgress && affectsToolsetConfiguration(event, 'codexMcpIntegration.enabled')) {
         queueCodexMcpReconciliation(context, { notifyWhenChanged: true });
       }
     }),
@@ -250,6 +255,11 @@ async function handleMcpBridgeRequest(request, response) {
 
     if (request.url === '/operation-status') {
       writeMcpBridgeResponse(response, 200, getMcpOperationStatus(body));
+      return;
+    }
+
+    if (request.url === '/tool-settings') {
+      writeMcpBridgeResponse(response, 200, { toolSettings: readEffectiveToolSettings(getConfiguration()) });
       return;
     }
 
@@ -789,12 +799,21 @@ function waitForMcpBridgeServer() {
 }
 
 function registerMcpServerDefinitionProvider(context) {
+  const definitionsChanged = new vscode.EventEmitter();
+  context.subscriptions.push(definitionsChanged, vscode.workspace.onDidChangeConfiguration((event) => {
+    if (affectsToolsetConfiguration(event, 'mcpTools')) {
+      definitionsChanged.fire();
+      queueCodexMcpReconciliation(context, { notifyWhenChanged: false });
+      vscode.window.showInformationMessage('BC Dev Toolset MCP tool settings changed. Restart the MCP server/client to apply them.');
+    }
+  }));
   if (!vscode.lm || !vscode.lm.registerMcpServerDefinitionProvider || !vscode.McpStdioServerDefinition) {
     writeOutput('VS Code MCP server definition provider API is not available in this VS Code version.');
     return { dispose: () => {} };
   }
 
   return vscode.lm.registerMcpServerDefinitionProvider('bcDevToolset.operations', {
+    onDidChangeMcpServerDefinitions: definitionsChanged.event,
     provideMcpServerDefinitions: async () => [
       createMcpServerDefinition(context)
     ],
@@ -827,6 +846,7 @@ function createMcpServerDefinition(context) {
     nodeExecutable,
     [serverPath],
     {
+      BCDEVTOOLSET_MCP_TOOL_SETTINGS: JSON.stringify(readEffectiveToolSettings(getConfiguration())),
       BCDEVTOOLSET_MCP_TOOLSET_PATH: getToolsetPath(),
       BCDEVTOOLSET_MCP_WORKSPACE_PATH: workspacePath,
       BCDEVTOOLSET_MCP_WORKSPACE_FILE: workspaceFile,
@@ -848,6 +868,28 @@ function createMcpServerDefinition(context) {
   );
   serverDefinition.cwd = vscode.Uri.file(context.extensionPath);
   return serverDefinition;
+}
+
+async function configureMcpTools() {
+  const scopes = [{ label: 'User', target: vscode.ConfigurationTarget.Global, field: 'globalValue' }];
+  if (vscode.workspace.workspaceFolders?.length || vscode.workspace.workspaceFile) {
+    scopes.unshift({ label: 'Workspace', target: vscode.ConfigurationTarget.Workspace, field: 'workspaceValue' });
+  }
+  const scope = await vscode.window.showQuickPick(scopes, { title: 'Configure MCP Tools', placeHolder: 'Save tool selections for this workspace or as user defaults' });
+  if (!scope) return;
+  const configuration = getConfiguration();
+  const before = scope.field === 'workspaceValue' ? readEffectiveToolSettings(configuration)
+    : resolveToolSettings(Object.fromEntries(Object.keys(toolDefaults).map(name => [name, configuration.inspect(`mcpTools.${name}`)?.globalValue])));
+  const selected = await vscode.window.showQuickPick(Object.entries(toolSchemas).map(([name, schema]) => ({
+    label: name.replace(/^bc_dev_toolset_/, '').replace(/_/g, ' '),
+    description: schema.description, name, picked: before[name]
+  })), { title: `MCP Tools — ${scope.label}`, canPickMany: true, matchOnDescription: true, placeHolder: 'Select tools to declare to AI clients' });
+  if (!selected) return;
+  const root = vscode.workspace.getConfiguration();
+  // Read again after the picker closes to retain other settings edited in the meantime.
+  const existing = root.inspect('bcDevToolset')?.[scope.field] || {};
+  const updated = mergeToolSelection(existing, before, selected.map(item => item.name));
+  if (updated) await root.update('bcDevToolset', updated, scope.target);
 }
 
 async function showMcpStatus() {
@@ -1218,11 +1260,16 @@ function getMcpNodeExecutable() {
 
 function getMcpServerVersion(context) {
   const extensionVersion = context.extension.packageJSON.version || 'unknown';
-  return `${extensionVersion}.${mcpServerDefinitionRevision}`;
+  const settingsRevision = crypto.createHash('sha256').update(JSON.stringify(readEffectiveToolSettings(getConfiguration()))).digest('hex').slice(0, 16);
+  return `${extensionVersion}.${mcpServerDefinitionRevision}.${settingsRevision}`;
 }
 
 function getConfiguration() {
-  return vscode.workspace.getConfiguration('bcDevToolset');
+  return createConfigurationAccess(
+    vscode.workspace.getConfiguration(configurationPrefix),
+    vscode.workspace.getConfiguration(legacyConfigurationPrefix),
+    vscode.workspace.getConfiguration('dam-pav.bcDevToolset')
+  );
 }
 
 function getShortcutMode() {
@@ -2045,6 +2092,11 @@ async function executeOperation(operation, toolsetPath) {
 
   if (operation.command === 'disableCodexMcp') {
     await disableCodexMcp();
+    return;
+  }
+
+  if (operation.command === 'configureMcpTools') {
+    await configureMcpTools();
     return;
   }
 

@@ -253,8 +253,12 @@ Update-WorkspacePaths `
     -Workspace $workspaceJson `
     -WorkspaceRootPath $workspaceConfigurationRoot `
     -WorkspaceName $workspaceName
-if (-not $workspaceJson.settings.PSObject.Properties['dam-pav.bcdevtoolset']) {
-    $workspaceJson.settings | Add-Member -MemberType NoteProperty -Name 'dam-pav.bcdevtoolset' -Value ([ordered]@{
+if (-not $workspaceJson.settings.PSObject.Properties['bcDevToolset'] -and $workspaceJson.settings.PSObject.Properties['dam-pav.bcdevtoolset']) {
+    $workspaceJson.settings | Add-Member -MemberType NoteProperty -Name 'bcDevToolset' -Value $workspaceJson.settings.'dam-pav.bcdevtoolset'
+    $workspaceJson.settings.PSObject.Properties.Remove('dam-pav.bcdevtoolset')
+}
+if (-not $workspaceJson.settings.PSObject.Properties['bcDevToolset']) {
+    $workspaceJson.settings | Add-Member -MemberType NoteProperty -Name 'bcDevToolset' -Value ([ordered]@{
         selectArtifact = 'Latest'
         configurations = @([ordered]@{
             name = 'sample'; serverType = ''; targetType = ''; server = ''; serverInstance = ''; container = ''
@@ -265,7 +269,7 @@ if (-not $workspaceJson.settings.PSObject.Properties['dam-pav.bcdevtoolset']) {
     })
 }
 $region = [string]$workspaceJson.settings.'al.symbolsCountryRegion'
-$toolsetSettings = $workspaceJson.settings.'dam-pav.bcdevtoolset'
+$toolsetSettings = $workspaceJson.settings.'bcDevToolset'
 if ([string]::IsNullOrWhiteSpace($region) -and $null -ne $toolsetSettings) {
     $region = [string]$toolsetSettings.country
 }

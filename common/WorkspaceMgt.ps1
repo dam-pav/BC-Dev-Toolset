@@ -1525,9 +1525,11 @@ function Initialize-Context {
 
     $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name country -Value $country -Force
 
+    $workspaceToolsetSettings = $workspaceJSON.value.settings.bcDevToolset
+    if ($null -eq $workspaceToolsetSettings) { $workspaceToolsetSettings = $workspaceJSON.value.settings."dam-pav.bcdevtoolset" }
     $executeTestsInContainerName = [string]$settingsJSONvalue.executeTestsInContainerName
-    if ([string]::IsNullOrWhiteSpace($executeTestsInContainerName) -and $workspaceJSON.value.settings."dam-pav.bcdevtoolset".executeTestsInContainerName) {
-        $executeTestsInContainerName = $workspaceJSON.value.settings."dam-pav.bcdevtoolset".executeTestsInContainerName
+    if ([string]::IsNullOrWhiteSpace($executeTestsInContainerName) -and $workspaceToolsetSettings.executeTestsInContainerName) {
+        $executeTestsInContainerName = $workspaceToolsetSettings.executeTestsInContainerName
     }
     $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value $executeTestsInContainerName -Force
 
@@ -1538,7 +1540,7 @@ function Initialize-Context {
         $settingsJSONvalue.shortcuts = Get-ShortcutMode $settingsJSONvalue
     }
     # Add configurations from code-workspace
-    foreach ($remote in $workspaceJSON.value.settings."dam-pav.bcdevtoolset".configurations) {
+    foreach ($remote in $workspaceToolsetSettings.configurations) {
         $settingsJSONvalue.configurations = $settingsJSONvalue.configurations + $remote
     }
 

@@ -2,6 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const { resolveToolSettings } = require('./mcp-tool-settings');
+let startupToolSettings = resolveToolSettings(parseJsonEnvironmentValue(process.env.BCDEVTOOLSET_MCP_TOOL_SETTINGS));
 const childProcess = require('child_process');
 const http = require('http');
 const os = require('os');
@@ -27,6 +29,25 @@ let inputBuffer = Buffer.alloc(0);
 let waitingForMessageLogged = false;
 let transportMode = 'unknown';
 let bridgeHandshakePromise;
+let startupToolSettingsPromise;
+const toolSettingsFromBridge = process.env.BCDEVTOOLSET_MCP_TOOL_SETTINGS_SOURCE === 'bridge';
+
+async function ensureStartupToolSettings() {
+  if (!toolSettingsFromBridge) return;
+  startupToolSettingsPromise ||= (async () => {
+    if (!shouldUseTerminalBridge()) {
+      throw new Error('Workspace tool settings require the BC Dev Toolset VS Code bridge. Start or reload the matching VS Code extension host, then restart the MCP client.');
+    }
+    const response = await postBridgeJson('/tool-settings', {});
+    const settings = response.body && response.body.toolSettings;
+    if (response.statusCode !== 200 || !settings || typeof settings !== 'object' || Array.isArray(settings) ||
+        !Object.keys(startupToolSettings).every((name) => typeof settings[name] === 'boolean')) {
+      throw new Error('The workspace bridge did not provide complete MCP tool settings. Update or reload the VS Code extension host, then restart the MCP client.');
+    }
+    startupToolSettings = resolveToolSettings(settings);
+  })();
+  await startupToolSettingsPromise;
+}
 
 function startServer() {
   log(`started pid=${process.pid} node=${process.execPath}`);
@@ -188,6 +209,7 @@ async function handleMessage(body) {
   try {
     switch (message.method) {
       case 'initialize':
+        await ensureStartupToolSettings();
         sendResult(message.id, {
           protocolVersion: getProtocolVersion(message),
           capabilities: { tools: {}, resources: {} },
@@ -199,7 +221,8 @@ async function handleMessage(body) {
         });
         break;
       case 'tools/list':
-        sendResult(message.id, { tools: getTools() });
+        await ensureStartupToolSettings();
+        sendResult(message.id, { tools: getToolsForList() });
         break;
       case 'tools/call':
         sendResult(message.id, await callTool(message.params || {}));
@@ -301,69 +324,67 @@ function getTools() {
     }
   ];
   tools.push(...getOperationTools());
-  if (shouldExposeGenericTools()) {
-    tools.push(
-      {
-        name: 'list_bc_dev_toolset_operations',
-        description: 'List BC Dev Toolset operation IDs. Use this only for diagnostics or when no direct bc_dev_toolset_* tool matches the request.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            category: {
-              type: 'string',
-              description: 'Optional operation category filter.'
-            }
-          }
-        }
-      },
-      {
-        name: 'run_bc_dev_toolset_operation',
-        description: 'Run a BC Dev Toolset operation by operationId. Prefer direct bc_dev_toolset_* tools for natural-language user requests.',
-        inputSchema: {
-          type: 'object',
-          required: ['operationId'],
-          properties: {
-            operationId: {
-              type: 'string',
-              description: 'Operation ID from list_bc_dev_toolset_operations.'
-            },
-            workspacePath: {
-              type: 'string',
-              description: 'Optional workspace path. Defaults to the workspace that registered the MCP server.'
-            },
-            workspaceFile: {
-              type: 'string',
-              description: 'Optional .code-workspace file path.'
-            },
-            localSettingsPath: {
-              type: 'string',
-              description: 'Optional .bcdevtoolset/settings.json path.'
-            },
-            settingsPath: {
-              type: 'string',
-              description: 'Optional legacy settings path passed to the PowerShell bridge.'
-            },
-            powershellExecutable: {
-              type: 'string',
-              description: 'Optional PowerShell executable. Defaults to the extension setting.'
-            },
-            nonInteractive: {
-              type: 'boolean',
-              description: 'Run with BCDEVTOOLSET_NON_INTERACTIVE enabled. Defaults to true.'
-            },
-            confirm: {
-              type: 'boolean',
-              description: 'Required for operations marked as requiring confirmation.'
-            },
-            timeoutSeconds: {
-              type: 'number',
-              description: 'Maximum runtime in seconds. Defaults to 3600.'
-            }
+  tools.push(
+    {
+      name: 'list_bc_dev_toolset_operations',
+      description: 'List BC Dev Toolset operation IDs. Use this only for diagnostics or when no direct bc_dev_toolset_* tool matches the request.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          category: {
+            type: 'string',
+            description: 'Optional operation category filter.'
           }
         }
       }
-    );
-  }
+    },
+    {
+      name: 'run_bc_dev_toolset_operation',
+      description: 'Run a BC Dev Toolset operation by operationId. Prefer direct bc_dev_toolset_* tools for natural-language user requests.',
+      inputSchema: {
+        type: 'object',
+        required: ['operationId'],
+        properties: {
+          operationId: {
+            type: 'string',
+            description: 'Operation ID from list_bc_dev_toolset_operations.'
+          },
+          workspacePath: {
+            type: 'string',
+            description: 'Optional workspace path. Defaults to the workspace that registered the MCP server.'
+          },
+          workspaceFile: {
+            type: 'string',
+            description: 'Optional .code-workspace file path.'
+          },
+          localSettingsPath: {
+            type: 'string',
+            description: 'Optional .bcdevtoolset/settings.json path.'
+          },
+          settingsPath: {
+            type: 'string',
+            description: 'Optional legacy settings path passed to the PowerShell bridge.'
+          },
+          powershellExecutable: {
+            type: 'string',
+            description: 'Optional PowerShell executable. Defaults to the extension setting.'
+          },
+          nonInteractive: {
+            type: 'boolean',
+            description: 'Run with BCDEVTOOLSET_NON_INTERACTIVE enabled. Defaults to true.'
+          },
+          confirm: {
+            type: 'boolean',
+            description: 'Required for operations marked as requiring confirmation.'
+          },
+          timeoutSeconds: {
+            type: 'number',
+            description: 'Maximum runtime in seconds. Defaults to 3600.'
+          }
+        }
+      }
+    }
+  );
 
   return tools;
 }
@@ -453,25 +474,12 @@ function readHelpContent() {
   return fs.readFileSync(readmePath, 'utf8');
 }
 
-function shouldExposeGenericTools() {
-  return process.env.BCDEVTOOLSET_MCP_EXPOSE_GENERIC_TOOLS === 'true';
-}
-
-function shouldExposeLegacyTools() {
-  return process.env.BCDEVTOOLSET_MCP_EXPOSE_LEGACY_TOOLS === 'true';
-}
-
 function getAllTools() {
-  const tools = getTools();
-  if (shouldExposeLegacyTools()) {
-    tools.push(...getLegacyTools());
-  }
-
-  return tools;
+  return [...getTools(), ...getLegacyTools()];
 }
 
 function getToolsForList() {
-  return getAllTools();
+  return getAllTools().filter((tool) => startupToolSettings[tool.name] === true);
 }
 
 function getToolByName(toolName) {
@@ -496,6 +504,16 @@ function getGenericToolsForDocumentation() {
 }
 
 async function callTool(params) {
+  await ensureStartupToolSettings();
+  if (!getToolsForList().some((tool) => tool.name === params.name)) {
+    return textResult(`Tool is disabled or unknown: ${params.name}. Enable its BC Dev Toolset user or workspace setting and restart the MCP server/client.`, true);
+  }
+  const targetOperation = params.name === 'run_bc_dev_toolset_operation'
+    ? (params.arguments || {}).operationId
+    : params.name === 'show_active_container_licenses' ? 'showActiveLicenses' : '';
+  if (targetOperation && startupToolSettings[`bc_dev_toolset_${toSnakeCase(targetOperation)}`] !== true) {
+    return textResult(`Operation tool is disabled: bc_dev_toolset_${toSnakeCase(targetOperation)}. Enable its user or workspace setting and restart the MCP server/client.`, true);
+  }
   const toolArguments = params.arguments || {};
   const progress = createProgressReporter(params._meta && params._meta.progressToken);
   const operationId = getOperationIdForToolName(params.name);
@@ -1336,6 +1354,9 @@ function postBridgeJsonRaw(route, body) {
       });
     });
 
+    if (route === '/handshake' || route === '/tool-settings') {
+      request.setTimeout(5000, () => request.destroy(new Error('BC Dev Toolset workspace bridge timed out. Reload the extension host and restart the MCP client.')));
+    }
     request.on('error', reject);
     request.write(content);
     request.end();
@@ -1765,6 +1786,8 @@ module.exports = {
       inputBuffer = Buffer.from(value, 'utf8');
     },
     getTools,
+    getAllTools,
+    getToolsForList,
     callTool,
     getResources,
     readResource,

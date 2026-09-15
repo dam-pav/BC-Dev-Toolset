@@ -39,8 +39,10 @@ if ($pullFullArtifact) {
 
 # Build a new container
 $selectArtifact = "Latest"
-if ($workspaceJSON.settings."dam-pav.bcdevtoolset".selectArtifact) {
-    $selectArtifact = $workspaceJSON.settings."dam-pav.bcdevtoolset".selectArtifact
+$workspaceToolsetSettings = $workspaceJSON.settings.bcDevToolset
+if ($null -eq $workspaceToolsetSettings) { $workspaceToolsetSettings = $workspaceJSON.settings."dam-pav.bcdevtoolset" }
+if ($workspaceToolsetSettings.selectArtifact) {
+    $selectArtifact = $workspaceToolsetSettings.selectArtifact
 }
 $success = $false
 $success = New-DockerContainer `
