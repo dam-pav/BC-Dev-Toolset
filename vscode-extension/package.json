@@ -90,42 +90,6 @@
         "title": "BC Dev Toolset",
         "order": 0,
         "properties": {
-          "bcDevToolset.toolsetPath": {
-            "type": "string",
-            "default": "",
-            "description": "Central BC-Dev-Toolset installation path. Defaults to %LOCALAPPDATA%\\BC-Dev-Toolset\\toolset on Windows."
-          },
-          "bcDevToolset.powershellExecutable": {
-            "type": "string",
-            "default": "pwsh",
-            "description": "PowerShell executable used to run BC-Dev-Toolset operations."
-          },
-          "bcDevToolset.localSettingsPath": {
-            "type": "string",
-            "default": ".bcdevtoolset/settings.json",
-            "description": "Workspace-relative local settings file passed to PowerShell operations when it exists."
-          },
-          "bcDevToolset.codexMcpIntegration.enabled": {
-            "type": "boolean",
-            "scope": "machine",
-            "default": false,
-            "description": "Automatically keep the opted-in BC Dev Toolset entry in the global Codex MCP configuration synchronized with this extension installation. The Configure Codex MCP Integration command enables this setting."
-          },
-          "bcDevToolset.shortcuts": {
-            "type": "string",
-            "enum": [
-              "None",
-              "Desktop",
-              "StartMenu"
-            ],
-            "default": "None",
-            "description": "Shortcut mode used for container creation flows."
-          },
-          "bcDevToolset.hostHelperFolder": {
-            "type": "string",
-            "default": "C:\\ProgramData\\BcContainerHelper",
-            "description": "BcContainerHelper host helper folder used by runtime operations."
-          },
           "bcDevToolset": {
             "type": "object",
             "scope": "resource",
@@ -155,7 +119,15 @@
                   "remoteUser": "",
                   "remotePassword": ""
                 }
-              ]
+              ],
+              "toolsetPath": "",
+              "powershellExecutable": "pwsh",
+              "localSettingsPath": ".bcdevtoolset/settings.json",
+              "codexMcpIntegration": {
+                "enabled": false
+              },
+              "shortcuts": "None",
+              "hostHelperFolder": "C:\\ProgramData\\BcContainerHelper"
             },
             "description": "Shared BC Dev Toolset settings stored in the workspace file.",
             "additionalProperties": true,
@@ -927,6 +899,42 @@
                 }
               }
             }
+          },
+          "bcDevToolset.toolsetPath": {
+            "type": "string",
+            "default": "",
+            "description": "Central BC-Dev-Toolset installation path. Defaults to %LOCALAPPDATA%\\BC-Dev-Toolset\\toolset on Windows."
+          },
+          "bcDevToolset.powershellExecutable": {
+            "type": "string",
+            "default": "pwsh",
+            "description": "PowerShell executable used to run BC-Dev-Toolset operations."
+          },
+          "bcDevToolset.localSettingsPath": {
+            "type": "string",
+            "default": ".bcdevtoolset/settings.json",
+            "description": "Workspace-relative local settings file passed to PowerShell operations when it exists."
+          },
+          "bcDevToolset.codexMcpIntegration.enabled": {
+            "type": "boolean",
+            "scope": "machine",
+            "default": false,
+            "description": "Automatically keep the opted-in BC Dev Toolset entry in the global Codex MCP configuration synchronized with this extension installation. The Configure Codex MCP Integration command enables this setting."
+          },
+          "bcDevToolset.shortcuts": {
+            "type": "string",
+            "enum": [
+              "None",
+              "Desktop",
+              "StartMenu"
+            ],
+            "default": "None",
+            "description": "Shortcut mode used for container creation flows."
+          },
+          "bcDevToolset.hostHelperFolder": {
+            "type": "string",
+            "default": "C:\\ProgramData\\BcContainerHelper",
+            "description": "BcContainerHelper host helper folder used by runtime operations."
           }
         }
       }
