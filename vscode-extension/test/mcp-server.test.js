@@ -186,6 +186,23 @@ test('includes build diagnostics when the nested test build stage fails', () => 
   assert.doesNotMatch(compiled, /Prepare test container/);
 });
 
+test('reports blocking build warnings with repair instructions and a bounded diagnostic list', () => {
+  const output = [
+    '__BCDEVTOOLSET_STAGE__build::started',
+    ...Array.from({ length: 22 }, (_, index) => `src/app.al(${index + 1},5): warning AL0603: Conversion ${index + 1}`),
+    '__BCDEVTOOLSET_BUILD_WARNINGS_BLOCKED__',
+    '__BCDEVTOOLSET_STAGE__build::failed'
+  ].join('\n');
+  const compiled = mcpServer.compileInvokeTestsReport(output, 'failed');
+  assert.match(compiled, /Build workspace apps: failed/);
+  assert.match(compiled, /testBuildWarningsAsErrors=true/);
+  assert.match(compiled, /Resolve the reported compiler warnings, then rerun the AL test operation/);
+  assert.match(compiled, /app.al\(20,5\): warning AL0603/);
+  assert.doesNotMatch(compiled, /app.al\(21,5\)/);
+  assert.match(compiled, /Build warning diagnostics omitted: 2/);
+  assert.doesNotMatch(compiled, /Prepare test container/);
+});
+
 test('limits build diagnostics to the first 20 AL compiler errors', () => {
   const compilerErrors = Array.from(
     { length: 22 },

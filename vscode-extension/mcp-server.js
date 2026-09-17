@@ -654,7 +654,7 @@ function getOperationToolDescription(operation) {
     ? ' Call without execute:true to return every declared input decision without starting the operation; then call again with execute:true and the answers.'
     : '';
   const compiledReportText = operation.id === 'invokeTests'
-    ? ' Returns one compiled report with stage status, test totals, failure details, and diagnostics for the failed stage; do not rerun a failed build or test merely to retrieve output.'
+    ? ' Returns one compiled report with stage status, test totals, failure details, and diagnostics for the failed stage; do not rerun a failed build or test merely to retrieve output. The testBuildWarningsAsErrors workspace/local setting defaults to false; when true, compiler warnings block tests. Resolve the reported warnings before rerunning.'
     : operation.id === 'alRunnerTest'
     ? ' Distinguishes AL Runner availability or compatibility failures from genuine AL compilation and test failures. On a runner-tool failure, report it and suggest bc_dev_toolset_invoke_tests as the container-based fallback; do not invoke the fallback automatically.'
     : '';
@@ -1632,6 +1632,16 @@ function compileInvokeTestsReport(output, operationStatus, operationReport) {
 
 function compactBuildFailureDiagnostics(output) {
   const cleaned = cleanFailureDiagnostics(output);
+  if (cleaned.includes('__BCDEVTOOLSET_BUILD_WARNINGS_BLOCKED__')) {
+    const warnings = cleaned.split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => /\bwarning\s+[a-z]{2,}\d+\s*:/i.test(line));
+    return [
+      'Test build blocked: testBuildWarningsAsErrors=true. Resolve the reported compiler warnings, then rerun the AL test operation.',
+      ...warnings.slice(0, 20),
+      ...(warnings.length > 20 ? [`Build warning diagnostics omitted: ${warnings.length - 20} (the first 20 are shown).`] : [])
+    ].join('\n');
+  }
   const compilerErrors = cleaned
     .split(/\r?\n/)
     .map((line) => line.trim())
