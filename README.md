@@ -73,7 +73,9 @@ You do not need to know the MCP tool names for normal use. Ask the agent for the
 
 All extension settings use the `bcDevToolset` prefix. On startup, the extension automatically renames `dam-pav.bcdevtoolset` and `dam-pav.bcDevToolset` entries in the current user profile, open workspace, and workspace-folder settings. Entire values, including unknown properties and arrays, are preserved. A notification reports completed migration; no confirmation is requested. Entries whose destination already exists are left intact and reported for review. Unsaved or invalid settings files are left unchanged and retried on a later startup.
 
-MCP tool selections are stored inside the `bcDevToolset` object under `mcpTools`. Run **BC Dev Toolset: Configure MCP Tools**, choose **User** or **Workspace**, and select the tools to expose. The picker saves only changed switches and preserves the other fields in the object. JSON settings also provide completion for all tool names.
+Workspace and User MCP tool selections are stored inside the `bcDevToolset` object under `mcpTools`. Run **BC Dev Toolset: Configure MCP Tools**, choose **Local**, **Workspace**, or **User**, and select the tools to expose. The picker saves only changed switches and preserves the other fields in the object. JSON settings also provide completion for all tool names.
+
+Local selections are stored in the top-level `mcpTools` object in `.bcdevtoolset/settings.json` (or the workspace-relative `bcDevToolset.localSettingsPath`). Local values override workspace values, then user values, per tool; omitted switches inherit the next level. Restart the MCP server/client after editing local selections.
 
 **Get Workspace**, **Invoke AL Tests**, **Get Operation Status**, and **Answer Operation Prompt** are on by default. All other tools default to off. Workspace switches override user switches individually; omitted switches inherit the user value or built-in default. In a multi-root workspace, save these settings in the `.code-workspace` file. Native per-setting Preferences checkboxes are no longer contributed, because they write separate dotted keys.
 
