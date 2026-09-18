@@ -37,7 +37,7 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 23;
+const mcpServerDefinitionRevision = 24;
 // Increment when bundled runtime content changes without an extension version bump.
 const runtimeToolsetRevision = 21;
 
@@ -259,7 +259,7 @@ async function handleMcpBridgeRequest(request, response) {
     }
 
     if (request.url === '/tool-settings') {
-      writeMcpBridgeResponse(response, 200, { toolSettings: readEffectiveToolSettings(getConfiguration()) });
+      writeMcpBridgeResponse(response, 200, { toolSettings: getEffectiveMcpToolSettings() });
       return;
     }
 
@@ -801,12 +801,21 @@ function waitForMcpBridgeServer() {
 function registerMcpServerDefinitionProvider(context) {
   const definitionsChanged = new vscode.EventEmitter();
   context.subscriptions.push(definitionsChanged, vscode.workspace.onDidChangeConfiguration((event) => {
-    if (affectsToolsetConfiguration(event, 'mcpTools')) {
+    if (affectsToolsetConfiguration(event, 'mcpTools') || affectsToolsetConfiguration(event, 'localSettingsPath')) {
       definitionsChanged.fire();
       queueCodexMcpReconciliation(context, { notifyWhenChanged: false });
       vscode.window.showInformationMessage('BC Dev Toolset MCP tool settings changed. Restart the MCP server/client to apply them.');
     }
   }));
+  if (vscode.workspace.workspaceFolders?.length || vscode.workspace.workspaceFile) {
+    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(getWorkspaceBasePath(), '**/*'));
+    const changed = uri => {
+      const root = authorizeRoot(getWorkspaceBasePath(), 'Workspace root');
+      const localPath = resolveWithinRoot(root, getConfiguration().get('localSettingsPath') || '.bcdevtoolset/settings.json');
+      if (path.relative(localPath, uri.fsPath) === '') definitionsChanged.fire();
+    };
+    context.subscriptions.push(watcher, watcher.onDidChange(changed), watcher.onDidCreate(changed), watcher.onDidDelete(changed));
+  }
   if (!vscode.lm || !vscode.lm.registerMcpServerDefinitionProvider || !vscode.McpStdioServerDefinition) {
     writeOutput('VS Code MCP server definition provider API is not available in this VS Code version.');
     return { dispose: () => {} };
@@ -846,7 +855,7 @@ function createMcpServerDefinition(context) {
     nodeExecutable,
     [serverPath],
     {
-      BCDEVTOOLSET_MCP_TOOL_SETTINGS: JSON.stringify(readEffectiveToolSettings(getConfiguration())),
+      BCDEVTOOLSET_MCP_TOOL_SETTINGS: JSON.stringify(getEffectiveMcpToolSettings()),
       BCDEVTOOLSET_MCP_TOOLSET_PATH: getToolsetPath(),
       BCDEVTOOLSET_MCP_WORKSPACE_PATH: workspacePath,
       BCDEVTOOLSET_MCP_WORKSPACE_FILE: workspaceFile,
@@ -870,21 +879,52 @@ function createMcpServerDefinition(context) {
   return serverDefinition;
 }
 
+function getLocalMcpSettings() {
+  if (!vscode.workspace.workspaceFolders?.length && !vscode.workspace.workspaceFile) return { settings: {} };
+  const root = authorizeRoot(getWorkspaceBasePath(), 'Workspace root');
+  const validatedLocalPath = resolveWithinRoot(root, getConfiguration().get('localSettingsPath') || '.bcdevtoolset/settings.json');
+  let settings;
+  try {
+    settings = JSON.parse(fs.readFileSync(validatedLocalPath, 'utf8'));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    settings = {};
+  }
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error('Local settings must be a JSON object.');
+  return { settings, validatedLocalPath };
+}
+
+function getEffectiveMcpToolSettings() {
+  return readEffectiveToolSettings(getConfiguration(), getLocalMcpSettings().settings.mcpTools);
+}
+
 async function configureMcpTools() {
   const scopes = [{ label: 'User', target: vscode.ConfigurationTarget.Global, field: 'globalValue' }];
   if (vscode.workspace.workspaceFolders?.length || vscode.workspace.workspaceFile) {
-    scopes.unshift({ label: 'Workspace', target: vscode.ConfigurationTarget.Workspace, field: 'workspaceValue' });
+    scopes.unshift({ label: 'Local', field: 'local' }, { label: 'Workspace', target: vscode.ConfigurationTarget.Workspace, field: 'workspaceValue' });
   }
-  const scope = await vscode.window.showQuickPick(scopes, { title: 'Configure MCP Tools', placeHolder: 'Save tool selections for this workspace or as user defaults' });
+  const scope = await vscode.window.showQuickPick(scopes, { title: 'Configure MCP Tools', placeHolder: 'Save tool selections in local, workspace, or user settings' });
   if (!scope) return;
   const configuration = getConfiguration();
-  const before = scope.field === 'workspaceValue' ? readEffectiveToolSettings(configuration)
+  const before = scope.field === 'local' ? getEffectiveMcpToolSettings()
+    : scope.field === 'workspaceValue' ? readEffectiveToolSettings(configuration)
     : resolveToolSettings(Object.fromEntries(Object.keys(toolDefaults).map(name => [name, configuration.inspect(`mcpTools.${name}`)?.globalValue])));
   const selected = await vscode.window.showQuickPick(Object.entries(toolSchemas).map(([name, schema]) => ({
     label: name.replace(/^bc_dev_toolset_/, '').replace(/_/g, ' '),
     description: schema.description, name, picked: before[name]
   })), { title: `MCP Tools — ${scope.label}`, canPickMany: true, matchOnDescription: true, placeHolder: 'Select tools to declare to AI clients' });
   if (!selected) return;
+  if (scope.field === 'local') {
+    // Re-read so other local edits made while the picker was open are preserved.
+    const { settings, validatedLocalPath } = getLocalMcpSettings();
+    const updated = mergeToolSelection(settings, before, selected.map(item => item.name));
+    if (updated) {
+      fs.mkdirSync(path.dirname(validatedLocalPath), { recursive: true });
+      fs.writeFileSync(validatedLocalPath, JSON.stringify(updated, null, 2) + '\n', 'utf8');
+      vscode.window.showInformationMessage('BC Dev Toolset MCP tool settings changed. Restart the MCP server/client to apply them.');
+    }
+    return;
+  }
   const root = vscode.workspace.getConfiguration();
   // Read again after the picker closes to retain other settings edited in the meantime.
   const existing = root.inspect('bcDevToolset')?.[scope.field] || {};
@@ -1260,7 +1300,7 @@ function getMcpNodeExecutable() {
 
 function getMcpServerVersion(context) {
   const extensionVersion = context.extension.packageJSON.version || 'unknown';
-  const settingsRevision = crypto.createHash('sha256').update(JSON.stringify(readEffectiveToolSettings(getConfiguration()))).digest('hex').slice(0, 16);
+  const settingsRevision = crypto.createHash('sha256').update(JSON.stringify(getEffectiveMcpToolSettings())).digest('hex').slice(0, 16);
   return `${extensionVersion}.${mcpServerDefinitionRevision}.${settingsRevision}`;
 }
 

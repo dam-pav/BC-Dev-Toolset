@@ -15,8 +15,9 @@ function resolveToolSettings(overrides = {}) {
   ]));
 }
 
-function readEffectiveToolSettings(configuration) {
+function readEffectiveToolSettings(configuration, localOverrides = {}) {
   return resolveToolSettings(Object.fromEntries(Object.keys(toolDefaults).map((name) => {
+    if (typeof localOverrides?.[name] === 'boolean') return [name, localOverrides[name]];
     const current = configuration.inspect(`mcpTools.${name}`);
     for (const scope of ['workspaceValue', 'globalValue']) {
       if (current?.[scope] !== undefined) return [name, current[scope]];
