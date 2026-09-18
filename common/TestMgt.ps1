@@ -449,6 +449,20 @@ function ConvertFrom-BcDevToolsetJUnitResult {
     }
 }
 
+function Get-TestBuildWarningsAsErrors {
+    Param ([PSObject] $SettingsJSON, [PSObject] $WorkspaceJSON)
+
+    $value = $SettingsJSON.testBuildWarningsAsErrors
+    if ($null -eq $value) {
+        $workspaceSettings = $WorkspaceJSON.settings.bcDevToolset
+        if ($null -eq $workspaceSettings) { $workspaceSettings = $WorkspaceJSON.settings.'dam-pav.bcdevtoolset' }
+        $value = $workspaceSettings.testBuildWarningsAsErrors
+    }
+    if ($null -eq $value) { return $false }
+    if ($value -isnot [bool]) { throw 'testBuildWarningsAsErrors must be a JSON boolean (true or false).' }
+    return $value
+}
+
 function Invoke-Tests {
     Param (
         [Parameter(Mandatory=$true)]

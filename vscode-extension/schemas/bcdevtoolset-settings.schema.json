@@ -52,6 +52,11 @@
       ],
       "description": "Whether page script tests should run headed."
     },
+    "testBuildWarningsAsErrors": {
+      "type": "boolean",
+      "default": false,
+      "description": "Stop the AL test tool operation before container preparation or tests when its build emits compiler warnings. Resolve the reported warnings and rerun. Defaults to false; an explicit local value overrides the shared workspace setting."
+    },
     "executeTestsInContainerName": {
       "type": "string",
       "default": "",

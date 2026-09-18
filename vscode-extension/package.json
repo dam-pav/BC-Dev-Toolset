@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.8.5",
+  "version": "1.8.6",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -148,6 +148,11 @@
                 ],
                 "default": "Latest",
                 "description": "Business Central artifact selection strategy."
+              },
+              "testBuildWarningsAsErrors": {
+                "type": "boolean",
+                "default": false,
+                "description": "Stop the AL test tool operation before container preparation or tests when its build emits compiler warnings. Resolve the reported warnings and rerun. Defaults to false; an explicit local value overrides the shared workspace setting."
               },
               "executeTestsInContainerName": {
                 "type": "string",

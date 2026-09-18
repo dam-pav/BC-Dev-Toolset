@@ -1,5 +1,6 @@
 Param (
-    [switch] $SkipOperationUI
+    [switch] $SkipOperationUI,
+    [switch] $WarningsAsErrors
 )
 
 if (-not $SkipOperationUI) {
@@ -8,6 +9,15 @@ if (-not $SkipOperationUI) {
 
 $scriptPath = (Get-Item $PSScriptRoot).Parent
 . $scriptPath/common/WorkspaceMgt.ps1
+
+function Assert-NoBlockingBuildWarnings {
+    Param ([object[]] $CompilerOutput, [switch] $WarningsAsErrors)
+
+    if ($WarningsAsErrors -and @($CompilerOutput | Where-Object { [string]$_ -match '\bwarning\s+[a-z]{2,}\d+\s*:' }).Count -gt 0) {
+        Write-Host '__BCDEVTOOLSET_BUILD_WARNINGS_BLOCKED__'
+        throw 'Test build blocked by compiler warnings (testBuildWarningsAsErrors=true). Resolve the reported warnings, then rerun the AL test operation.'
+    }
+}
 
 function Resolve-AlToolPath {
     if ([string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_ALTOOL_PATH)) {
@@ -245,6 +255,7 @@ try {
         if (-not $alToolSucceeded -or $alToolExitCode -ne 0) {
             throw "AL compilation failed for '$($app.name)' (process exit code: $alToolExitCode)."
         }
+        Assert-NoBlockingBuildWarnings -CompilerOutput $compilerOutput -WarningsAsErrors:$WarningsAsErrors
         if (-not (Test-Path -LiteralPath $packageFile -PathType Leaf)) {
             throw "AL compilation did not create the expected package: $packageFile"
         }

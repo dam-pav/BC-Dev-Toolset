@@ -55,7 +55,8 @@ if ($null -eq $testContainerSelection) {
 
 Write-McpStageMarker -Stage build -Status started
 try {
-    & (Join-Path $scriptRoot 'operations/BuildAllApps.ps1') -SkipOperationUI
+    $warningsAsErrors = Get-TestBuildWarningsAsErrors -SettingsJSON $settingsJSON -WorkspaceJSON $workspaceJSON
+    & (Join-Path $scriptRoot 'operations/BuildAllApps.ps1') -SkipOperationUI -WarningsAsErrors:$warningsAsErrors
     Write-McpStageMarker -Stage build -Status succeeded
 } catch {
     Write-McpStageMarker -Stage build -Status failed
