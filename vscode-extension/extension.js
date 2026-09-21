@@ -885,7 +885,7 @@ function getLocalMcpSettings() {
   const validatedLocalPath = resolveWithinRoot(root, getConfiguration().get('localSettingsPath') || '.bcdevtoolset/settings.json');
   let settings;
   try {
-    settings = JSON.parse(fs.readFileSync(validatedLocalPath, 'utf8'));
+    settings = JSON.parse(fs.readFileSync(validatedLocalPath, 'utf8')); // nosemgrep -- resolveWithinRoot checks containment in the authorized workspace root
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
     settings = {};
@@ -919,8 +919,9 @@ async function configureMcpTools() {
     const { settings, validatedLocalPath } = getLocalMcpSettings();
     const updated = mergeToolSelection(settings, before, selected.map(item => item.name));
     if (updated) {
-      fs.mkdirSync(path.dirname(validatedLocalPath), { recursive: true });
-      fs.writeFileSync(validatedLocalPath, JSON.stringify(updated, null, 2) + '\n', 'utf8');
+      const validatedLocalDirectory = assertWithinRoot(authorizeRoot(getWorkspaceBasePath(), 'Workspace root'), path.dirname(validatedLocalPath));
+      fs.mkdirSync(validatedLocalDirectory, { recursive: true }); // nosemgrep -- parent directory is checked against the authorized workspace root
+      fs.writeFileSync(validatedLocalPath, JSON.stringify(updated, null, 2) + '\n', 'utf8'); // nosemgrep -- getLocalMcpSettings checks containment in the authorized workspace root
       vscode.window.showInformationMessage('BC Dev Toolset MCP tool settings changed. Restart the MCP server/client to apply them.');
     }
     return;
