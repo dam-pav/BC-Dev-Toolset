@@ -202,3 +202,23 @@ test('workspace selection rejects a mismatched bridge before reading settings', 
   assert.match((await bridge.start()('tools/list')).error.message, /handshake mismatch/);
   assert.equal(bridge.reads, 0);
 });
+
+test('local schema exposes the same MCP switches and defaults as workspace settings', () => {
+  const schema = require('../schemas/bcdevtoolset-settings.schema.json');
+  assert.deepEqual(schema.properties.mcpTools.properties, require('../mcp-tool-settings').toolSchemas);
+});
+
+test('local switches override workspace and user values individually, including false', () => {
+  const configuration = { inspect: key => ({
+    workspaceValue: key === 'mcpTools.bc_dev_toolset_get_workspace' ? true : undefined,
+    globalValue: key === 'mcpTools.bc_dev_toolset_show_help' ? true : undefined
+  }) };
+  const settings = readEffectiveToolSettings(configuration, {
+    bc_dev_toolset_get_workspace: false, bc_dev_toolset_build_all_apps: true
+  });
+  assert.equal(settings.bc_dev_toolset_get_workspace, false);
+  assert.equal(settings.bc_dev_toolset_build_all_apps, true);
+  assert.equal(settings.bc_dev_toolset_show_help, true);
+  assert.equal(settings.bc_dev_toolset_new_docker_container, false);
+  assert.deepEqual(readEffectiveToolSettings(configuration, null), readEffectiveToolSettings(configuration));
+});
