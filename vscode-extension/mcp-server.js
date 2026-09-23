@@ -678,11 +678,11 @@ function getPreflightPromptInputs(operation, args, context) {
     if (!workspaceFile && process.env.BCDEVTOOLSET_ALLOW_WORKSPACE_FILE_DISCOVERY === 'true') return inputs;
     const validatedWorkspaceFile = workspaceFile ? resolveWithinRoot(root, workspacePath, workspaceFile) : '';
     const workspace = validatedWorkspaceFile
-      ? JSON.parse(fs.readFileSync(validatedWorkspaceFile, 'utf8').replace(/^\uFEFF/, '')) : {};
+      ? JSON.parse(fs.readFileSync(validatedWorkspaceFile, 'utf8').replace(/^\uFEFF/, '')) : {}; // nosemgrep -- resolveWithinRoot verifies containment in the bound workspace before this read
     const settingsRoot = validatedWorkspaceFile ? path.dirname(validatedWorkspaceFile) : workspacePath;
     const validatedLocalSettingsPath = resolveWithinRoot(root, settingsRoot,
       args.localSettingsPath || context.localSettingsPath || '.bcdevtoolset/settings.json');
-    const local = JSON.parse(fs.readFileSync(validatedLocalSettingsPath, 'utf8').replace(/^\uFEFF/, ''));
+    const local = JSON.parse(fs.readFileSync(validatedLocalSettingsPath, 'utf8').replace(/^\uFEFF/, '')); // nosemgrep -- resolveWithinRoot verifies containment in the bound workspace before this read
     const shared = workspace.settings?.bcDevToolset ?? workspace.settings?.['dam-pav.bcdevtoolset'] ?? {};
     const configurations = [...(local.configurations || []), ...(shared.configurations || [])]
       .filter(config => String(config.serverType).toLowerCase() === 'container' &&

@@ -7,6 +7,7 @@ process.env.BCDEVTOOLSET_MCP_TOOL_SETTINGS = JSON.stringify({"bc_dev_toolset_sho
 const { afterEach, test } = require('node:test');
 
 const { __test: mcpServer } = require('../mcp-server');
+const { authorizeRoot, resolveWithinRoot } = require('../path-security');
 
 afterEach(() => {
   mcpServer.resetState();
@@ -132,10 +133,12 @@ test('test preflight retains conditional questions when settings do not resolve 
 test('test preflight omits only resolved container selection using effective settings', t => {
   const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'bc-test-preflight-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const workspaceFile = path.join(root, 'test.code-workspace');
-  const localSettingsPath = path.join(root, 'settings.json');
+  const workspaceFile = resolveWithinRoot(root, 'test.code-workspace');
+  const localSettingsPath = resolveWithinRoot(root, 'settings.json');
   const context = { workspaceBasePath: root, workspacePath: root, workspaceFilePath: workspaceFile, localSettingsPath };
-  const operations = JSON.parse(fs.readFileSync(path.join(__dirname, '../../operations/operations.json'), 'utf8'));
+  const repositoryRoot = authorizeRoot(path.join(__dirname, '../..'), 'Test repository');
+  const operationsPath = resolveWithinRoot(repositoryRoot, 'operations', 'operations.json');
+  const operations = JSON.parse(fs.readFileSync(operationsPath, 'utf8')); // nosemgrep -- fixed metadata path checked for containment in the authorized repository root
   const container = name => ({ name, container: name, serverType: 'Container', includeTestToolkit: true });
   const cases = [
     { name: 'local target', local: { executeTestsInContainerName: ' alpha ', configurations: [container('Alpha'), container('Beta')] }, omit: true },
@@ -150,8 +153,8 @@ test('test preflight omits only resolved container selection using effective set
     { name: 'malformed local settings', malformed: true, omit: false }
   ];
   for (const fixture of cases) {
-    fs.writeFileSync(workspaceFile, JSON.stringify({ settings: { [fixture.legacy ? 'dam-pav.bcdevtoolset' : 'bcDevToolset']: fixture.shared || {} } }));
-    fs.writeFileSync(localSettingsPath, fixture.malformed ? '{' : '\uFEFF' + JSON.stringify(fixture.local));
+    fs.writeFileSync(workspaceFile, JSON.stringify({ settings: { [fixture.legacy ? 'dam-pav.bcdevtoolset' : 'bcDevToolset']: fixture.shared || {} } })); // nosemgrep -- fixed fixture path checked for containment in this test-owned temporary root
+    fs.writeFileSync(localSettingsPath, fixture.malformed ? '{' : '\uFEFF' + JSON.stringify(fixture.local)); // nosemgrep -- fixed fixture path checked for containment in this test-owned temporary root
     for (const id of ['invokeTests', 'invokePageScriptTests']) {
       const operation = operations.find(operation => operation.id === id);
       const actual = mcpServer.getPreflightPromptInputs(operation, {}, { ...context, workspaceFilePath: fixture.folder ? '' : workspaceFile });
@@ -159,12 +162,28 @@ test('test preflight omits only resolved container selection using effective set
       assert.deepEqual(actual, expected, `${id}: ${fixture.name}`);
     }
   }
-  fs.writeFileSync(localSettingsPath, JSON.stringify({ configurations: [container('Alpha')] }));
+  fs.writeFileSync(localSettingsPath, JSON.stringify({ configurations: [container('Alpha')] })); // nosemgrep -- fixed fixture path checked for containment in this test-owned temporary root
   const operation = operations.find(operation => operation.id === 'invokeTests');
   assert.deepEqual(mcpServer.getPreflightPromptInputs(operation, { localSettingsPath: '../outside.json' }, context), operation.promptInputs);
-  fs.writeFileSync(path.join(root, 'override.json'), JSON.stringify({ configurations: [container('Alpha'), container('Beta')] }));
+  fs.writeFileSync(resolveWithinRoot(root, 'override.json'), JSON.stringify({ configurations: [container('Alpha'), container('Beta')] })); // nosemgrep -- fixed fixture path checked for containment in this test-owned temporary root
   assert.deepEqual(mcpServer.getPreflightPromptInputs(operation, { localSettingsPath: 'override.json' }, context), operation.promptInputs);
   assert.deepEqual(mcpServer.getPreflightPromptInputs(operation, {}, context), operation.promptInputs.filter(input => input.inputName !== 'testContainerSelection'));
+});
+
+test('preflight rejects escaping paths before any filesystem read', t => {
+  const root = authorizeRoot(__dirname, 'Test workspace');
+  const context = { workspaceBasePath: root, workspacePath: root };
+  const operation = { id: 'invokeTests', promptInputs: [{ inputName: 'testContainerSelection' }] };
+  const read = t.mock.method(fs, 'readFileSync', () => { throw new Error('Unexpected filesystem access'); });
+  for (const args of [
+    { workspacePath: '..' },
+    { workspaceFile: '../outside.code-workspace' },
+    { localSettingsPath: '../outside.json' },
+    { localSettingsPath: path.resolve(root, '../outside.json') }
+  ]) {
+    assert.deepEqual(mcpServer.getPreflightPromptInputs(operation, args, context), operation.promptInputs);
+  }
+  assert.equal(read.mock.callCount(), 0);
 });
 
 test('serves repository help as an agent tool and Markdown resource', async () => {
