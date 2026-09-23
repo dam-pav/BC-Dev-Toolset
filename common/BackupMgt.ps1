@@ -14,13 +14,35 @@ function Get-SqlBackupRootPath {
         return ""
     }
 
-    if ([System.IO.Path]::IsPathRooted($sqlBackupPath)) {
-        return [System.IO.Path]::GetFullPath($sqlBackupPath)
+    try {
+        if ([System.IO.Path]::IsPathRooted($sqlBackupPath)) {
+            $validatedBackupRootPath = [System.IO.Path]::GetFullPath($sqlBackupPath)
+        }
+        else {
+            $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
+            # Normalize without Resolve-Path so missing backup folders can still be diagnosed.
+            $validatedBackupRootPath = [System.IO.Path]::GetFullPath((Join-Path $workspaceRootPath.FullName $sqlBackupPath))
+        }
+    }
+    catch {
+        Write-Host "Warning: sqlBackupPath '$sqlBackupPath' could not be resolved to a valid folder. Continuing with existing operation logic." -ForegroundColor Red
+        throw
     }
 
-    $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
-    # Normalize without Resolve-Path so missing backup folders can still be diagnosed.
-    return [System.IO.Path]::GetFullPath((Join-Path $workspaceRootPath.FullName $sqlBackupPath))
+    # Backup folders are intentionally configurable outside the workspace. Check the
+    # normalized configuration value here without changing callers' creation/restore logic.
+    $isValidBackupFolder = $false
+    try {
+        $isValidBackupFolder = Test-Path -LiteralPath $validatedBackupRootPath -PathType Container -ErrorAction Stop
+    }
+    catch {
+        # An inaccessible or invalid path is advisory; retain the existing caller behavior.
+    }
+    if (-not $isValidBackupFolder) {
+        Write-Host "Warning: sqlBackupPath '$sqlBackupPath' does not point to an existing, accessible folder ('$validatedBackupRootPath'). Continuing with existing operation logic." -ForegroundColor Red
+    }
+
+    return $validatedBackupRootPath
 }
 
 function Copy-SqlBackupSetToSharedFolder {
