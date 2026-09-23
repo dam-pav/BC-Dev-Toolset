@@ -9,6 +9,7 @@ const http = require('http');
 const os = require('os');
 const bridgeIdentity = require('./mcp-bridge-identity');
 const { authorizeRoot, resolveWithinRoot } = require('./path-security');
+const { parseSettingsJsonc } = require('./settings-migration');
 
 const defaultProtocolVersion = '2025-11-25';
 const toolsetPath = authorizeRoot(process.env.BCDEVTOOLSET_MCP_TOOLSET_PATH || path.resolve(__dirname, '..'), 'BC Dev Toolset MCP toolset path');
@@ -678,7 +679,7 @@ function getPreflightPromptInputs(operation, args, context) {
     if (!workspaceFile && process.env.BCDEVTOOLSET_ALLOW_WORKSPACE_FILE_DISCOVERY === 'true') return inputs;
     const validatedWorkspaceFile = workspaceFile ? resolveWithinRoot(root, workspacePath, workspaceFile) : '';
     const workspace = validatedWorkspaceFile
-      ? JSON.parse(fs.readFileSync(validatedWorkspaceFile, 'utf8').replace(/^\uFEFF/, '')) : {}; // nosemgrep -- resolveWithinRoot verifies containment in the bound workspace before this read
+      ? parseSettingsJsonc(fs.readFileSync(validatedWorkspaceFile, 'utf8')) : {}; // nosemgrep -- resolveWithinRoot verifies containment in the bound workspace before this read
     const settingsRoot = validatedWorkspaceFile ? path.dirname(validatedWorkspaceFile) : workspacePath;
     const validatedLocalSettingsPath = resolveWithinRoot(root, settingsRoot,
       args.localSettingsPath || context.localSettingsPath || '.bcdevtoolset/settings.json');

@@ -143,6 +143,9 @@ test('test preflight omits only resolved container selection using effective set
   const cases = [
     { name: 'local target', local: { executeTestsInContainerName: ' alpha ', configurations: [container('Alpha'), container('Beta')] }, omit: true },
     { name: 'shared target', local: { configurations: [container('Alpha')] }, shared: { executeTestsInContainerName: 'Beta', configurations: [container('Beta')] }, omit: true },
+    { name: 'JSONC shared target', local: { configurations: [container('Alpha')] }, jsonc: true, omit: true },
+    { name: 'JSONC legacy shared target', local: { configurations: [container('Alpha')] }, jsonc: true, legacy: true, omit: true },
+    { name: 'malformed workspace', local: { configurations: [container('Alpha')] }, workspaceText: '{', omit: false },
     { name: 'local takes precedence over shared', local: { executeTestsInContainerName: 'missing', configurations: [container('Alpha'), container('Beta')] }, shared: { executeTestsInContainerName: 'Alpha' }, omit: false },
     { name: 'blank local falls back to legacy shared', local: { executeTestsInContainerName: ' ', configurations: [container('Alpha'), container('Beta')] }, shared: { executeTestsInContainerName: 'Alpha' }, legacy: true, omit: true },
     { name: 'single eligible target', local: { configurations: [container('Alpha')] }, omit: true },
@@ -153,7 +156,20 @@ test('test preflight omits only resolved container selection using effective set
     { name: 'malformed local settings', malformed: true, omit: false }
   ];
   for (const fixture of cases) {
-    fs.writeFileSync(workspaceFile, JSON.stringify({ settings: { [fixture.legacy ? 'dam-pav.bcdevtoolset' : 'bcDevToolset']: fixture.shared || {} } })); // nosemgrep -- fixed fixture path checked for containment in this test-owned temporary root
+    const settingsKey = fixture.legacy ? 'dam-pav.bcdevtoolset' : 'bcDevToolset';
+    const workspaceText = fixture.workspaceText ?? (fixture.jsonc ? `\uFEFF{
+      // Shared test target
+      "settings": {
+        "${settingsKey}": {
+          "executeTestsInContainerName": "Beta",
+          "configurations": [
+            /* Eligible shared container */
+            { "container": "Beta", "serverType": "Container", "includeTestToolkit": true, },
+          ],
+        },
+      },
+    }` : JSON.stringify({ settings: { [settingsKey]: fixture.shared || {} } }));
+    fs.writeFileSync(workspaceFile, workspaceText); // nosemgrep -- fixed fixture path checked for containment in this test-owned temporary root
     fs.writeFileSync(localSettingsPath, fixture.malformed ? '{' : '\uFEFF' + JSON.stringify(fixture.local)); // nosemgrep -- fixed fixture path checked for containment in this test-owned temporary root
     for (const id of ['invokeTests', 'invokePageScriptTests']) {
       const operation = operations.find(operation => operation.id === id);
