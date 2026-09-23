@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-process.env.BCDEVTOOLSET_MCP_TOOL_SETTINGS = JSON.stringify({"bc_dev_toolset_show_help": true});
+process.env.BCDEVTOOLSET_MCP_TOOL_SETTINGS = JSON.stringify({"bc_dev_toolset_show_help": true, "bc_dev_toolset_invoke_tests": true, "bc_dev_toolset_invoke_page_script_tests": true});
 const { afterEach, test } = require('node:test');
 
 const { __test: mcpServer } = require('../mcp-server');
@@ -115,6 +115,56 @@ test('build tool description directs AL compilation through workspace-aware tool
   assert.ok(buildTool);
   assert.match(buildTool.description, /compile, build, or validate the AL apps/);
   assert.match(buildTool.description, /assembly probing paths/);
+});
+
+test('test preflight retains conditional questions when settings do not resolve a container', async () => {
+  for (const name of ['bc_dev_toolset_invoke_tests', 'bc_dev_toolset_invoke_page_script_tests']) {
+    const result = await mcpServer.callTool({ name, arguments: {} });
+    const preflight = JSON.parse(result.content[0].text);
+    assert.equal(preflight.status, 'input_required');
+    assert.deepEqual(preflight.missingInputs, ['executeTestsInContainer']);
+    assert.ok(preflight.questions.some(input => input.inputName === 'testContainerSelection'));
+    assert.ok(preflight.questions.some(input => input.inputName === 'pullFullArtifact'));
+    assert.equal(Object.hasOwn(preflight, 'conditionalPrompts'), false);
+  }
+});
+
+test('test preflight omits only resolved container selection using effective settings', t => {
+  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'bc-test-preflight-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const workspaceFile = path.join(root, 'test.code-workspace');
+  const localSettingsPath = path.join(root, 'settings.json');
+  const context = { workspaceBasePath: root, workspacePath: root, workspaceFilePath: workspaceFile, localSettingsPath };
+  const operations = JSON.parse(fs.readFileSync(path.join(__dirname, '../../operations/operations.json'), 'utf8'));
+  const container = name => ({ name, container: name, serverType: 'Container', includeTestToolkit: true });
+  const cases = [
+    { name: 'local target', local: { executeTestsInContainerName: ' alpha ', configurations: [container('Alpha'), container('Beta')] }, omit: true },
+    { name: 'shared target', local: { configurations: [container('Alpha')] }, shared: { executeTestsInContainerName: 'Beta', configurations: [container('Beta')] }, omit: true },
+    { name: 'local takes precedence over shared', local: { executeTestsInContainerName: 'missing', configurations: [container('Alpha'), container('Beta')] }, shared: { executeTestsInContainerName: 'Alpha' }, omit: false },
+    { name: 'blank local falls back to legacy shared', local: { executeTestsInContainerName: ' ', configurations: [container('Alpha'), container('Beta')] }, shared: { executeTestsInContainerName: 'Alpha' }, legacy: true, omit: true },
+    { name: 'single eligible target', local: { configurations: [container('Alpha')] }, omit: true },
+    { name: 'multiple targets without a setting', local: { configurations: [container('Alpha'), container('Beta')] }, omit: false },
+    { name: 'duplicate container names', local: { executeTestsInContainerName: 'Alpha', configurations: [container('Alpha'), container('Alpha')] }, omit: false },
+    { name: 'ineligible configured target', local: { executeTestsInContainerName: 'Alpha', configurations: [{ ...container('Alpha'), includeTestToolkit: false }, container('Beta'), container('Gamma')] }, omit: false },
+    { name: 'folder workspace', local: { executeTestsInContainerName: 'Alpha', configurations: [container('Alpha'), container('Beta')] }, folder: true, omit: true },
+    { name: 'malformed local settings', malformed: true, omit: false }
+  ];
+  for (const fixture of cases) {
+    fs.writeFileSync(workspaceFile, JSON.stringify({ settings: { [fixture.legacy ? 'dam-pav.bcdevtoolset' : 'bcDevToolset']: fixture.shared || {} } }));
+    fs.writeFileSync(localSettingsPath, fixture.malformed ? '{' : '\uFEFF' + JSON.stringify(fixture.local));
+    for (const id of ['invokeTests', 'invokePageScriptTests']) {
+      const operation = operations.find(operation => operation.id === id);
+      const actual = mcpServer.getPreflightPromptInputs(operation, {}, { ...context, workspaceFilePath: fixture.folder ? '' : workspaceFile });
+      const expected = operation.promptInputs.filter(input => !fixture.omit || input.inputName !== 'testContainerSelection');
+      assert.deepEqual(actual, expected, `${id}: ${fixture.name}`);
+    }
+  }
+  fs.writeFileSync(localSettingsPath, JSON.stringify({ configurations: [container('Alpha')] }));
+  const operation = operations.find(operation => operation.id === 'invokeTests');
+  assert.deepEqual(mcpServer.getPreflightPromptInputs(operation, { localSettingsPath: '../outside.json' }, context), operation.promptInputs);
+  fs.writeFileSync(path.join(root, 'override.json'), JSON.stringify({ configurations: [container('Alpha'), container('Beta')] }));
+  assert.deepEqual(mcpServer.getPreflightPromptInputs(operation, { localSettingsPath: 'override.json' }, context), operation.promptInputs);
+  assert.deepEqual(mcpServer.getPreflightPromptInputs(operation, {}, context), operation.promptInputs.filter(input => input.inputName !== 'testContainerSelection'));
 });
 
 test('serves repository help as an agent tool and Markdown resource', async () => {
