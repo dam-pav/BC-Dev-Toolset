@@ -9,6 +9,7 @@ const http = require('http');
 const os = require('os');
 const bridgeIdentity = require('./mcp-bridge-identity');
 const { authorizeRoot, resolveWithinRoot } = require('./path-security');
+const { parseSettingsJsonc } = require('./settings-migration');
 
 const defaultProtocolVersion = '2025-11-25';
 const toolsetPath = authorizeRoot(process.env.BCDEVTOOLSET_MCP_TOOLSET_PATH || path.resolve(__dirname, '..'), 'BC Dev Toolset MCP toolset path');
@@ -262,7 +263,7 @@ function getServerInstructions() {
     'Before answering questions about the active VS Code workspace, workspace file, workspace folders, AL project path, app.json location, .code-workspace settings, local .bcdevtoolset settings path, or AL settings such as assembly probing paths, call bc_dev_toolset_get_workspace or read bcdevtoolset://workspace/current. Do not infer the workspace by scanning parent folders unless this tool/resource is unavailable.',
     'PowerShell-backed operations require the VS Code terminal bridge and run visibly in the BC Dev Toolset terminal. If the bridge is unavailable, report that the BC Dev Toolset VS Code extension must be active instead of falling back to manual PowerShell.',
     'Use bc_dev_toolset_show_active_licenses for requests about the current container license. Use bc_dev_toolset_new_docker_container for creating or recreating containers.',
-    'Operations with declared inputs use two phases: call the operation tool without execute:true to receive all declared questions without starting it, then call the same tool with execute:true and the named answers. If an unexpected conditional prompt still returns waiting_for_input and the dedicated answer tool is unavailable, call the same operation tool with promptAnswers; the existing session resumes and retains answers for later prompts. Use bc_dev_toolset_answer_operation_prompt when it is available. Sensitive or agent-disallowed prompts must be answered by the user in the terminal.'
+    'Operations with declared inputs use two phases: call the operation tool without execute:true to receive relevant questions, including conditional questions, without starting it, then call the same tool with execute:true and the named answers. If an unexpected conditional prompt still returns waiting_for_input and the dedicated answer tool is unavailable, call the same operation tool with promptAnswers; the existing session resumes and retains answers for later prompts. Use bc_dev_toolset_answer_operation_prompt when it is available. Sensitive or agent-disallowed prompts must be answered by the user in the terminal.'
   ].join('\n');
 }
 
@@ -651,7 +652,7 @@ function getOperationToolDescription(operation) {
     ? ' This operation changes state and requires confirm: true.'
     : '';
   const preflightText = getOperationPromptInputs(operation).length > 0
-    ? ' Call without execute:true to return every declared input decision without starting the operation; then call again with execute:true and the answers.'
+    ? ' Call without execute:true to return relevant input decisions, including conditional questions, without starting the operation; then call again with execute:true and the answers.'
     : '';
   const compiledReportText = operation.id === 'invokeTests'
     ? ' Returns one compiled report with stage status, test totals, failure details, and diagnostics for the failed stage; do not rerun a failed build or test merely to retrieve output. The testBuildWarningsAsErrors workspace/local setting defaults to false; when true, compiler warnings block tests. Resolve the reported warnings before rerunning.'
@@ -663,6 +664,42 @@ function getOperationToolDescription(operation) {
 
 function getOperationPromptInputs(operation) {
   return Array.isArray(operation && operation.promptInputs) ? operation.promptInputs : [];
+}
+
+function getPreflightPromptInputs(operation, args, context) {
+  const inputs = getOperationPromptInputs(operation);
+  if (!isTestOperation(operation)) return inputs;
+
+  try {
+    // Authorize against the bound workspace, never a caller-supplied root.
+    const root = authorizeRoot(context.workspaceBasePath || context.workspacePath, 'Bound workspace');
+    const workspacePath = resolveWithinRoot(root, args.workspacePath || context.workspacePath || root);
+    const workspaceFile = args.workspaceFile || context.workspaceFilePath;
+    // Discovery can require a runtime choice, so keep questions in that case.
+    if (!workspaceFile && process.env.BCDEVTOOLSET_ALLOW_WORKSPACE_FILE_DISCOVERY === 'true') return inputs;
+    const validatedWorkspaceFile = workspaceFile ? resolveWithinRoot(root, workspacePath, workspaceFile) : '';
+    const workspace = validatedWorkspaceFile
+      ? parseSettingsJsonc(fs.readFileSync(validatedWorkspaceFile, 'utf8')) : {}; // nosemgrep -- resolveWithinRoot verifies containment in the bound workspace before this read
+    const settingsRoot = validatedWorkspaceFile ? path.dirname(validatedWorkspaceFile) : workspacePath;
+    const validatedLocalSettingsPath = resolveWithinRoot(root, settingsRoot,
+      args.localSettingsPath || context.localSettingsPath || '.bcdevtoolset/settings.json');
+    const local = JSON.parse(fs.readFileSync(validatedLocalSettingsPath, 'utf8').replace(/^\uFEFF/, '')); // nosemgrep -- resolveWithinRoot verifies containment in the bound workspace before this read
+    const shared = workspace.settings?.bcDevToolset ?? workspace.settings?.['dam-pav.bcdevtoolset'] ?? {};
+    const configurations = [...(local.configurations || []), ...(shared.configurations || [])]
+      .filter(config => String(config.serverType).toLowerCase() === 'container' &&
+        String(config.includeTestToolkit).toLowerCase() === 'true' && String(config.container || '').trim());
+    const target = (String(local.executeTestsInContainerName || '').trim() ||
+      String(shared.executeTestsInContainerName || '').trim()).toLowerCase();
+    const resolved = configurations.length === 1 || (target &&
+      configurations.filter(config => String(config.container).toLowerCase() === target).length === 1);
+    if (resolved) {
+      return inputs.filter(input => input.inputName !== 'testContainerSelection');
+    }
+  } catch {
+    // Missing, unreadable, or out-of-workspace settings cannot prove that a
+    // question is redundant. Keep the declared questions in that case.
+  }
+  return inputs;
 }
 
 function getOperationToolAliases(operationId) {
@@ -755,7 +792,7 @@ function getOperationToolInputSchema(operation) {
     },
     promptAnswers: {
       type: 'object',
-      description: 'Optional answers for known operation prompts, keyed by prompt ID. Use this when the answer is already clear and the MCP client may not reliably make a follow-up bc_dev_toolset_answer_operation_prompt call. Example for testing: {"selectIndex.Select.the.container.configuration.to.execute.tests.in.":"2","tests.executeInContainer":"yes"}.',
+      description: 'Optional answers for known operation prompts, keyed by prompt ID. Use this when the answer is already clear and the MCP client may not reliably make a follow-up bc_dev_toolset_answer_operation_prompt call. Example for testing: {"tests.executeInContainer":"yes"}.',
       additionalProperties: {
         anyOf: [
           { type: 'string' },
@@ -767,7 +804,7 @@ function getOperationToolInputSchema(operation) {
     execute: {
       type: 'boolean',
       description: getOperationPromptInputs(operation).length > 0
-        ? 'Set true after reviewing the preflight decisions to start the operation. Omit or set false to return all declared questions without starting it.'
+        ? 'Set true after reviewing the preflight decisions to start the operation. Omit or set false to return relevant questions, including conditional questions, without starting it.'
         : 'Optional execution flag; operations without declared prompt inputs execute normally.'
     }
   };
@@ -795,7 +832,7 @@ function getOperationToolInputSchema(operation) {
         { type: 'string' },
         { type: 'number' }
       ],
-      description: 'Optional 1-based choice for the test container configuration prompt. Use this when selecting among displayed options, for example 2 for option 2. Defaults to 1.'
+      description: 'Optional 1-based choice for the test container configuration prompt. Preflight omits this question when settings already resolve the target container. Otherwise use the displayed configuration options to choose an index.'
     };
     properties.executeTestsInContainer = {
       anyOf: [
@@ -913,10 +950,11 @@ async function runOperation(args, progress) {
       status: 'input_required',
       operationId: operation.id,
       instruction: missingPromptInputs.length > 0 && args.execute === true
-        ? 'Required decisions are missing. Review all questions together, then call this same tool with execute: true and every required named answer. No operation was started.'
+        ? 'Required decisions are missing. Review questions, then call this same tool with execute: true and every required named answer. No operation was started.'
         : 'Review all questions together, ask the user for decisions that cannot be made safely, then call this same tool with execute: true and the named answers. Questions without an inputName must be answered by the user in the visible terminal if reached. No operation was started.',
       missingInputs: missingPromptInputs.map((promptInput) => promptInput.inputName),
-      questions: promptInputs
+      questions: getPreflightPromptInputs(operation, args,
+        isTestOperation(operation) ? await getWorkspaceContextObject() : {})
     }, null, 2));
   }
 
@@ -1803,6 +1841,7 @@ module.exports = {
     readResource,
     readHelpContent,
     getOperationPromptAnswers,
+    getPreflightPromptInputs,
     compileAlRunnerTestReport,
     compileInvokeTestsReport,
     normalizePromptToolAnswer,

@@ -15,3 +15,4 @@ test-results/.last-run.json
 #Ignore vscode AI rules
 .github/instructions/
 vscode-extension/.github/instructions/
+.codacy/

@@ -1,7 +1,7 @@
 'use strict';
 const path = require('node:path');
 
-// Parse JSONC structure only; edits replace key tokens so values, comments and whitespace survive verbatim.
+// Parse JSONC values and retain key tokens so migration edits preserve comments and whitespace.
 function parseSettingsTree(text) {
   const pattern = /\s+|\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|[{}\[\]:,]|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/gy;
   const tokens = [];
@@ -23,29 +23,32 @@ function parseSettingsTree(text) {
     const token = take();
     if (token.raw === '{') {
       const properties = [];
+      const parsed = {};
       while (tokens[index]?.raw !== '}') {
         const key = take();
         if (!key.raw.startsWith('"')) throw new Error('Invalid settings property; file was left unchanged.');
         const name = JSON.parse(key.raw);
         take(':');
-        properties.push({ name, key, value: value() });
+        const child = value();
+        properties.push({ name, key, value: child });
+        Object.defineProperty(parsed, name, { value: child.parsed, enumerable: true, configurable: true, writable: true });
         if (tokens[index]?.raw !== ',') break;
         take(',');
       }
       take('}');
-      return { properties };
+      return { properties, parsed };
     }
     if (token.raw === '[') {
+      const parsed = [];
       while (tokens[index]?.raw !== ']') {
-        value();
+        parsed.push(value().parsed);
         if (tokens[index]?.raw !== ',') break;
         take(',');
       }
       take(']');
-      return {};
+      return { parsed };
     }
-    JSON.parse(token.raw);
-    return {};
+    return { parsed: JSON.parse(token.raw) };
   }
   const root = value();
   if (index !== tokens.length || !root.properties) throw new Error('Invalid settings document; file was left unchanged.');
@@ -125,4 +128,8 @@ async function migrateSettingsOnStartup(vscode, context, log) {
   return { renamed, conflicts, failed };
 }
 
-module.exports = { planSettingsMigration, migrateSettingsOnStartup };
+function parseSettingsJsonc(text) {
+  return parseSettingsTree(text).parsed;
+}
+
+module.exports = { planSettingsMigration, migrateSettingsOnStartup, parseSettingsJsonc };
