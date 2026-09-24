@@ -18,7 +18,8 @@ test('shared and local isolation setting schemas stay aligned', () => {
     .find(property => property.properties?.testIsolationDisabledCodeunits)
     .properties.testIsolationDisabledCodeunits;
   const local = schema.properties.testIsolationDisabledCodeunits;
-  assert.deepEqual(shared.items, { type: 'integer', minimum: 1, maximum: 2147483647 });
+  const maximumAlObjectId = 2 ** 31 - 1;
+  assert.deepEqual(shared.items, { type: 'integer', minimum: 1, maximum: maximumAlObjectId });
   assert.deepEqual(shared.items, local.items);
   assert.deepEqual(shared.default, []);
   assert.deepEqual(local.default, []);

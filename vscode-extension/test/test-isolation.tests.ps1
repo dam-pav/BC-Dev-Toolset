@@ -38,29 +38,35 @@ $script:failureCount = 1
 $script:mode = ''
 $script:runner = 130450
 function Get-SortedApps { param($workspaceJSON) @(
-    [pscustomobject]@{ AppId='a'; Name='App A' },
-    [pscustomobject]@{ AppId='b'; Name='App B' },
-    [pscustomobject]@{ AppId='c'; Name='No Tests' }
+    [pscustomobject]@{ AppId='00000000-0000-0000-0000-000000000001'; Name='App A' },
+    [pscustomobject]@{ AppId='00000000-0000-0000-0000-000000000002'; Name='App B' },
+    [pscustomobject]@{ AppId='00000000-0000-0000-0000-000000000003'; Name='No Tests' }
 ) }
 function Test-DockerContainerExists { param($containerName) $true }
-function Get-BcConfigurationCredential { param($configuration) [pscredential]::new('test', (ConvertTo-SecureString 'test' -AsPlainText -Force)) }
+function Get-BcConfigurationCredential { param($configuration) [pscredential]::new('test', [System.Security.SecureString]::new()) }
 function Get-BcContainerAppInfo { param($containerName, [switch]$installedOnly) Get-SortedApps }
 function Get-TestsFromBcContainer {
-    [CmdletBinding()] param($containerName, $credential, $extensionId, $testCodeunitRange, [switch]$ignoreGroups)
+    [CmdletBinding()] param($containerName, [pscredential]$credential, [guid]$extensionId, $testCodeunitRange, [switch]$ignoreGroups)
     Assert ($testCodeunitRange -eq '') 'Discovery must not replace extension selection with a global range'
     Assert $ignoreGroups 'Discovery shape must be codeunits'
-    $ids = switch ($extensionId) { a { @(60990,60991) }; b { @(60992) }; c { @() } }
+    $ids = switch ($extensionId.ToString()) {
+        '00000000-0000-0000-0000-000000000001' { @(60990,60991) }
+        '00000000-0000-0000-0000-000000000002' { @(60992) }
+        '00000000-0000-0000-0000-000000000003' { @() }
+    }
     foreach ($id in $ids) {
         $count = if ($script:failureCount -gt 1) { $script:failureCount } else { 2 }
         [pscustomobject]@{ Id="$id"; Tests=@(1..$count | ForEach-Object { "Test$_" }) }
     }
 }
 function Run-TestsInBcContainer {
-    [CmdletBinding()] param($containerName, $credential, $extensionId, $appName, $JUnitResultFileName,
+    [CmdletBinding()] param($containerName, [pscredential]$credential, [guid]$extensionId = [guid]::Empty, $appName, $JUnitResultFileName,
         [switch]$returnTrueIfAllPassed, [switch]$detailed, $testRunnerCodeunitId, $testCodeunitRange)
     $script:runner = $testRunnerCodeunitId
     $script:calls += [pscustomobject]@{ app=$extensionId; runner=$testRunnerCodeunitId; filter=$testCodeunitRange }
     if ($testCodeunitRange -eq '0') {
+        Assert (-not $PSBoundParameters.ContainsKey('extensionId')) 'Reset must use the helper default extension ID'
+        Assert ($extensionId -eq [guid]::Empty) 'Reset default extension ID'
         Assert ($testRunnerCodeunitId -eq 130450) 'Reset runner'
         '<testsuites />' | Set-Content -LiteralPath $JUnitResultFileName
         return $true
@@ -75,7 +81,11 @@ function Run-TestsInBcContainer {
             nonboolean { return }
         }
     }
-    $allowed = switch ($extensionId) { a { @(60990,60991) }; b { @(60992) }; default { @() } }
+    $allowed = switch ($extensionId.ToString()) {
+        '00000000-0000-0000-0000-000000000001' { @(60990,60991) }
+        '00000000-0000-0000-0000-000000000002' { @(60992) }
+        default { @() }
+    }
     $failed = $testRunnerCodeunitId -eq $script:failureRunner
     $xml = '<testsuites>'
     foreach ($id in ($testCodeunitRange -split '\|')) {

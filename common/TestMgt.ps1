@@ -522,7 +522,7 @@ function Reset-TestIsolation {
     try {
         Write-Host 'Resetting test suite: runner=130450, codeunit filter=0 (no tests).'
         $passed = Run-TestsInBcContainer -containerName $ContainerName -credential $Credential `
-            -extensionId '' -testRunnerCodeunitId 130450 -testCodeunitRange '0' `
+            -testRunnerCodeunitId 130450 -testCodeunitRange '0' `
             -JUnitResultFileName $resultPath -returnTrueIfAllPassed -ErrorAction Stop
         $result = ConvertFrom-BcDevToolsetJUnitResult -ResultPath $resultPath -AppName 'suite reset'
         if ($passed -isnot [bool] -or -not $passed -or $result.total -ne 0) { throw 'Empty suite reset failed.' }
