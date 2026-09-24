@@ -56,6 +56,7 @@ Important local settings to review before running most operations:
 - `certificateFile`: Required when creating signed runtime packages.
 - `recordingsPath`: Folder containing page scripting recordings.
 - `pageScriptTestResultsPath`: Folder where page script test results are stored.
+- `testIsolationDisabledCodeunits`: Optional integer codeunit IDs (for example `[60990]`) for AL integration tests requiring disabled isolation. Set this in shared `settings.bcDevToolset` or local `.bcdevtoolset/settings.json`; an explicit local array replaces the shared list, and `[]` clears it. Duplicates are removed; invalid IDs are rejected before build/container preparation. Selected tests run under `130451`, all others under `130450`, with extension-scoped discovery and one combined report. This is not restricted to any Business Central version; compatibility depends on the available runner, discovery and filter capabilities. Unmatched IDs fail the run. Committed data can persist: non-isolated tests must manage setup, cleanup and recovery after failure. Page-script and AL Runner tests are unaffected.
 
 This is it, now you can start working on your project. Explore the toolset:
 

@@ -37,15 +37,17 @@ function Write-McpTestReport {
     $Report | ConvertTo-Json -Depth 8 -Compress | Set-Content -LiteralPath $validatedReportPath -Encoding UTF8
 }
 
-# Make sure Docker is running
-Test-DockerProcess
-
 $settingsJSON = @{}
 $workspaceJSON = @{}
 Initialize-Context `
     -scriptPath $scriptRoot  `
     -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
+
+# Reject invalid isolation settings before build or environment preparation.
+$null = @(Get-TestIsolationDisabledCodeunits -SettingsJSON $settingsJSON -WorkspaceJSON $workspaceJSON)
+Assert-TestIsolationCapabilities
+Test-DockerProcess
 
 $testContainerSelection = Request-TestExecutionContainerSelection -settingsJSON $settingsJSON
 if ($null -eq $testContainerSelection) {
@@ -85,6 +87,9 @@ try {
     Write-McpTestReport -Report $testReport
     Write-Host "Test summary: $($testReport.total) total, $($testReport.passed) passed, $($testReport.failed) failed, $($testReport.skipped) skipped ($($testReport.durationSeconds) seconds)." -ForegroundColor $(if ($testReport.allPassed) { 'Green' } else { 'Red' })
     if (-not $testReport.allPassed) {
+        if ($testReport.unmatchedCodeunitIds.Count -gt 0) {
+            throw "Configured non-isolated codeunits were not discovered: $($testReport.unmatchedCodeunitIds -join ', '). $($testReport.failed) AL tests failed."
+        }
         throw "$($testReport.failed) of $($testReport.total) AL tests failed."
     }
     Write-McpStageMarker -Stage tests -Status succeeded

@@ -52,6 +52,12 @@
       ],
       "description": "Whether page script tests should run headed."
     },
+    "testIsolationDisabledCodeunits": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+      "default": [],
+      "description": "Test codeunit IDs to run with isolation disabled (runner 130451). Other tests use codeunit isolation (130450). Duplicates are removed. An explicit local array replaces the shared list; local [] clears it. Non-isolated tests own setup, cleanup and recovery because committed data persists. Applies only to Run AL test tool tests."
+    },
     "testBuildWarningsAsErrors": {
       "type": "boolean",
       "default": false,

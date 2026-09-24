@@ -250,6 +250,28 @@ test('compiles successful test output without prerequisite stage chatter', () =>
   assert.doesNotMatch(compiled, /verbose successful deployment output/);
 });
 
+test('combined test report exposes isolation groups and unmatched selections', () => {
+  const compiled = mcpServer.compileInvokeTestsReport('__BCDEVTOOLSET_STAGE__tests::failed', 'failed', {
+    applicationCount: 1, total: 3, passed: 1, failed: 1, skipped: 1, durationSeconds: 2,
+    testIsolationDisabledCodeunits: [60990, 60992], unmatchedCodeunitIds: [60992],
+    groups: [
+      { app: 'Tests', container: 'bc23', isolation: 'Codeunit', runner: 130450, codeunitFilter: '60991', total: 1, passed: 0, failed: 1, skipped: 0, durationSeconds: 1, status: 'failed' },
+      { app: 'Tests', container: 'bc23', isolation: 'Disabled', runner: 130451, codeunitFilter: '60990', total: 2, passed: 1, failed: 0, skipped: 1, durationSeconds: 1, status: 'passed' }
+    ],
+    failures: [{ app: 'Tests', codeunit: '60991', method: 'Regression', message: 'assertion' }],
+    omittedFailureCount: 4, allPassed: false
+  });
+  assert.match(compiled, /Status: failed/);
+  assert.match(compiled, /3 total, 1 passed, 1 failed, 1 skipped/);
+  assert.match(compiled, /Applications tested: 1/);
+  assert.match(compiled, /Isolation disabled for codeunits: 60990, 60992/);
+  assert.match(compiled, /Codeunit, runner 130450, filter 60991/);
+  assert.match(compiled, /Disabled, runner 130451, filter 60990/);
+  assert.match(compiled, /Configured codeunits not discovered: 60992/);
+  assert.match(compiled, /Failure details omitted: 4/);
+  assert.match(compiled, /Regression/);
+});
+
 test('includes build diagnostics when the nested test build stage fails', () => {
   const output = [
     '__BCDEVTOOLSET_STAGE__build::started',

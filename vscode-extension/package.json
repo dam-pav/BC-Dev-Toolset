@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.8.9",
+  "version": "1.8.10",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -148,6 +148,16 @@
                 ],
                 "default": "Latest",
                 "description": "Business Central artifact selection strategy."
+              },
+              "testIsolationDisabledCodeunits": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                "default": [],
+                "description": "Test codeunit IDs to run with isolation disabled (runner 130451). Other tests use codeunit isolation (130450). Duplicates are removed. An explicit local array replaces this list; local [] clears it. Non-isolated tests own setup, cleanup and recovery because committed data persists. Applies only to Run AL test tool tests."
               },
               "testBuildWarningsAsErrors": {
                 "type": "boolean",
