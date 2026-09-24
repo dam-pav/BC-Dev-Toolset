@@ -1,0 +1,39 @@
+name: Extension package
+
+on:
+  pull_request:
+    paths:
+      - 'Invoke-BcDevToolsetOperation.ps1'
+      - 'common/**'
+      - 'operations/**'
+      - 'visualization/**'
+      - 'vscode-extension/**'
+      - '.github/workflows/extension-package.yml'
+      - '.github/workflows/latest-extension.yml'
+      - '.github/workflows/marketplace-publish.yml'
+      - '.github/workflows/publish-stable-release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Validate and package on Ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate extension
+        working-directory: vscode-extension
+        run: npm run validate
+      - name: Package VSIX
+        working-directory: vscode-extension
+        run: npm run package -- --out bc-dev-toolset-ci.vsix
+      - name: Upload package for verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: bc-dev-toolset-ci
+          path: vscode-extension/bc-dev-toolset-ci.vsix
+          if-no-files-found: error
