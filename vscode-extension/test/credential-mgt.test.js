@@ -120,6 +120,8 @@ test('backup reuses entered remoting credentials and offers storage only after l
         $null=New-RemoteBackupSession -computerName 'bc-host' -configuration $configuration
         [pscustomobject]@{DatabaseServer='sql-host';DatabaseInstance='';DatabaseName='test';Multitenant=$false;Tenants=@()}
       }
+      # Path validation has its own Windows tests; these tests exercise routing/credentials.
+      function Get-SqlBackupRootPath { [System.IO.Path]::GetTempPath() }
       function New-Item {}
       function Test-IsLocalSqlServer { $false }
       function Save-BcDatabaseServerHost {}
@@ -149,6 +151,8 @@ test('human SQL recovery offers storage after successful export and agents never
       function Import-BcServiceBackupDiscoveryModules {}
       function Select-BcServiceSqlBackupConfigurations { @{Source=[pscustomobject]@{name='source';serverInstance='BC230'};Destination=[pscustomobject]@{name='local';sqlBackupPath='C:\\exports'}} }
       function Get-BcServiceDatabaseInfo { [pscustomobject]@{DatabaseServer='sql-host';DatabaseInstance='';DatabaseName='test';Multitenant=$false;Tenants=@()} }
+      # Path validation has its own Windows tests; these tests exercise routing/credentials.
+      function Get-SqlBackupRootPath { [System.IO.Path]::GetTempPath() }
       function New-Item {}
       function Test-IsLocalSqlServer { $false }
       function Read-Host { $script:prompts++; 'y' }
