@@ -303,6 +303,8 @@ You can maintain data persistence in a couple of ways. One is to use the backup 
 
 SQL backup operations create and consume a compatible backup set in each Container configuration's *sqlBackupPath*. Different container configurations can use different folders; set the same folder on multiple Container configurations only when sharing the backup set is intentional. When more than one Container configuration has a non-empty *sqlBackupPath*, container backup and restore operations ask which container to use; container backup also offers an option to back up all qualified containers. Missing or stopped containers are reported and skipped.
 
+Use a local drive-absolute backup path or a relative path that stays inside the workspace. UNC shares, device/provider paths, drive-relative paths, and reserved device names are rejected before probing the configured location. Building the container selection menu does not check backup folder existence; the selected operation checks or creates its folder.
+
 Backup files are classified by suffix: *\<name\>.app.bak* for the application database, *\<tenant-id\>.tenant.bak* for multitenant tenant databases, or *\<name\>.database.bak* for a single-tenant database. Container backups add the container name to the exported file name to avoid collisions when multiple containers share the same names. Tenant backup filenames use tenant IDs because *BcContainerHelper* uses those IDs when restoring the databases; the original SQL database names are needed only to select the source databases during backup.
 
 To retrieve bak files from a SQL Server host you will require credentials with the ability to create remote Powershell sessions to the SQL Server host.

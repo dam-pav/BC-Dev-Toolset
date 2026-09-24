@@ -14,13 +14,46 @@ function Get-SqlBackupRootPath {
         return ""
     }
 
-    if ([System.IO.Path]::IsPathRooted($sqlBackupPath)) {
-        return [System.IO.Path]::GetFullPath($sqlBackupPath)
+    # Validate configuration syntax before any filesystem/provider access. Backup
+    # roots may intentionally be outside the workspace, but must use local paths.
+    # Reject UNC/device namespaces, provider paths, drive-relative paths, ADS,
+    # wildcards and DOS device names (including names with extensions).
+    $localPath = $sqlBackupPath.Replace('/', '\')
+    $isAbsoluteLocalPath = $localPath -match '^[A-Za-z]:\\'
+    $pathSegments = if ($isAbsoluteLocalPath) { $localPath.Substring(3) } else { $localPath }
+    if ((-not $isAbsoluteLocalPath -and $localPath.StartsWith('\')) -or
+        $pathSegments -match '[:<>"|?*\x00-\x1f]' -or
+        $pathSegments -match '(?i)(^|\\)(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])(?:[ .]|$)' -or
+        @($pathSegments.Split('\') | Where-Object { $_ -notin @('.', '..', '') -and $_ -match '[ .]$' }).Count -gt 0) {
+        throw "sqlBackupPath must be a local drive-absolute path or a workspace-relative folder; unsafe path kinds are not supported."
     }
 
-    $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
-    # Normalize without Resolve-Path so missing backup folders can still be diagnosed.
-    return [System.IO.Path]::GetFullPath((Join-Path $workspaceRootPath.FullName $sqlBackupPath))
+    try {
+        if ($isAbsoluteLocalPath) {
+            $validatedBackupRootPath = [System.IO.Path]::GetFullPath($sqlBackupPath)
+        }
+        else {
+            $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
+            # Normalize without Resolve-Path so missing backup folders can still be diagnosed.
+            $validatedBackupRootPath = [System.IO.Path]::GetFullPath((Join-Path $workspaceRootPath.FullName $sqlBackupPath))
+            $authorizedWorkspaceRoot = [System.IO.Path]::GetFullPath($workspaceRootPath.FullName).TrimEnd('\', '/')
+            if (-not ($validatedBackupRootPath.Equals($authorizedWorkspaceRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $validatedBackupRootPath.StartsWith($authorizedWorkspaceRoot + '\', [System.StringComparison]::OrdinalIgnoreCase))) {
+                throw "Relative sqlBackupPath must remain inside the workspace."
+            }
+        }
+        if ($validatedBackupRootPath -notmatch '^[A-Za-z]:[\\/]') {
+            throw "sqlBackupPath must resolve to a local drive path."
+        }
+    }
+    catch {
+        throw
+    }
+
+    # Menu construction must not probe configured locations. Selected operations
+    # perform their own existence checks or create the folder when appropriate.
+
+    return $validatedBackupRootPath
 }
 
 function Copy-SqlBackupSetToSharedFolder {
