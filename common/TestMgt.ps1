@@ -407,6 +407,9 @@ function ConvertFrom-BcDevToolsetJUnitResult {
     }
 
     [xml]$resultDocument = Get-Content -LiteralPath $ResultPath -Raw
+    if ($resultDocument.DocumentElement.Name -notin @('testsuites', 'testsuite')) {
+        throw "Malformed JUnit result for '$AppName': expected testsuites or testsuite."
+    }
     $testSuites = @($resultDocument.SelectNodes('//testsuite'))
     $failures = @()
     $total = 0
@@ -415,17 +418,31 @@ function ConvertFrom-BcDevToolsetJUnitResult {
     $durationSeconds = 0.0
 
     foreach ($testSuite in $testSuites) {
+        foreach ($attribute in @('tests', 'failures', 'errors', 'skipped')) {
+            $count = 0
+            if (-not [int]::TryParse($testSuite.GetAttribute($attribute), [ref]$count) -or $count -lt 0) {
+                throw "Malformed JUnit result for '$AppName': invalid $attribute count."
+            }
+        }
+        $cases = @($testSuite.SelectNodes('./testcase'))
+        if ([int]$testSuite.GetAttribute('tests') -ne $cases.Count -or
+            [int]$testSuite.GetAttribute('failures') -ne @($testSuite.SelectNodes('./testcase[failure]')).Count -or
+            [int]$testSuite.GetAttribute('errors') -ne @($testSuite.SelectNodes('./testcase[error]')).Count -or
+            [int]$testSuite.GetAttribute('skipped') -ne @($testSuite.SelectNodes('./testcase[skipped]')).Count) {
+            throw "Malformed JUnit result for '$AppName': counts do not match test cases."
+        }
         $total += [int]$testSuite.GetAttribute('tests')
         $failed += [int]$testSuite.GetAttribute('failures') + [int]$testSuite.GetAttribute('errors')
         $skipped += [int]$testSuite.GetAttribute('skipped')
         $suiteDuration = 0.0
-        if ([double]::TryParse(
+        if (-not [double]::TryParse(
             $testSuite.GetAttribute('time'),
             [System.Globalization.NumberStyles]::Float,
             [System.Globalization.CultureInfo]::InvariantCulture,
-            [ref]$suiteDuration)) {
-            $durationSeconds += $suiteDuration
+            [ref]$suiteDuration) -or $suiteDuration -lt 0 -or [double]::IsNaN($suiteDuration) -or [double]::IsInfinity($suiteDuration)) {
+            throw "Malformed JUnit result for '$AppName': invalid duration."
         }
+        $durationSeconds += $suiteDuration
 
         foreach ($testCase in @($testSuite.SelectNodes('./testcase[failure or error]'))) {
             $failureNode = $testCase.SelectSingleNode('./failure | ./error')
@@ -463,6 +480,59 @@ function Get-TestBuildWarningsAsErrors {
     return $value
 }
 
+function Get-TestIsolationDisabledCodeunits {
+    Param ([PSObject] $SettingsJSON, [PSObject] $WorkspaceJSON)
+
+    $source = $SettingsJSON
+    if (-not $source.PSObject.Properties['testIsolationDisabledCodeunits']) {
+        $source = $WorkspaceJSON.settings.bcDevToolset
+        if ($null -eq $source) { $source = $WorkspaceJSON.settings.'dam-pav.bcdevtoolset' }
+        if ($null -eq $source -or -not $source.PSObject.Properties['testIsolationDisabledCodeunits']) { return }
+    }
+    $value = $source.testIsolationDisabledCodeunits
+    $message = 'testIsolationDisabledCodeunits must be a JSON array of integer codeunit IDs from 1 to 2147483647.'
+    if ($value -isnot [array]) { throw $message }
+    foreach ($id in $value) {
+        if (($id -isnot [int] -and $id -isnot [long] -and $id -isnot [double] -and $id -isnot [decimal]) -or
+            $id -lt 1 -or $id -gt [int]::MaxValue -or [Math]::Truncate($id) -ne $id) { throw $message }
+    }
+    return @($value | ForEach-Object { [int]$_ } | Sort-Object -Unique)
+}
+
+function Assert-TestIsolationCapabilities {
+    foreach ($entry in @(
+        @{ Command = 'Get-TestsFromBcContainer'; Parameters = @('extensionId', 'testCodeunitRange', 'ignoreGroups') },
+        @{ Command = 'Run-TestsInBcContainer'; Parameters = @('extensionId', 'testCodeunitRange', 'testRunnerCodeunitId', 'JUnitResultFileName', 'returnTrueIfAllPassed') }
+    )) {
+        $command = Get-Command $entry.Command -ErrorAction SilentlyContinue
+        foreach ($parameter in $entry.Parameters) {
+            if ($null -eq $command -or -not $command.Parameters.ContainsKey($parameter)) {
+                throw "Unsupported test isolation capability: $($entry.Command) requires parameter '$parameter'. Update BcContainerHelper and the BC test toolkit."
+            }
+        }
+    }
+}
+
+function Reset-TestIsolation {
+    Param ([string] $ContainerName, [pscredential] $Credential, [string] $ResultDirectory)
+
+    # DEFAULT persists its runner. Codeunit 0 cannot contain tests: selecting it clears
+    # the suite without executing tests, and restores the safe codeunit-isolated runner.
+    $resultPath = Join-Path $ResultDirectory "$([guid]::NewGuid().ToString('N')).junit.xml"
+    try {
+        Write-Host 'Resetting test suite: runner=130450, codeunit filter=0 (no tests).'
+        $passed = Run-TestsInBcContainer -containerName $ContainerName -credential $Credential `
+            -extensionId '' -testRunnerCodeunitId 130450 -testCodeunitRange '0' `
+            -JUnitResultFileName $resultPath -returnTrueIfAllPassed -ErrorAction Stop
+        $result = ConvertFrom-BcDevToolsetJUnitResult -ResultPath $resultPath -AppName 'suite reset'
+        if ($passed -isnot [bool] -or -not $passed -or $result.total -ne 0) { throw 'Empty suite reset failed.' }
+    } catch {
+        throw "Could not reset test suite to codeunit isolation: $($_.Exception.Message)"
+    } finally {
+        Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Invoke-Tests {
     Param (
         [Parameter(Mandatory=$true)]
@@ -475,6 +545,9 @@ function Invoke-Tests {
         [string] $targetType
     )
 
+    $disabledIds = @(Get-TestIsolationDisabledCodeunits -SettingsJSON $settingsJSON -WorkspaceJSON $workspaceJSON)
+    Assert-TestIsolationCapabilities
+    $foundIds = [System.Collections.Generic.HashSet[int]]::new()
     $workspaceApps = @(Get-SortedApps -workspaceJSON $workspaceJSON)
     if ($workspaceApps.Count -eq 0) {
         throw "No workspace apps were found for AL test discovery."
@@ -496,6 +569,9 @@ function Invoke-Tests {
         failures = @()
         omittedFailureCount = 0
         allPassed = $true
+        testIsolationDisabledCodeunits = @($disabledIds)
+        groups = @()
+        unmatchedCodeunitIds = @()
     }
     $maximumFailureDetails = 20
 
@@ -504,7 +580,7 @@ function Invoke-Tests {
         switch ($configuration.serverType) {
             'Container' {
                 if (-not (Test-DockerContainerExists -containerName $configuration.container)) {
-                    continue
+                    throw "Test container '$($configuration.container)' does not exist."
                 }
 
                 $credential = Get-BcConfigurationCredential -configuration $configuration
@@ -520,53 +596,108 @@ function Invoke-Tests {
                         throw "Workspace app '$($workspaceApp.Name)' ($($workspaceApp.AppId)) is not installed in container '$($configuration.container)'; tests cannot be discovered."
                     }
 
-                    $resultPath = Join-Path $resultDirectory "$([guid]::NewGuid().ToString('N')).junit.xml"
-                    $params = @{
-                        containerName = $configuration.container
-                        credential = $credential
-                        extensionId = [string]$workspaceApp.AppId
-                        appName = [string]$installedApp[0].Name
-                        JUnitResultFileName = $resultPath
-                        returnTrueIfAllPassed = $true
-                        detailed = $true
-                    }
+                    $compiledResult.applicationCount++
+                    # Range validation can replace extension discovery, rather than intersecting it.
+                    # Discover by extension alone, then use only the IDs belonging to that app.
+                    $discovered = @(Get-TestsFromBcContainer -containerName $configuration.container -credential $credential `
+                        -extensionId ([string]$workspaceApp.AppId) -testCodeunitRange '' -ignoreGroups -ErrorAction Stop)
+                    $ids = @($discovered | ForEach-Object {
+                        $id = 0
+                        if (-not [int]::TryParse([string]$_.Id, [ref]$id) -or $id -le 0 -or -not $_.PSObject.Properties['Tests']) {
+                            throw "Malformed test discovery for '$($workspaceApp.Name)'."
+                        }
+                        $null = $foundIds.Add($id)
+                        $id
+                    } | Sort-Object -Unique)
+                    foreach ($policy in @(
+                        @{ isolation = 'Codeunit'; runner = 130450; ids = @($ids | Where-Object { $_ -notin $disabledIds }) },
+                        @{ isolation = 'Disabled'; runner = 130451; ids = @($ids | Where-Object { $_ -in $disabledIds }) }
+                    )) {
+                        $filter = $policy.ids -join '|'
+                        $group = [pscustomobject]@{
+                            app = [string]$workspaceApp.Name
+                            extensionId = [string]$workspaceApp.AppId
+                            container = [string]$configuration.container
+                            isolation = $policy.isolation; runner = $policy.runner; codeunitFilter = $filter
+                            total = 0; passed = 0; failed = 0; skipped = 0; durationSeconds = 0.0
+                            allPassed = $true; status = 'empty'
+                        }
+                        $compiledResult.groups += $group
+                        Write-Host "App '$($workspaceApp.Name)': isolation=$($policy.isolation), runner=$($policy.runner), codeunit filter='$filter'." -ForegroundColor Blue
+                        if ($policy.ids.Count -eq 0) { continue }
+                        $resultPath = Join-Path $resultDirectory "$([guid]::NewGuid().ToString('N')).junit.xml"
+                        $params = @{
+                            containerName = $configuration.container
+                            credential = $credential
+                            extensionId = [string]$workspaceApp.AppId
+                            appName = [string]$installedApp[0].Name
+                            JUnitResultFileName = $resultPath
+                            returnTrueIfAllPassed = $true
+                            detailed = $true
+                            testRunnerCodeunitId = $policy.runner
+                            testCodeunitRange = $filter
+                        }
 
-                    Write-Host ""
-                    Write-Host "Discovering and running tests in '$($workspaceApp.Name)' ($($workspaceApp.AppId))." -ForegroundColor Green
-                    Write-Host "Running " -ForegroundColor Green -NoNewline
-                    Write-Host "Run-TestsInBcContainer" -ForegroundColor Blue -NoNewline
-                    Write-Host " with extension-scoped test discovery:" -ForegroundColor Green
-                    try {
-                        $appPassed = Run-TestsInBcContainer -ErrorAction SilentlyContinue @params
-                        $appResult = ConvertFrom-BcDevToolsetJUnitResult `
-                            -ResultPath $resultPath `
-                            -AppName ([string]$workspaceApp.Name)
-                        $compiledResult.applicationCount++
-                        $compiledResult.total += $appResult.total
-                        $compiledResult.passed += $appResult.passed
-                        $compiledResult.failed += $appResult.failed
-                        $compiledResult.skipped += $appResult.skipped
-                        $compiledResult.durationSeconds += $appResult.durationSeconds
-                        $compiledResult.allPassed = $compiledResult.allPassed -and ($appPassed -eq $true) -and ($appResult.failed -eq 0)
+                        Write-Host ""
+                        Write-Host "Discovering and running tests in '$($workspaceApp.Name)' ($($workspaceApp.AppId))." -ForegroundColor Green
+                        Write-Host "Running " -ForegroundColor Green -NoNewline
+                        Write-Host "Run-TestsInBcContainer" -ForegroundColor Blue -NoNewline
+                        Write-Host " with extension-scoped test discovery:" -ForegroundColor Green
+                        try {
+                            $appPassed = Run-TestsInBcContainer -ErrorAction Stop @params
+                            if ($appPassed -isnot [bool]) { throw 'Test invocation did not return a boolean result.' }
+                            $appResult = ConvertFrom-BcDevToolsetJUnitResult `
+                                -ResultPath $resultPath `
+                                -AppName ([string]$workspaceApp.Name)
+                            $expectedCount = 0
+                            foreach ($codeunit in $discovered) {
+                                if ([int]$codeunit.Id -in $policy.ids) { $expectedCount += @($codeunit.Tests).Count }
+                            }
+                            if ($appResult.total -ne $expectedCount) {
+                                throw "Incomplete test results: discovered $expectedCount tests but received $($appResult.total)."
+                            }
+                            foreach ($metric in @('total', 'passed', 'failed', 'skipped', 'durationSeconds')) { $group.$metric = $appResult.$metric }
+                            $group.allPassed = $appPassed -and ($appResult.failed -eq 0)
+                            $group.status = if ($group.allPassed) { 'passed' } else { 'failed' }
+                            $compiledResult.total += $appResult.total
+                            $compiledResult.passed += $appResult.passed
+                            $compiledResult.failed += $appResult.failed
+                            $compiledResult.skipped += $appResult.skipped
+                            $compiledResult.durationSeconds += $appResult.durationSeconds
+                            $compiledResult.allPassed = $compiledResult.allPassed -and ($appPassed -eq $true) -and ($appResult.failed -eq 0)
 
-                        foreach ($failure in @($appResult.failures)) {
-                            if ($compiledResult.failures.Count -lt $maximumFailureDetails) {
-                                $compiledResult.failures += $failure
-                            } else {
-                                $compiledResult.omittedFailureCount++
+                            foreach ($failure in @($appResult.failures)) {
+                                $failure | Add-Member -NotePropertyName isolation -NotePropertyValue $policy.isolation
+                                $failure | Add-Member -NotePropertyName runner -NotePropertyValue $policy.runner
+                                if ($compiledResult.failures.Count -lt $maximumFailureDetails) {
+                                    $compiledResult.failures += $failure
+                                } else {
+                                    $compiledResult.omittedFailureCount++
+                                }
+                            }
+                        } catch {
+                            throw "Test infrastructure failure for '$($workspaceApp.Name)', runner $($policy.runner): $($_.Exception.Message)"
+                        } finally {
+                            Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
+                            if ($policy.runner -eq 130451) {
+                                Reset-TestIsolation -ContainerName $configuration.container -Credential $credential -ResultDirectory $resultDirectory
                             }
                         }
-                    } finally {
-                        Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
                     }
                 }
             }
             Default {
-                Write-Host "Cannot run tests on serverType $serverType." -ForegroundColor Blue
+                throw "Cannot run tests on serverType '$($configuration.serverType)'."
             }
         }
     }
 
+    if ($compiledResult.applicationCount -eq 0) { throw 'No workspace applications were tested.' }
+    $compiledResult.unmatchedCodeunitIds = @($disabledIds | Where-Object { -not $foundIds.Contains($_) })
+    if ($compiledResult.unmatchedCodeunitIds.Count -gt 0) {
+        $compiledResult.allPassed = $false
+        Write-Warning "Configured non-isolated codeunits were not discovered in workspace tests: $($compiledResult.unmatchedCodeunitIds -join ', ')."
+    }
     $compiledResult.durationSeconds = [Math]::Round($compiledResult.durationSeconds, 3)
     return [pscustomobject]$compiledResult
 }

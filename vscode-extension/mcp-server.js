@@ -1637,6 +1637,15 @@ function compileInvokeTestsReport(output, operationStatus, operationReport) {
     );
 
     const omittedFailureCount = Number(testReport.omittedFailureCount) || 0;
+    if (Array.isArray(testReport.testIsolationDisabledCodeunits)) {
+      lines.push(`Isolation disabled for codeunits: ${testReport.testIsolationDisabledCodeunits.join(', ') || '(none)'}`);
+    }
+    for (const group of Array.isArray(testReport.groups) ? testReport.groups : []) {
+      lines.push(`- ${group.app} (${group.container}): ${group.isolation}, runner ${group.runner}, filter ${group.codeunitFilter || '(empty)'}; ${group.total} total, ${group.passed} passed, ${group.failed} failed, ${group.skipped} skipped (${group.durationSeconds}s); ${group.status}`);
+    }
+    if (Array.isArray(testReport.unmatchedCodeunitIds) && testReport.unmatchedCodeunitIds.length > 0) {
+      lines.push(`Configured codeunits not discovered: ${testReport.unmatchedCodeunitIds.join(', ')}`);
+    }
     if (omittedFailureCount > 0) {
       lines.push(`Failure details omitted: ${omittedFailureCount} (the first ${Array.isArray(testReport.failures) ? testReport.failures.length : 0} are shown)`);
     }
