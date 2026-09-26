@@ -15,15 +15,22 @@ function resolveToolSettings(overrides = {}) {
   ]));
 }
 
-function readEffectiveToolSettings(configuration, localOverrides = {}) {
+function readToolSettingsForScope(configuration, scope, localOverrides = {}, includeScope = true) {
+  const values = configuration.inspect('mcpTools') || {};
+  const scopes = scope === 'local' ? ['local', 'workspaceValue', 'globalValue']
+    : scope === 'workspaceValue' ? ['workspaceValue', 'globalValue'] : ['globalValue'];
+  if (!includeScope) scopes.shift();
   return resolveToolSettings(Object.fromEntries(Object.keys(toolDefaults).map((name) => {
-    if (typeof localOverrides?.[name] === 'boolean') return [name, localOverrides[name]];
-    const current = configuration.inspect(`mcpTools.${name}`);
-    for (const scope of ['workspaceValue', 'globalValue']) {
-      if (current?.[scope] !== undefined) return [name, current[scope]];
+    for (const currentScope of scopes) {
+      const overrides = currentScope === 'local' ? localOverrides : values[currentScope];
+      if (typeof overrides?.[name] === 'boolean') return [name, overrides[name]];
     }
     return [name, undefined];
   })));
+}
+
+function readEffectiveToolSettings(configuration, localOverrides = {}) {
+  return readToolSettingsForScope(configuration, 'local', localOverrides);
 }
 
 function mergeToolSelection(existing, before, selectedNames) {
@@ -36,4 +43,4 @@ function mergeToolSelection(existing, before, selectedNames) {
   return Object.keys(changes).length ? { ...existing, mcpTools: { ...existing.mcpTools, ...changes } } : undefined;
 }
 
-module.exports = { toolSchemas, toolDefaults, resolveToolSettings, readEffectiveToolSettings, mergeToolSelection };
+module.exports = { toolSchemas, toolDefaults, resolveToolSettings, readEffectiveToolSettings, readToolSettingsForScope, mergeToolSelection };

@@ -21,7 +21,7 @@ function request(settings, method, params) {
   return JSON.parse(result.stdout).result;
 }
 
-test('every tool has exactly one user switch and only the requested four default on', () => {
+test('every tool has one switch and only the four startup tools default on', () => {
   assert.deepEqual(Object.keys(toolDefaults).sort(), server.getAllTools().map(tool => tool.name).sort());
   assert.deepEqual(Object.keys(toolDefaults).filter(name => toolDefaults[name]).sort(), [
     'bc_dev_toolset_answer_operation_prompt', 'bc_dev_toolset_get_operation_status',
@@ -72,8 +72,8 @@ test('effective workspace values override user values including explicit false',
   const user = { bc_dev_toolset_get_workspace: true, bc_dev_toolset_show_help: true };
   const workspace = { bc_dev_toolset_get_workspace: false, bc_dev_toolset_build_all_apps: true };
   const settings = readEffectiveToolSettings({ inspect: key => {
-    const name = key.replace('mcpTools.', '');
-    return { workspaceValue: workspace[name], globalValue: user[name] };
+    assert.equal(key, 'mcpTools');
+    return { workspaceValue: workspace, globalValue: user };
   } });
   assert.equal(settings.bc_dev_toolset_get_workspace, false);
   assert.equal(settings.bc_dev_toolset_show_help, true);
@@ -209,10 +209,13 @@ test('local schema exposes the same MCP switches and defaults as workspace setti
 });
 
 test('local switches override workspace and user values individually, including false', () => {
-  const configuration = { inspect: key => ({
-    workspaceValue: key === 'mcpTools.bc_dev_toolset_get_workspace' ? true : undefined,
-    globalValue: key === 'mcpTools.bc_dev_toolset_show_help' ? true : undefined
-  }) };
+  const configuration = { inspect: key => {
+    assert.equal(key, 'mcpTools');
+    return {
+      workspaceValue: { bc_dev_toolset_get_workspace: true },
+      globalValue: { bc_dev_toolset_show_help: true }
+    };
+  } };
   const settings = readEffectiveToolSettings(configuration, {
     bc_dev_toolset_get_workspace: false, bc_dev_toolset_build_all_apps: true
   });

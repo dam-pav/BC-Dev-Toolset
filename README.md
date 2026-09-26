@@ -77,11 +77,11 @@ Workspace and User MCP tool selections are stored inside the `bcDevToolset` obje
 
 Local selections are stored in the top-level `mcpTools` object in `.bcdevtoolset/settings.json` (or the workspace-relative `bcDevToolset.localSettingsPath`). Local values override workspace values, then user values, per tool; omitted switches inherit the next level. Restart the MCP server/client after editing local selections.
 
-**Get Workspace**, **Invoke AL Tests**, **Get Operation Status**, and **Answer Operation Prompt** are on by default. All other tools default to off. Workspace switches override user switches individually; omitted switches inherit the user value or built-in default. In a multi-root workspace, save these settings in the `.code-workspace` file. Native per-setting Preferences checkboxes are no longer contributed, because they write separate dotted keys.
+Get Workspace, Get Operation Status, Answer Operation Prompt, and Invoke AL Tests default to on for a fresh installation. All other MCP tools default to off. Each explicitly configured true or false value overrides less granular scopes per tool: Local, then Workspace, then User. Unset values inherit from the next scope. In a multi-root workspace, save Workspace settings in the `.code-workspace` file. Native per-setting Preferences checkboxes are no longer contributed, because they write separate dotted keys.
 
 Changes apply after restarting the MCP server/client. Running servers retain their startup selection; there are no live tool-list updates. Disabled tools are omitted from discovery and their calls are rejected. The generic operation runner and legacy alias also require the underlying operation's tool switch to be on. These switches replace the old generic/legacy exposure environment flags. MCP resources and Command Palette operations remain available independently.
 
-**Get Operation Status** and **Answer Operation Prompt** are enabled by default to support operation follow-ups. An enabled operation can also resume its own pending session when called again with answers. Apply settings between operations to avoid interrupting the client connection.
+Enable **Get Operation Status** and **Answer Operation Prompt** if you want the AI client to check progress or answer operation follow-up prompts. An enabled operation can also resume its own pending session when called again with answers. Apply settings between operations to avoid interrupting the client connection.
 
 For example, to additionally expose AL builds:
 
@@ -96,7 +96,7 @@ For example, to additionally expose AL builds:
 
 The managed Codex MCP configuration requests the effective tool selection from the authenticated bridge for its startup workspace. Each MCP process captures that selection once, so different workspaces can declare different tools without overwriting a global selection. Keep the matching VS Code extension host running and restart the MCP client after changes. If the bridge is missing or cannot provide the settings, discovery fails with recovery instructions. Development Hosts skip automatic Codex configuration maintenance; run **Configure Codex MCP Integration** there explicitly when testing this integration.
 
-Manually configured clients can use `BCDEVTOOLSET_MCP_TOOL_SETTINGS_SOURCE=bridge` for workspace selection, or pass a fixed boolean map as JSON in `BCDEVTOOLSET_MCP_TOOL_SETTINGS`. Without either, the four default tools are declared.
+Manually configured clients can use `BCDEVTOOLSET_MCP_TOOL_SETTINGS_SOURCE=bridge` for workspace selection, or pass a fixed boolean map as JSON in `BCDEVTOOLSET_MCP_TOOL_SETTINGS`. Without either, the four startup tools are declared by default.
 
 #### Codex
 

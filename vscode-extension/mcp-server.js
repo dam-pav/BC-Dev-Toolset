@@ -223,6 +223,7 @@ async function handleMessage(body) {
         break;
       case 'tools/list':
         await ensureStartupToolSettings();
+        log(`tools/list enabled=${getToolsForList().map((tool) => tool.name).join(',') || '(none)'}`);
         sendResult(message.id, { tools: getToolsForList() });
         break;
       case 'tools/call':
