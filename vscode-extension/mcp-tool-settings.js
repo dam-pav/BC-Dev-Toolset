@@ -33,14 +33,24 @@ function readEffectiveToolSettings(configuration, localOverrides = {}) {
   return readToolSettingsForScope(configuration, 'local', localOverrides);
 }
 
-function mergeToolSelection(existing, before, selectedNames) {
+function mergeToolSelection(existing, inherited, selectedNames) {
   if (!existing || typeof existing !== 'object' || Array.isArray(existing) ||
       (existing.mcpTools !== undefined && (!existing.mcpTools || typeof existing.mcpTools !== 'object' || Array.isArray(existing.mcpTools)))) {
     throw new Error('bcDevToolset and mcpTools must be JSON objects before tool selections can be saved.');
   }
   const selected = new Set(selectedNames);
-  const changes = Object.fromEntries(Object.keys(toolDefaults).filter(name => before[name] !== selected.has(name)).map(name => [name, selected.has(name)]));
-  return Object.keys(changes).length ? { ...existing, mcpTools: { ...existing.mcpTools, ...changes } } : undefined;
+  const currentToolSettings = existing.mcpTools || {};
+  const nextToolSettings = { ...currentToolSettings };
+  for (const name of Object.keys(toolDefaults)) {
+    const selectedAtScope = selected.has(name);
+    if (selectedAtScope === inherited[name]) delete nextToolSettings[name];
+    else nextToolSettings[name] = selectedAtScope;
+  }
+  const currentKeys = Object.keys(currentToolSettings);
+  const nextKeys = Object.keys(nextToolSettings);
+  const changed = currentKeys.length !== nextKeys.length || currentKeys.some((name) =>
+    !Object.prototype.hasOwnProperty.call(nextToolSettings, name) || currentToolSettings[name] !== nextToolSettings[name]);
+  return changed ? { ...existing, mcpTools: nextToolSettings } : undefined;
 }
 
 module.exports = { toolSchemas, toolDefaults, resolveToolSettings, readEffectiveToolSettings, readToolSettingsForScope, mergeToolSelection };
