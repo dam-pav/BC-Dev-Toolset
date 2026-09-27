@@ -754,6 +754,19 @@ function Invoke-PageScriptTests {
         return
     }
 
+    $npmGlobalRootOutput = & npm root -g
+    if ($LASTEXITCODE -ne 0) {
+        throw "npm could not determine the global package root (exit code $LASTEXITCODE). Run the 'Install prerequisites' operation and try again."
+    }
+    $npmGlobalRoot = ($npmGlobalRootOutput | Out-String).Trim()
+    $bcReplayPackageRoot = Join-Path $npmGlobalRoot "@microsoft\bc-replay"
+    if (-not (Test-Path -LiteralPath (Join-Path $bcReplayPackageRoot "package.json") -PathType Leaf)) {
+        throw "The global @microsoft/bc-replay package was not found at '$bcReplayPackageRoot'. Run the 'Install prerequisites' operation and try again."
+    }
+
+    $recordingsPath = (Resolve-Path -LiteralPath $recordingsPath).Path
+    $testResultsPath = (Resolve-Path -LiteralPath $testResultsPath).Path
+
     $targetConfigurations = @($settingsJSON.configurations)
     if (-not [string]::IsNullOrWhiteSpace($targetType)) {
         $targetConfigurations = @($targetConfigurations | Where-Object { $_.targetType -eq $targetType })
@@ -821,9 +834,8 @@ function Invoke-PageScriptTests {
 
         Write-Host "Running tests against $baseUrl" -ForegroundColor Cyan
         
-        # Use relative path for tests to match manual execution success and ensure globbing works
-        $relativeRecPath = Resolve-Path $recordingsPath -Relative
-        $testPattern = Join-Path $relativeRecPath "*.yml"
+        # Run from the bc-replay package so npx uses its bundled Playwright version instead of downloading a potentially incompatible latest version.
+        $testPattern = Join-Path $recordingsPath "*.yml"
 
         $replayArgs = @(
             "-Tests", $testPattern,
@@ -840,15 +852,22 @@ function Invoke-PageScriptTests {
 
         $previousBcUser = $env:BC_USER
         $previousBcPassword = $env:BC_PASSWORD
+        Push-Location $bcReplayPackageRoot
         try {
             $env:BC_USER = $user
             $env:BC_PASSWORD = $password
             & replay @replayArgs
+            $replayExitCode = $LASTEXITCODE
         } finally {
+            Pop-Location
             $env:BC_USER = $previousBcUser
             $env:BC_PASSWORD = $previousBcPassword
             $password = $null
             $bcCredentials = $null
+        }
+
+        if ($replayExitCode -ne 0) {
+            throw "Page script tests failed for '$($configuration.name)' (replay exit code $replayExitCode). Check the Playwright output and page script test results in '$testResultsPath'."
         }
     }
 }

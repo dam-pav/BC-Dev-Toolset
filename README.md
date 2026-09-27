@@ -126,7 +126,7 @@ The Codex MCP server uses the VS Code terminal bridge belonging to the current w
    - configures the required Windows features
    - installs git
    - installs BcContainerHelper
-   - installs Node.js and @microsoft/bc-replay for page script tests
+   - installs Node.js, @microsoft/bc-replay, and its matching Playwright browsers for page script tests
    - installs .NET SDK 10 when SDK 9/10 is missing, then installs or updates MSDyn365BC.AL.Runner
    - stops before installing later components if the required Windows container features cannot be enabled, and offers an optional guarded cleanup flow
 
@@ -416,7 +416,7 @@ When a selected container does not exist, the operation creates it from the sele
 
 When preparation is required for an existing selected container, the operation restores the SQL backup set from *sqlBackupPath* if compatible backup files exist, publishes dependency apps, publishes all workspace apps including test apps, and then discovers and executes tests separately for each installed workspace extension. Apps without test codeunits are allowed; a workspace app that is not installed causes the operation to stop instead of silently omitting its tests.
 
-Page script tests additionally require Node.js 24 or newer and the *@microsoft/bc-replay* command-line tool. The test operation verifies these prerequisites and exits cleanly if they are missing. Run the *Install prerequisites* operation to install or update them.
+Page script tests additionally require Node.js 24 or newer and the *@microsoft/bc-replay* command-line tool. The *Install prerequisites* operation installs the Playwright browsers using the version bundled with *@microsoft/bc-replay*. Tests run from that package directory so replay uses the same Playwright version instead of downloading a separate version on first use.
 
 AL Runner tests require .NET SDK 9 or 10 and the global *MSDyn365BC.AL.Runner* tool. The prerequisite operations install or update AL Runner and can remove the tool again; the shared .NET SDK is retained during prerequisite removal.
 

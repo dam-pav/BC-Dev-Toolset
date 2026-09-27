@@ -180,7 +180,7 @@ If an extension blocks CLI User table validation/events, for example because no 
 ### Prerequisites
 
 - `Show BcContainerHelper versions (installed and available)`: Shows the installed and available BcContainerHelper versions.
-- `Install/Update Prerequisites`: Installs and updates the main prerequisites used by the toolset, including BcContainerHelper, Node.js, @microsoft/bc-replay, .NET SDK 9/10, and MSDyn365BC.AL.Runner. If required Windows container features cannot be enabled, later installation steps are skipped and the operation offers to open the guarded uninstall flow.
+- `Install/Update Prerequisites`: Installs and updates the main prerequisites used by the toolset, including BcContainerHelper, Node.js, @microsoft/bc-replay and its matching Playwright browsers, .NET SDK 9/10, and MSDyn365BC.AL.Runner. If required Windows container features cannot be enabled, later installation steps are skipped and the operation offers to open the guarded uninstall flow.
 - `Uninstall Prerequisites`: Detects Docker Engine, BC Replay, AL Runner, Node.js, Git, BcContainerHelper, and Windows container features, then asks separately before removing each component. Every prompt defaults to keeping the component installed. The shared .NET SDK is retained.
 - `Install/Update Microsoft PowerShell`: Updates the Windows PowerShell installation used for the toolkit setup flow.
 

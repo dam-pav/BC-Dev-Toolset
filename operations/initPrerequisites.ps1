@@ -8,7 +8,7 @@
     - Windows Features (Containers, Hyper-V)
     - Git
     - BcContainerHelper PowerShell Module
-    - Node.js and @microsoft/bc-replay for page script tests
+    - Node.js, @microsoft/bc-replay, and its Playwright browser binaries for page script tests
     - .NET SDK and MSDyn365BC.AL.Runner for standalone AL tests
 .NOTES
     Requires Administrator privileges
@@ -1060,6 +1060,24 @@ if (-not $SkipNode) {
             }
             if (Get-Command replay -ErrorAction SilentlyContinue) {
                 Write-Success "@microsoft/bc-replay is available"
+
+                $npmGlobalRootOutput = & npm root -g
+                if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($npmGlobalRootOutput | Out-String).Trim())) {
+                    throw "npm could not determine the global package root (exit code $LASTEXITCODE)."
+                }
+                $npmGlobalRoot = ($npmGlobalRootOutput | Out-String).Trim()
+                $bcReplayPackageRoot = Join-Path $npmGlobalRoot "@microsoft\bc-replay"
+                $playwrightInstallCommand = Join-Path $bcReplayPackageRoot "node_modules\.bin\playwright.cmd"
+                if (-not (Test-Path -LiteralPath $playwrightInstallCommand -PathType Leaf)) {
+                    throw "The Playwright CLI bundled with @microsoft/bc-replay was not found at '$playwrightInstallCommand'."
+                }
+
+                Write-Host "Installing the Playwright browsers required by @microsoft/bc-replay..."
+                & $playwrightInstallCommand install
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Playwright failed to install Chromium (exit code $LASTEXITCODE)."
+                }
+                Write-Success "Playwright browsers are ready for page script tests"
             }
             else {
                 Write-Warning "@microsoft/bc-replay was installed, but the replay command is not available in PATH. Restart PowerShell and run prerequisites again if needed."
