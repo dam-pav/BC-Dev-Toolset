@@ -91,7 +91,7 @@ test('managed Codex config reads workspace settings from the bridge without stor
   assert.doesNotMatch(config, /BCDEVTOOLSET_MCP_TOOL_SETTINGS =/);
 });
 
-test('picker saves changed switches inside mcpTools and preserves unrelated values', () => {
+test('picker persists the full scope selection and preserves unknown settings', () => {
   const inherited = resolveToolSettings();
   const existing = {
     selectArtifact: 'Latest', configurations: [{ name: 'Local' }],
@@ -99,14 +99,18 @@ test('picker saves changed switches inside mcpTools and preserves unrelated valu
   };
   const selected = Object.keys(inherited).filter(name => inherited[name]);
   selected.push('bc_dev_toolset_create_runtime_package');
-  const result = mergeToolSelection(existing, inherited, selected);
-  assert.deepEqual(result, { ...existing, mcpTools: { future_tool: true, bc_dev_toolset_create_runtime_package: true } });
+  const result = mergeToolSelection(existing, selected);
+  assert.deepEqual(result, {
+    ...existing,
+    mcpTools: {
+      future_tool: true,
+      ...Object.fromEntries(Object.keys(inherited).map(name => [name, selected.includes(name)]))
+    }
+  });
   assert.deepEqual(existing.mcpTools, {
     future_tool: true, bc_dev_toolset_show_help: true, bc_dev_toolset_new_docker_container: false
   });
-  const reverted = mergeToolSelection(result, inherited, Object.keys(inherited).filter(name => inherited[name]));
-  assert.deepEqual(reverted, { ...result, mcpTools: { future_tool: true } });
-  assert.equal(mergeToolSelection(reverted, inherited, Object.keys(inherited).filter(name => inherited[name])), undefined);
+  assert.equal(mergeToolSelection(result, selected), undefined);
 });
 
 test('dotted development tool keys are ignored', () => {

@@ -276,8 +276,8 @@ The extension adds JSON validation for `.bcdevtoolset/settings.json`, so VS Code
 
 ### MCP tool selection
 
-Run **BC Dev Toolset: Configure MCP Tools** to select tools for Local, Workspace, or User settings. Workspace and User selections are stored as booleans in `"bcDevToolset": { "mcpTools": { ... } }`. Local entries override workspace entries, which override user defaults per tool. Restart the MCP server/client after changes.
+Run **BC Dev Toolset: Configure MCP Tools** to select tools for Local, Workspace, or User settings. Workspace and User selections are stored as booleans in `"bcDevToolset": { "mcpTools": { ... } }`. Saving writes the complete selection at that scope, including values equal to the inherited setting, so each scope retains its own decision. Local entries override workspace entries, which override user defaults per tool. Restart the MCP server/client after changes.
 
 On a fresh installation, **Get Workspace**, **Get Operation Status**, **Answer Operation Prompt**, and **Invoke AL Tests** default to enabled. Every other tool defaults to disabled. Explicit values at Local, Workspace, or User scope override the next less granular level per tool.
 
-Local selections are stored in the top-level `mcpTools` object in `.bcdevtoolset/settings.json` (or the workspace-relative `bcDevToolset.localSettingsPath`). Local values override workspace values, then user values, per tool; omitted switches inherit the next level. Restart the MCP server/client after editing local selections.
+Local selections are stored in the top-level `mcpTools` object in `.bcdevtoolset/settings.json` (or the workspace-relative `bcDevToolset.localSettingsPath`). Local values override workspace values, then user values, per tool. In manually edited settings, omitted switches inherit the next level. Restart the MCP server/client after editing local selections.

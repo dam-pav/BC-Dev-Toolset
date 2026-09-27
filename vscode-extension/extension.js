@@ -931,7 +931,6 @@ async function configureMcpTools() {
   const toolConfiguration = getMcpToolConfiguration();
   const localOverrides = scope.field === 'local' ? getLocalMcpSettings().settings.mcpTools : {};
   const before = readToolSettingsForScope(toolConfiguration, scope.field === 'local' ? 'local' : scope.field, localOverrides);
-  const inherited = readToolSettingsForScope(toolConfiguration, scope.field === 'local' ? 'local' : scope.field, localOverrides, false);
   const selected = await vscode.window.showQuickPick(Object.entries(toolSchemas).map(([name, schema]) => ({
     label: name.replace(/^bc_dev_toolset_/, '').replace(/_/g, ' '),
     description: schema.description, name, picked: before[name]
@@ -940,7 +939,7 @@ async function configureMcpTools() {
   if (scope.field === 'local') {
     // Re-read so other local edits made while the picker was open are preserved.
     const { settings, validatedLocalPath } = getLocalMcpSettings();
-    const updated = mergeToolSelection(settings, inherited, selected.map(item => item.name));
+    const updated = mergeToolSelection(settings, selected.map(item => item.name));
     if (updated) {
       const validatedLocalDirectory = assertWithinRoot(authorizeRoot(getWorkspaceBasePath(), 'Workspace root'), path.dirname(validatedLocalPath));
       fs.mkdirSync(validatedLocalDirectory, { recursive: true }); // nosemgrep -- parent directory is checked against the authorized workspace root
@@ -952,7 +951,7 @@ async function configureMcpTools() {
   const root = vscode.workspace.getConfiguration();
   // Read again after the picker closes to retain other settings edited in the meantime.
   const existing = root.inspect('bcDevToolset')?.[scope.field] || {};
-  const updated = mergeToolSelection(existing, inherited, selected.map(item => item.name));
+  const updated = mergeToolSelection(existing, selected.map(item => item.name));
   if (updated) await root.update('bcDevToolset', updated, scope.target);
 }
 
