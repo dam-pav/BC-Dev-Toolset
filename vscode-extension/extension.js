@@ -13,7 +13,7 @@ const {
   updateCodexMcpConfigContent
 } = require('./codex-mcp-config');
 const bridgeIdentity = require('./mcp-bridge-identity');
-const { readEffectiveToolSettings, toolSchemas, toolDefaults, resolveToolSettings, mergeToolSelection } = require('./mcp-tool-settings');
+const { readEffectiveToolSettings, readToolSettingsForScope, toolSchemas, toolDefaults, resolveToolSettings, mergeToolSelection } = require('./mcp-tool-settings');
 const { migrateSettingsOnStartup } = require('./settings-migration');
 const { configurationPrefix, legacyConfigurationPrefix, createConfigurationAccess, affectsToolsetConfiguration } = require('./configuration-settings');
 const { discoverAlTool } = require('./al-tool-discovery');
@@ -37,7 +37,7 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 25;
+const mcpServerDefinitionRevision = 29;
 // Increment when bundled runtime content changes without an extension version bump.
 const runtimeToolsetRevision = 23;
 
@@ -895,7 +895,29 @@ function getLocalMcpSettings() {
 }
 
 function getEffectiveMcpToolSettings() {
-  return readEffectiveToolSettings(getConfiguration(), getLocalMcpSettings().settings.mcpTools);
+  return readEffectiveToolSettings(getMcpToolConfiguration(), getLocalMcpSettings().settings.mcpTools);
+}
+
+function getMcpToolConfiguration() {
+  const root = vscode.workspace.getConfiguration();
+  const sources = [
+    root.inspect('bcDevToolset'),
+    root.inspect('dam-pav.bcDevToolset'),
+    root.inspect('dam-pav.bcdevtoolset')
+  ];
+  const scopes = ['globalValue', 'workspaceValue', 'workspaceFolderValue'];
+  return {
+    inspect(key) {
+      if (key !== 'mcpTools') return undefined;
+      return Object.fromEntries(scopes.map((scope) => {
+        for (const source of sources) {
+          const value = source?.[scope]?.mcpTools;
+          if (value && typeof value === 'object' && !Array.isArray(value)) return [scope, value];
+        }
+        return [scope, undefined];
+      }));
+    }
+  };
 }
 
 async function configureMcpTools() {
@@ -906,9 +928,9 @@ async function configureMcpTools() {
   const scope = await vscode.window.showQuickPick(scopes, { title: 'Configure MCP Tools', placeHolder: 'Save tool selections in local, workspace, or user settings' });
   if (!scope) return;
   const configuration = getConfiguration();
-  const before = scope.field === 'local' ? getEffectiveMcpToolSettings()
-    : scope.field === 'workspaceValue' ? readEffectiveToolSettings(configuration)
-    : resolveToolSettings(Object.fromEntries(Object.keys(toolDefaults).map(name => [name, configuration.inspect(`mcpTools.${name}`)?.globalValue])));
+  const toolConfiguration = getMcpToolConfiguration();
+  const localOverrides = scope.field === 'local' ? getLocalMcpSettings().settings.mcpTools : {};
+  const before = readToolSettingsForScope(toolConfiguration, scope.field === 'local' ? 'local' : scope.field, localOverrides);
   const selected = await vscode.window.showQuickPick(Object.entries(toolSchemas).map(([name, schema]) => ({
     label: name.replace(/^bc_dev_toolset_/, '').replace(/_/g, ' '),
     description: schema.description, name, picked: before[name]
@@ -917,7 +939,7 @@ async function configureMcpTools() {
   if (scope.field === 'local') {
     // Re-read so other local edits made while the picker was open are preserved.
     const { settings, validatedLocalPath } = getLocalMcpSettings();
-    const updated = mergeToolSelection(settings, before, selected.map(item => item.name));
+    const updated = mergeToolSelection(settings, selected.map(item => item.name));
     if (updated) {
       const validatedLocalDirectory = assertWithinRoot(authorizeRoot(getWorkspaceBasePath(), 'Workspace root'), path.dirname(validatedLocalPath));
       fs.mkdirSync(validatedLocalDirectory, { recursive: true }); // nosemgrep -- parent directory is checked against the authorized workspace root
@@ -929,7 +951,7 @@ async function configureMcpTools() {
   const root = vscode.workspace.getConfiguration();
   // Read again after the picker closes to retain other settings edited in the meantime.
   const existing = root.inspect('bcDevToolset')?.[scope.field] || {};
-  const updated = mergeToolSelection(existing, before, selected.map(item => item.name));
+  const updated = mergeToolSelection(existing, selected.map(item => item.name));
   if (updated) await root.update('bcDevToolset', updated, scope.target);
 }
 
@@ -942,6 +964,7 @@ async function showMcpStatus() {
   const configContent = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
   const codexConfiguration = classifyCodexMcpConfiguration(configContent, serverPath);
   const configuredServerExists = Boolean(codexConfiguration.configuredServerPath && fs.existsSync(codexConfiguration.configuredServerPath));
+  const effectiveMcpToolSettings = getEffectiveMcpToolSettings();
   const message = [
     `Extension path: ${extensionContext ? extensionContext.extensionPath : '(not set)'}`,
     `MCP API available: ${hasMcpApi}`,
@@ -952,6 +975,7 @@ async function showMcpStatus() {
     `MCP bound instance: ${mcpBridgeInstanceId || '(not ready)'}`,
     `Extension-host PID: ${process.pid}`,
     `MCP bound workspace: ${(mcpBridgeWorkspace && (mcpBridgeWorkspace.workspaceFilePath || mcpBridgeWorkspace.workspacePath)) || '(not ready)'}`,
+    `Effective MCP tools: ${Object.keys(effectiveMcpToolSettings).filter((name) => effectiveMcpToolSettings[name]).join(', ') || '(none)'}`,
     `MCP bridge state: ${mcpBridgeStatePath || (extensionContext ? getMcpBridgeStatePath(extensionContext) : '(not ready)')}`,
     `Toolset path: ${getToolsetPath()}`,
     `Codex integration setting: ${formatCodexMcpIntegrationSetting(integrationSetting)}`,
