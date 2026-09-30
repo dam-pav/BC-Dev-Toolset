@@ -81,20 +81,6 @@ function Get-SettingValue {
     return $null
 }
 
-function Get-AlSettingBasePath {
-    param(
-        [PSObject] $FolderSettings,
-        [Parameter(Mandatory=$true)] [string] $FolderBasePath,
-        [Parameter(Mandatory=$true)] [string] $WorkspaceBasePath,
-        [Parameter(Mandatory=$true)] [string] $Name
-    )
-
-    if ($null -ne $FolderSettings -and $null -ne $FolderSettings.PSObject.Properties[$Name]) {
-        return $FolderBasePath
-    }
-    return $WorkspaceBasePath
-}
-
 function Get-WorkspaceAppsInBuildOrder {
     param([Parameter(Mandatory=$true)] [PSObject[]] $Apps)
 
@@ -143,13 +129,11 @@ $workspaceFile = Resolve-BcDevToolsetWorkspaceFile `
     -WorkspaceRootPath $workspaceRootPath.FullName `
     -WorkspaceFile $env:BCDEVTOOLSET_WORKSPACE_FILE
 $workspaceSettings = $null
-$workspaceSettingsBasePath = $workspaceRootPath.FullName
 $appPaths = @()
 
 if ($null -ne $workspaceFile) {
     $workspaceDefinition = Get-Content -LiteralPath $workspaceFile.FullName -Raw | ConvertFrom-Json
     $workspaceSettings = $workspaceDefinition.settings
-    $workspaceSettingsBasePath = $workspaceFile.DirectoryName
     foreach ($workspaceFolder in @($workspaceDefinition.folders)) {
         $appPaths += Resolve-AlSettingPath `
             -BasePath $workspaceFile.DirectoryName `
@@ -208,19 +192,10 @@ try {
         if ($configuredPackageCachePaths.Count -eq 0 -or
             [string]::IsNullOrWhiteSpace([string]$configuredPackageCachePaths[0])) {
             $configuredPackageCachePaths = @('.alpackages')
-            # AL's default package cache is project-relative. Only explicitly
-            # configured values inherit the base of the settings that supplied them.
-            $packageCacheBasePath = $appPath
-        } else {
-            $packageCacheBasePath = Get-AlSettingBasePath `
-                -FolderSettings $app.folderSettings `
-                -FolderBasePath $appPath `
-                -WorkspaceBasePath $workspaceSettingsBasePath `
-                -Name 'al.packageCachePath'
         }
 
         foreach ($configuredPackageCachePath in $configuredPackageCachePaths) {
-            $sourcePackageCache = Resolve-AlSettingPath -BasePath $packageCacheBasePath -ConfiguredPath ([string]$configuredPackageCachePath)
+            $sourcePackageCache = Resolve-AlSettingPath -BasePath $appPath -ConfiguredPath ([string]$configuredPackageCachePath)
             if (-not (Test-Path -LiteralPath $sourcePackageCache -PathType Container)) {
                 Write-Host "Package cache folder was not found: $sourcePackageCache" -ForegroundColor Yellow
                 continue
@@ -248,20 +223,14 @@ try {
         )
 
         $assemblyProbingPaths = @()
-        # Folder settings belong to the app folder; workspace settings belong to the
-        # workspace root (or the .code-workspace file's directory). VS Code resolves
-        # relative AL settings from their owning workspace context, not each project.
-        $assemblyProbingPathsBasePath = Get-AlSettingBasePath `
-            -FolderSettings $app.folderSettings `
-            -FolderBasePath $appPath `
-            -WorkspaceBasePath $workspaceSettingsBasePath `
-            -Name 'al.assemblyProbingPaths'
+        # AL resolves relative setting paths from each project directory, including
+        # settings inherited from a multi-root workspace.
         foreach ($configuredPath in @(Get-SettingValue `
             -FolderSettings $app.folderSettings `
             -WorkspaceSettings $workspaceSettings `
             -Name 'al.assemblyProbingPaths')) {
             if ([string]::IsNullOrWhiteSpace([string]$configuredPath)) { continue }
-            $resolvedPath = Resolve-AlSettingPath -BasePath $assemblyProbingPathsBasePath -ConfiguredPath ([string]$configuredPath)
+            $resolvedPath = Resolve-AlSettingPath -BasePath $appPath -ConfiguredPath ([string]$configuredPath)
             if (Test-Path -LiteralPath $resolvedPath -PathType Container) { $assemblyProbingPaths += $resolvedPath }
         }
         if ($assemblyProbingPaths.Count -gt 0) {
@@ -273,12 +242,7 @@ try {
             -WorkspaceSettings $workspaceSettings `
             -Name 'al.ruleSetPath')
         if (-not [string]::IsNullOrWhiteSpace($configuredRuleSetPath)) {
-            $ruleSetBasePath = Get-AlSettingBasePath `
-                -FolderSettings $app.folderSettings `
-                -FolderBasePath $appPath `
-                -WorkspaceBasePath $workspaceSettingsBasePath `
-                -Name 'al.ruleSetPath'
-            $resolvedRuleSetPath = Resolve-AlSettingPath -BasePath $ruleSetBasePath -ConfiguredPath $configuredRuleSetPath
+            $resolvedRuleSetPath = Resolve-AlSettingPath -BasePath $appPath -ConfiguredPath $configuredRuleSetPath
             if (Test-Path -LiteralPath $resolvedRuleSetPath -PathType Leaf) {
                 $compilerArguments += "-ruleset:$resolvedRuleSetPath"
             }
