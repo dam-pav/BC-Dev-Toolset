@@ -130,6 +130,8 @@ test('launch.json updates honor explicit values and target-based defaults', () =
     $actual = @($cases | ForEach-Object { Test-AutoUpdateLaunchJson -configuration $_ })
     $expected = @($true, $false, $false, $false, $true)
     if ((Compare-Object $expected $actual -SyncWindow 0).Count -ne 0) { exit 2 }
+    $testConfiguration = [PSCustomObject]@{ targetType = 'Test' }
+    if (-not (Test-AutoUpdateLaunchJson -configuration $testConfiguration -appTargetType 'Test')) { exit 3 }
   `;
 
   runPowerShell(script);
@@ -137,6 +139,29 @@ test('launch.json updates honor explicit values and target-based defaults', () =
   const source = fs.readFileSync(workspaceMgtPath, 'utf8');
   const launchWriter = source.match(/function Write-LaunchJSON[\s\S]*?\n}/)?.[0] ?? '';
   assert.match(launchWriter, /Test-AutoUpdateLaunchJson -configuration \$_/);
+});
+
+test('launch.json target follows whether app dependencies identify it as a test app', () => {
+  const script = `
+    . '${workspaceMgtPath.replaceAll("'", "''")}'
+    $regularApp = [PSCustomObject]@{ dependencies = @(
+      [PSCustomObject]@{ id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'; name = 'Test Reporting Add-in' }
+    ) }
+    if (Test-AppHasTestDependencies -appJSON $regularApp) { exit 2 }
+    $toolkitIds = @(
+      '5d86850b-0d76-4eca-bd7b-951ad998e997',
+      'dd0be2ea-f733-4d65-bb34-a28f4624fb14',
+      'e7320ebb-08b3-4406-b1ec-b4927d3e280b',
+      '40860557-a18d-42ad-aecb-22b7dd80dc80',
+      '5f892a06-a83a-4efb-95eb-9ab4dfb858bc'
+    )
+    foreach ($toolkitId in $toolkitIds) {
+      $testApp = [PSCustomObject]@{ dependencies = @([PSCustomObject]@{ id = $toolkitId }) }
+      if (-not (Test-AppHasTestDependencies -appJSON $testApp)) { exit 3 }
+    }
+  `;
+
+  runPowerShell(script);
 });
 
 test('assembly extraction uses the Hyper-V-compatible BcContainerHelper copy operation', () => {
