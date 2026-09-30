@@ -356,7 +356,7 @@
         },
         "autoUpdateLaunchJson": {
           "type": "boolean",
-          "description": "Optional override for whether update launch.json operations include this configuration. Applies to all server types. When omitted, the effective value is true for Dev targets and false otherwise."
+          "description": "Optional override for whether update launch.json operations include this configuration. Applies to all server types. When omitted, the effective value is true for the target selected for the app: Test for apps depending on a Microsoft Test Toolkit app, Dev otherwise."
         },
         "databaseServerHost": {
           "type": "string",

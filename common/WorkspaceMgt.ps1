@@ -721,14 +721,35 @@ function Ensure-DockerNetwork {
 function Test-AutoUpdateLaunchJson {
     Param (
         [Parameter(Mandatory=$true)]
-        [PSObject] $configuration
+        [PSObject] $configuration,
+        [Parameter(Mandatory=$false)]
+        [string] $appTargetType = 'Dev'
     )
 
     if ($configuration.PSObject.Properties['autoUpdateLaunchJson']) {
         return $configuration.autoUpdateLaunchJson -eq $true
     }
 
-    return $configuration.targetType -eq "Dev"
+    return $configuration.targetType -eq $appTargetType
+}
+
+function Test-AppHasTestDependencies {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $appJSON
+    )
+
+    $testToolkitAppIds = @(
+        '5d86850b-0d76-4eca-bd7b-951ad998e997', # Tests-TestLibraries
+        'dd0be2ea-f733-4d65-bb34-a28f4624fb14', # Library Assert
+        'e7320ebb-08b3-4406-b1ec-b4927d3e280b', # Any
+        '40860557-a18d-42ad-aecb-22b7dd80dc80', # Permissions Mock
+        '5f892a06-a83a-4efb-95eb-9ab4dfb858bc'  # Test Runner
+    )
+
+    return @($appJSON.dependencies | Where-Object {
+        [string]$_.id -in $testToolkitAppIds
+    }).Count -gt 0
 }
 
 function Test-AutoRestoreBackup {
@@ -860,8 +881,14 @@ function Write-LaunchJSON {
         $launchJSON | Add-Member -MemberType NoteProperty -Name configurations -Value @()
     }
 
+    # Test apps connect to Test targets; other apps connect to Dev targets.
+    $appTargetType = if (Test-AppHasTestDependencies -appJSON $appJSON) { 'Test' } else { 'Dev' }
+
     # Find & Manage Remote Launcher
-    foreach ($remote in $($settingsJSON.configurations | Where-Object { Test-AutoUpdateLaunchJson -configuration $_ })) {
+    foreach ($remote in $($settingsJSON.configurations | Where-Object {
+        $_.targetType -eq $appTargetType -and
+        (Test-AutoUpdateLaunchJson -configuration $_ -appTargetType $appTargetType)
+    })) {
         $configurationValid = $true
         if ($remote.name -eq "") {
             $configurationValid = $false

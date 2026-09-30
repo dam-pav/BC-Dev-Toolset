@@ -552,7 +552,7 @@ Each `configurations` entry can contain:
 - `serverType`: Accepted values are `Container`, `Cloud`, or `OnPrem`. Mandatory.
 - `multitenant`: Explicit container mode passed to `New-BcContainer` by the Create container operation. When omitted, creation infers the mode from a compatible backup set. If neither the setting nor the backup determines the mode, the parameter is omitted and BcContainerHelper decides. An explicit value has priority; creation aborts with an explanation if it conflicts with the detected `*.app.bak` or `*.database.bak` backup type. Valid only for `Container`.
 - `targetType`: Accepted values are `Dev`, `Test`, `Production`.
-- `autoUpdateLaunchJson`: Optional override controlling whether this entry is included when launch.json files are updated, both manually and after container creation. It applies to all `serverType` values. When omitted, the effective value is `true` if `targetType` is `Dev`, and `false` otherwise.
+- `autoUpdateLaunchJson`: Optional override controlling whether this entry is included when launch.json files are updated, both manually and after container creation. It applies to all `serverType` values. When omitted, the effective value is `true` for the target selected for the app: `Test` for apps depending on a Microsoft Test Toolkit app, `Dev` otherwise.
 - `server`: Valid for `OnPrem`.
 - `serverInstance`: Valid for `OnPrem`.
 - `container`: Docker container name. The default value is the name of the workspace. Valid for `Container`. Create-container processing only includes Container configurations with a non-empty `container` value, and duplicate `container` values abort the operation.

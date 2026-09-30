@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.9.3",
+  "version": "1.9.4",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -207,7 +207,7 @@
                     },
                     "autoUpdateLaunchJson": {
                       "type": "boolean",
-                      "description": "Optional override for whether update launch.json operations include this configuration. Applies to all server types. When omitted, the effective value is true for Dev targets and false otherwise."
+                      "description": "Optional override for whether update launch.json operations include this configuration. Applies to all server types. When omitted, the effective value is true for the target selected for the app: Test for apps depending on a Microsoft Test Toolkit app, Dev otherwise."
                     },
                     "databaseUser": {
                       "type": "string",
