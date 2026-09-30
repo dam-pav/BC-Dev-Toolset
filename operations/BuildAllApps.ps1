@@ -196,8 +196,13 @@ try {
 
         foreach ($configuredPackageCachePath in $configuredPackageCachePaths) {
             $sourcePackageCache = Resolve-AlSettingPath -BasePath $appPath -ConfiguredPath ([string]$configuredPackageCachePath)
-            if (-not (Test-Path -LiteralPath $sourcePackageCache -PathType Container)) { continue }
-            foreach ($package in @(Get-ChildItem -LiteralPath $sourcePackageCache -File -Filter '*.app')) {
+            if (-not (Test-Path -LiteralPath $sourcePackageCache -PathType Container)) {
+                Write-Host "Package cache folder was not found: $sourcePackageCache" -ForegroundColor Yellow
+                continue
+            }
+            $sourcePackages = @(Get-ChildItem -LiteralPath $sourcePackageCache -File -Filter '*.app')
+            Write-Host "Importing $($sourcePackages.Count) package(s) from '$sourcePackageCache'." -ForegroundColor Gray
+            foreach ($package in $sourcePackages) {
                 Copy-Item -LiteralPath $package.FullName -Destination $isolatedPackageCache -Force
             }
         }
@@ -218,6 +223,8 @@ try {
         )
 
         $assemblyProbingPaths = @()
+        # AL resolves relative setting paths from each project directory, including
+        # settings inherited from a multi-root workspace.
         foreach ($configuredPath in @(Get-SettingValue `
             -FolderSettings $app.folderSettings `
             -WorkspaceSettings $workspaceSettings `
