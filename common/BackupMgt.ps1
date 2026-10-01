@@ -25,7 +25,7 @@ function Get-SqlBackupRootPath {
         $pathSegments -match '[:<>"|?*\x00-\x1f]' -or
         $pathSegments -match '(?i)(^|\\)(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])(?:[ .]|$)' -or
         @($pathSegments.Split('\') | Where-Object { $_ -notin @('.', '..', '') -and $_ -match '[ .]$' }).Count -gt 0) {
-        throw "sqlBackupPath must be a local drive-absolute path or a workspace-relative folder; unsafe path kinds are not supported."
+        throw "sqlBackupPath must be a local drive-absolute path or a relative folder path; unsafe path kinds are not supported."
     }
 
     try {
@@ -36,11 +36,6 @@ function Get-SqlBackupRootPath {
             $workspaceRootPath = Get-WorkspaceRootPath -scriptPath $scriptPath
             # Normalize without Resolve-Path so missing backup folders can still be diagnosed.
             $validatedBackupRootPath = [System.IO.Path]::GetFullPath((Join-Path $workspaceRootPath.FullName $sqlBackupPath))
-            $authorizedWorkspaceRoot = [System.IO.Path]::GetFullPath($workspaceRootPath.FullName).TrimEnd('\', '/')
-            if (-not ($validatedBackupRootPath.Equals($authorizedWorkspaceRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
-                $validatedBackupRootPath.StartsWith($authorizedWorkspaceRoot + '\', [System.StringComparison]::OrdinalIgnoreCase))) {
-                throw "Relative sqlBackupPath must remain inside the workspace."
-            }
         }
         if ($validatedBackupRootPath -notmatch '^[A-Za-z]:[\\/]') {
             throw "sqlBackupPath must resolve to a local drive path."

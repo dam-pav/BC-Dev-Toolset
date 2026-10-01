@@ -8,7 +8,7 @@ $unsafePaths = @(
     '\\host\share', '//host/share', '\\\host\share', '\\?\C:\backup', '\\.\NUL',
     '\??\C:\backup', '\backup', 'C:backup', 'FileSystem::C:\backup',
     'C:\backup:stream', 'C:\NUL', 'C:\aux.txt', 'backup\COM1',
-    'C:\backup\*', '..\outside', 'C:\backup.\folder'
+    'C:\backup\*', 'C:\backup.\folder'
 )
 foreach ($candidate in $unsafePaths) {
     $rejected = $false
@@ -23,6 +23,7 @@ foreach ($candidate in $unsafePaths) {
 foreach ($case in @(
     @('C:\missing\backup', 'C:\missing\backup'),
     @('backup/child/..', 'C:\workspace\backup'),
+    @('..\backup', 'C:\backup'),
     @('.', 'C:\workspace'),
     @('', '')
 )) {
