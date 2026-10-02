@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.9.7",
+  "version": "1.9.8",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -465,7 +465,16 @@
                             "description": "Server instance for OnPrem targets."
                           },
                           "port": {
-                            "type": "string",
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 65535
+                              }
+                            ],
                             "description": "Port for OnPrem targets."
                           },
                           "tenant": {

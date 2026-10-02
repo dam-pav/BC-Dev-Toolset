@@ -666,7 +666,16 @@
                 "description": "Server instance for OnPrem targets."
               },
               "port": {
-                "type": "string",
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  }
+                ],
                 "description": "Port for OnPrem targets."
               },
               "tenant": {
