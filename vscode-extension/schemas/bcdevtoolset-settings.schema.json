@@ -154,6 +154,11 @@
           "default": false,
           "description": "Create or replace a container for the workspace application version."
         },
+        "bc_dev_toolset_ensure_containers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check configured containers, start stopped containers, and restart unhealthy containers."
+        },
         "bc_dev_toolset_extract_container_assemblies": {
           "type": "boolean",
           "default": false,

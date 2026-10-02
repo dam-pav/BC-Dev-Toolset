@@ -1,3 +1,5 @@
+. (Join-Path $PSScriptRoot 'ContainerLifecycle.ps1')
+
 function Get-BcConfigurationCredentialValues {
     param(
         [Parameter(Mandatory=$true)]
@@ -339,6 +341,8 @@ function Initialize-TestExecutionContainer {
         -workspaceJSON $workspaceJSON `
         -testSettings $testSettings `
         -configuration $configuration
+
+    Ensure-ConfiguredContainers -SettingsJSON $testSettings
 
     if (-not (Test-DockerContainerRunning -containerName $containerName)) {
         throw "Container '$containerName' exists but is not running."

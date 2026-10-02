@@ -2,6 +2,7 @@
 
 $scriptPath = (get-item $PSScriptRoot).Parent
 . $scriptPath/common/WorkspaceMgt.ps1
+. $scriptPath/common/ContainerLifecycle.ps1
 
 # Make sure Docker is running
 Test-DockerProcess
@@ -12,6 +13,8 @@ Initialize-Context `
     -scriptPath $scriptPath  `
     -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
+
+Ensure-ConfiguredContainers -SettingsJSON $settingsJSON -SkipMissing
 
 foreach ($configuration in $($settingsJSON.configurations | Where-Object { $_.targetType -eq "Dev" -and $_.serverType -eq "Container" })) {
     Write-Host "Using '$($configuration.name)' to export runtime packages." -ForegroundColor Blue
