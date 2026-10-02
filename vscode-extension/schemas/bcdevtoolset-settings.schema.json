@@ -666,7 +666,10 @@
                 "description": "Server instance for OnPrem targets."
               },
               "port": {
-                "type": "string",
+                "type": [
+                  "string",
+                  "number"
+                ],
                 "description": "Port for OnPrem targets."
               },
               "tenant": {
