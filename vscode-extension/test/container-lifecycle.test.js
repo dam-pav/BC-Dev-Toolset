@@ -9,6 +9,16 @@ const { __test: server } = require('../mcp-server');
 const { toolDefaults } = require('../mcp-tool-settings');
 
 const lifecyclePath = path.resolve(__dirname, '../../common/ContainerLifecycle.ps1');
+const repositoryRoot = path.resolve(__dirname, '../..');
+function readRepositoryScript(...segments) {
+  const candidate = path.resolve(repositoryRoot, ...segments);
+  const relative = path.relative(repositoryRoot, candidate);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error('Script path must remain inside the repository.');
+  }
+  // The fixed script list is authorized within repositoryRoot and path.relative rejects escapes.
+  return fs.readFileSync(candidate, 'utf8'); // nosemgrep: Semgrep_javascript_pathtraversal_rule-non-literal-fs-filename
+}
 function run(script) {
   const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `
     $ErrorActionPreference = 'Stop'
@@ -87,12 +97,31 @@ test('dependent operations can skip missing containers while recovering existing
   ]);
 });
 
-test('invalid target names fail before Docker access and empty configurations require no Docker', () => {
+test('blank Container placeholders do not prevent recovery of configured containers', () => {
+  const result = run(`
+    $script:states = @{stopped=@{Status='exited'}}
+    $settings = @{configurations=@(
+      @{serverType='Container';name='placeholder';container=''},
+      @{serverType='Container';name='spaces';container='   '},
+      @{serverType='Container';name='target';container='stopped'}
+    )}
+    Ensure-ConfiguredContainers $settings 6>$null
+    @{Calls=$script:calls} | ConvertTo-Json -Depth 5 -Compress
+  `);
+  assert.deepEqual(result.Calls.filter(args => args[1] === 'start'), [
+    ['container', 'start', '--', 'stopped']
+  ]);
+  assert.ok(result.Calls.every(args => !args.includes('')));
+});
+
+test('invalid target names fail before Docker access and blank configurations require no Docker', () => {
   const result = run(`
     $message = ''
     try { Ensure-ConfiguredContainers @{configurations=@(@{serverType='Container';container='--all'})} }
     catch { $message=$_.Exception.Message }
-    Ensure-ConfiguredContainers @{configurations=@(@{serverType='Cloud'})} 6>$null
+    Ensure-ConfiguredContainers @{configurations=@(
+      @{serverType='Cloud'}, @{serverType='Container';container=''}, @{serverType='Container';container='  '}
+    )} 6>$null
     @{Message=$message;Count=$script:calls.Count} | ConvertTo-Json -Compress
   `);
   assert.match(result.Message, /valid, non-empty container name/);
@@ -188,7 +217,6 @@ test('configured-container operation is exposed through MCP by default and the C
 });
 
 test('container-dependent operations run the shared readiness check after loading settings', () => {
-  const root = path.resolve(__dirname, '../..');
   const operations = [
     'AddTestToolkitToBcContainer', 'BackupBcContainerDatabases',
     'CreateRuntimePackage', 'ExtractContainerAssemblies',
@@ -199,10 +227,10 @@ test('container-dependent operations run the shared readiness check after loadin
     'UpdateBcLicenseContainer'
   ];
   for (const operation of operations) {
-    const source = fs.readFileSync(path.join(root, 'operations', `${operation}.ps1`), 'utf8');
+    const source = readRepositoryScript('operations', `${operation}.ps1`);
     assert.match(source, /common\/ContainerLifecycle\.ps1/);
     assert.match(source, /Initialize-Context[\s\S]*?Ensure-ConfiguredContainers -SettingsJSON \$settingsJSON -SkipMissing/);
   }
-  const testManagement = fs.readFileSync(path.join(root, 'common/TestMgt.ps1'), 'utf8');
+  const testManagement = readRepositoryScript('common', 'TestMgt.ps1');
   assert.match(testManagement, /New-TestExecutionContainerIfMissing[\s\S]*?Ensure-ConfiguredContainers -SettingsJSON \$testSettings[\s\S]*?Test-DockerContainerRunning/);
 });

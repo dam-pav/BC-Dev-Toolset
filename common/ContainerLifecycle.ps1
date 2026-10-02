@@ -30,13 +30,15 @@ function Ensure-ConfiguredContainers {
     $names = @($SettingsJSON.configurations | Where-Object { $_.serverType -eq 'Container' } |
         ForEach-Object {
             $name = ([string]$_.container).Trim()
-            if ($name -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_.-]*$') {
-                throw "Container configuration '$($_.name)' requires a valid, non-empty container name."
+            if ($name -ne '') {
+                if ($name -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_.-]*$') {
+                    throw "Container configuration '$($_.name)' requires a valid, non-empty container name."
+                }
+                $name
             }
-            $name
         } | Select-Object -Unique)
     if ($names.Count -eq 0) {
-        Write-Host 'No Container configurations found. Nothing to start.'
+        Write-Host 'No configured container names found. Nothing to start.'
         return
     }
 
