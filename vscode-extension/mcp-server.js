@@ -705,6 +705,12 @@ function getPreflightPromptInputs(operation, args, context) {
 
 function getOperationToolAliases(operationId) {
   switch (operationId) {
+    case 'ensureContainers':
+      return [
+        'check configured workspace containers and start stopped containers',
+        'restart unhealthy configured containers and wait for readiness (120 seconds per container)',
+        'leave healthy containers running; report missing containers without creating or replacing them'
+      ];
     case 'showActiveLicenses':
       return [
         'show the license from the current container',

@@ -50,6 +50,12 @@
     "requiresConfirmation": true
   },
   {
+    "id": "ensureContainers",
+    "title": "Check and start configured containers",
+    "script": "operations/EnsureContainers.ps1",
+    "category": "Container"
+  },
+  {
     "id": "extractContainerAssemblies",
     "title": "Extract assembly probing paths from Docker container",
     "script": "operations/ExtractContainerAssemblies.ps1",

@@ -57,6 +57,7 @@
     "onCommand:bcDevToolset.operation.clearAppArtifacts",
     "onCommand:bcDevToolset.operation.buildAllApps",
     "onCommand:bcDevToolset.operation.newDockerContainer",
+    "onCommand:bcDevToolset.operation.ensureContainers",
     "onCommand:bcDevToolset.operation.extractContainerAssemblies",
     "onCommand:bcDevToolset.operation.addTestToolkitToBcContainer",
     "onCommand:bcDevToolset.operation.updateLaunchJson",
@@ -743,6 +744,11 @@
                     "default": false,
                     "description": "Create or replace a container for the workspace application version."
                   },
+                  "bc_dev_toolset_ensure_containers": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Check configured containers, start stopped containers, and restart unhealthy containers."
+                  },
                   "bc_dev_toolset_extract_container_assemblies": {
                     "type": "boolean",
                     "default": false,
@@ -1046,6 +1052,10 @@
       {
         "command": "bcDevToolset.operation.newDockerContainer",
         "title": "BC Dev Toolset: Create/Overwrite Docker container based on the workspace app.json application version"
+      },
+      {
+        "command": "bcDevToolset.operation.ensureContainers",
+        "title": "BC Dev Toolset: Check and start configured containers"
       },
       {
         "command": "bcDevToolset.operation.extractContainerAssemblies",

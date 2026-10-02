@@ -21,10 +21,10 @@ function request(settings, method, params) {
   return JSON.parse(result.stdout).result;
 }
 
-test('every tool has one switch and only the four startup tools default on', () => {
+test('every tool has one switch and only the five startup tools default on', () => {
   assert.deepEqual(Object.keys(toolDefaults).sort(), server.getAllTools().map(tool => tool.name).sort());
   assert.deepEqual(Object.keys(toolDefaults).filter(name => toolDefaults[name]).sort(), [
-    'bc_dev_toolset_answer_operation_prompt', 'bc_dev_toolset_get_operation_status',
+    'bc_dev_toolset_answer_operation_prompt', 'bc_dev_toolset_ensure_containers', 'bc_dev_toolset_get_operation_status',
     'bc_dev_toolset_get_workspace', 'bc_dev_toolset_invoke_tests'
   ]);
   const groups = require('../package.json').contributes.configuration;
@@ -35,7 +35,7 @@ test('every tool has one switch and only the four startup tools default on', () 
 
 test('protocol discovery uses defaults, explicit off, and individual opt-in including aliases', () => {
   assert.deepEqual(request({}, 'tools/list').tools.map(tool => tool.name).sort(), [
-    'bc_dev_toolset_answer_operation_prompt', 'bc_dev_toolset_get_operation_status',
+    'bc_dev_toolset_answer_operation_prompt', 'bc_dev_toolset_ensure_containers', 'bc_dev_toolset_get_operation_status',
     'bc_dev_toolset_get_workspace', 'bc_dev_toolset_invoke_tests'
   ]);
   const settings = Object.fromEntries(Object.keys(toolDefaults).map(name => [name, false]));
