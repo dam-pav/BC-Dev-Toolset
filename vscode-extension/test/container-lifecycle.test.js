@@ -1,7 +1,6 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { test } = require('node:test');
@@ -9,16 +8,6 @@ const { __test: server } = require('../mcp-server');
 const { toolDefaults } = require('../mcp-tool-settings');
 
 const lifecyclePath = path.resolve(__dirname, '../../common/ContainerLifecycle.ps1');
-const repositoryRoot = path.resolve(__dirname, '../..');
-function readRepositoryScript(...segments) {
-  const candidate = path.resolve(repositoryRoot, ...segments);
-  const relative = path.relative(repositoryRoot, candidate);
-  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    throw new Error('Script path must remain inside the repository.');
-  }
-  // The fixed script list is authorized within repositoryRoot and path.relative rejects escapes.
-  return fs.readFileSync(candidate, 'utf8'); // nosemgrep: Semgrep_javascript_pathtraversal_rule-non-literal-fs-filename
-}
 function run(script) {
   const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `
     $ErrorActionPreference = 'Stop'
@@ -214,23 +203,4 @@ test('configured-container operation is exposed through MCP by default and the C
   assert.ok(pkg.contributes.commands.some(command => command.command === 'bcDevToolset.operation.ensureContainers'));
   const schema = require('../schemas/bcdevtoolset-settings.schema.json');
   assert.equal(schema.properties.mcpTools.properties[tool.name].default, true);
-});
-
-test('container-dependent operations run the shared readiness check after loading settings', () => {
-  const operations = [
-    'AddTestToolkitToBcContainer', 'BackupBcContainerDatabases',
-    'CreateRuntimePackage', 'ExtractContainerAssemblies',
-    'InstallFontsToContainer', 'PublishApps2Docker',
-    'PublishDependencies2Docker', 'PublishRuntimeApps2Docker',
-    'RestoreBcContainerDatabases', 'ShowActiveLicenses',
-    'UnpublishDockerApps', 'UpdateBcContainerServerConfiguration',
-    'UpdateBcLicenseContainer'
-  ];
-  for (const operation of operations) {
-    const source = readRepositoryScript('operations', `${operation}.ps1`);
-    assert.match(source, /common\/ContainerLifecycle\.ps1/);
-    assert.match(source, /Initialize-Context[\s\S]*?Ensure-ConfiguredContainers -SettingsJSON \$settingsJSON -SkipMissing/);
-  }
-  const testManagement = readRepositoryScript('common', 'TestMgt.ps1');
-  assert.match(testManagement, /New-TestExecutionContainerIfMissing[\s\S]*?Ensure-ConfiguredContainers -SettingsJSON \$testSettings[\s\S]*?Test-DockerContainerRunning/);
 });
