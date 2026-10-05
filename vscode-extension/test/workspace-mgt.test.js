@@ -72,6 +72,67 @@ test('launch.json target follows whether app dependencies identify it as a test 
   runPowerShell(script);
 });
 
+test('app.json target determines container launch and artifact type', () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-app-target-'));
+  const script = `
+    . '${workspaceMgtPath.replaceAll("'", "''")}'
+    $script:bcDevToolsetWorkspaceRootPath = $env:TEST_WORKSPACE
+    foreach ($case in @(
+      [PSCustomObject]@{ folder = 'onprem'; target = 'OnPrem'; expected = 'OnPrem'; legacy = 'Sandbox' },
+      [PSCustomObject]@{ folder = 'cloud'; target = 'Cloud'; expected = 'Sandbox'; legacy = 'OnPrem' },
+      [PSCustomObject]@{ folder = 'default'; target = ''; expected = 'Sandbox'; legacy = 'OnPrem' }
+    )) {
+      $appPath = Join-Path $env:TEST_WORKSPACE $case.folder
+      $null = [System.IO.Directory]::CreateDirectory($appPath)
+      $manifest = [PSCustomObject]@{ application = '24.0.0.0' }
+      if ($case.target) { $manifest | Add-Member -MemberType NoteProperty -Name target -Value $case.target }
+      $manifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $appPath 'app.json')
+      if ((Get-AppArtifactType -appJSON $manifest) -ne $case.expected) { exit 2 }
+      $settings = [PSCustomObject]@{ configurations = @([PSCustomObject]@{
+        name = 'Local'; serverType = 'Container'; targetType = 'Dev'; container = 'bc-test'
+        authentication = 'UserPassword'; environmentType = $case.legacy
+      }) }
+      Write-LaunchJSON -scriptPath '${repositoryRoot.replaceAll("'", "''")}' -appPath $case.folder -settingsJSON $settings -replaceJSON:$true
+      $launch = Get-Content -LiteralPath (Join-Path $appPath '.vscode/launch.json') -Raw | ConvertFrom-Json
+      if ($launch.configurations[0].environmentType -ne $case.expected) { exit 3 }
+    }
+    $workspace = [PSCustomObject]@{ folders = @(
+      [PSCustomObject]@{ path = 'onprem' }, [PSCustomObject]@{ path = 'cloud' }
+    ) }
+    $app = [PSCustomObject]@{}
+    if (-not (Test-WorkspaceApplicationVersions -scriptPath '${repositoryRoot.replaceAll("'", "''")}' -workspaceJSON $workspace -appJSON ([ref]$app))) { exit 4 }
+    if ((Get-WorkspaceArtifactType -scriptPath '${repositoryRoot.replaceAll("'", "''")}' -workspaceJSON $workspace -appJSON $app) -ne 'OnPrem') { exit 5 }
+    $mixedSettings = [PSCustomObject]@{ configurations = @([PSCustomObject]@{
+      name = 'Local'; serverType = 'Container'; targetType = 'Dev'; container = 'bc-test'; authentication = 'UserPassword'
+    }) }
+    Write-LaunchJSON -scriptPath '${repositoryRoot.replaceAll("'", "''")}' -appPath 'cloud' -settingsJSON $mixedSettings -workspaceJSON $workspace -replaceJSON:$true
+    $mixedLaunch = Get-Content -LiteralPath (Join-Path $env:TEST_WORKSPACE 'cloud/.vscode/launch.json') -Raw | ConvertFrom-Json
+    if ($mixedLaunch.configurations[0].environmentType -ne 'OnPrem') { exit 6 }
+    $cloudSettings = [PSCustomObject]@{ configurations = @([PSCustomObject]@{
+      name = 'SaaS'; serverType = 'Cloud'; targetType = 'Dev'; environmentName = 'Sandbox'; tenant = 'test'
+    }) }
+    Write-LaunchJSON -scriptPath '${repositoryRoot.replaceAll("'", "''")}' -appPath 'onprem' -settingsJSON $cloudSettings -workspaceJSON $workspace -replaceJSON:$true
+    $onPremLaunch = Get-Content -LiteralPath (Join-Path $env:TEST_WORKSPACE 'onprem/.vscode/launch.json') -Raw | ConvertFrom-Json
+    if (@($onPremLaunch.configurations).Count -ne 0) { exit 8 }
+    $cloudWorkspace = [PSCustomObject]@{ folders = @([PSCustomObject]@{ path = 'cloud' }) }
+    function Select-DockerContainerConfigurations { return [PSCustomObject]@{ container = 'bc-test'; autoExtractAssemblies = $true } }
+    try {
+      New-DockerContainer -testMode $true -scriptPath '${repositoryRoot.replaceAll("'", "''")}' -appJSON ([PSCustomObject]@{ target = 'Cloud'; application = '24.0.0.0' }) -settingsJSON ([PSCustomObject]@{}) -workspaceJSON $cloudWorkspace -selectArtifact 'Latest' -pullFullArtifact $false
+      exit 7
+    } catch {
+      if ($_.Exception.Message -notmatch 'autoExtractAssemblies requires at least one workspace app.json target OnPrem') { throw }
+    }
+    exit 0
+  `;
+  runPowerShell(script, { TEST_WORKSPACE: workspace });
+
+  const source = fs.readFileSync(workspaceMgtPath, 'utf8');
+  const containerCreation = source.match(/function New-DockerContainer[\s\S]*?\n}/)?.[0] ?? '';
+  assert.match(containerCreation, /type = \$appArtifactType/);
+  assert.match(containerCreation, /\$appArtifactType -eq "OnPrem"[\s\S]*?runSandboxAsOnPrem/);
+  assert.doesNotMatch(containerCreation, /\$configuration\.environmentType/);
+});
+
 test('assembly extraction uses the Hyper-V-compatible BcContainerHelper copy operation', () => {
   const source = fs.readFileSync(workspaceMgtPath, 'utf8');
   const extractionFunction = source.match(/function Copy-DirectoryFromBcContainer[\s\S]*?\n}/)?.[0] ?? '';
@@ -122,7 +183,7 @@ test('automatic extraction requires a boolean Container configuration flag while
   assert.deepEqual(containerRule.then.properties.autoExtractAssemblies, {
     type: 'boolean',
     default: false,
-    description: 'Whether Service and .NET assemblies are extracted automatically after this OnPrem container is built. Manual extraction ignores this setting.'
+    description: 'Whether Service and .NET assemblies are extracted automatically after this container is built. Requires at least one workspace app.json target OnPrem. Manual extraction ignores this setting.'
   });
 
   const nonContainerRule = schema.definitions.configuration.allOf.find((rule) =>

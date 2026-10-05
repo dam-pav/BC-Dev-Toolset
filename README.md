@@ -478,7 +478,6 @@ to remove the files from git. You will need to commit these changes. Beware, thi
           "serverType": "Container",
           "targetType": "Dev",
           "container": "TEST",
-          "environmentType": "Sandbox",
           "includeTestToolkit": "true",
           "authentication": "UserPassword",
           "bcUser": "admin",
@@ -561,7 +560,7 @@ Each `configurations` entry can contain:
 - `serverInstance`: Valid for `OnPrem`.
 - `container`: Docker container name. The default value is the name of the workspace. Valid for `Container`. Create-container processing only includes Container configurations with a non-empty `container` value, and duplicate `container` values abort the operation.
 - `port`: Valid for `OnPrem`.
-- `environmentType`: Type of BC instance to create. Valid values are `Sandbox` or `OnPrem`. The default is `Sandbox`. Valid for `Container` and `Cloud`.
+- Container artifact type comes from workspace apps' `app.json` targets: if any app targets `OnPrem`, the container uses OnPrem artifacts; otherwise it uses Sandbox artifacts. Container launch entries use that same type. Cloud launch entries use Sandbox and are skipped for apps targeting `OnPrem`. An omitted app target defaults to `Cloud`. Existing configuration `environmentType` entries are ignored and can be removed.
 - `environmentName`: Valid for `Cloud`.
 - `includeTestToolkit`: Valid for `Container`.
 - `tenant`: Valid for `Cloud` or `OnPrem`.
@@ -573,7 +572,7 @@ Each `configurations` entry can contain:
 - `network`: Optional Docker network passed to `New-BcContainer`. Valid for `Container`. Suggested Windows container network values include `NAT`, `transparent`, `l2bridge`, `l2tunnel`, `overlay`, and `none`; custom Docker network names are also allowed. For suggested network names, the toolset verifies that the Docker network exists with the expected driver and creates missing creatable networks, for example `docker network create -d transparent transparent`. Custom network setup is left to the user. Use a transparent network when the container should appear on the LAN with a real address.
 - `hostIP`: Optional `host.containerhelper.internal` IP address passed to `New-BcContainer`. Valid for `Container`.
 - `updateHosts`: Optional switch controlling whether `New-BcContainer` updates the host machine's hosts file. Defaults to `true` when omitted. Valid for `Container`.
-- `autoExtractAssemblies`: Boolean controlling whether assembly extraction runs automatically after this container is built. Defaults to `false` when omitted. Valid only for a `Container` with `environmentType` set to `OnPrem`; manual extraction ignores it.
+- `autoExtractAssemblies`: Boolean controlling whether assembly extraction runs automatically after this container is built. Defaults to `false` when omitted. Valid only for a `Container` when at least one workspace app's `app.json` target is `OnPrem`; manual extraction ignores it.
 - `autoRestoreBackup`: Boolean controlling whether container creation and Test operations automatically restore a compatible backup set from `sqlBackupPath`. Defaults to `true` when omitted; set it explicitly to `false` to disable automatic restore. Valid only for `Container`; manual restore ignores it.
 - `macAddress`: Optional container MAC address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Use Docker's colon-delimited MAC address format, for example `02:42:ac:11:00:02`.
 - `IP`: Optional static container IP address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Leave empty to let the selected network assign the address, for example through DHCP.

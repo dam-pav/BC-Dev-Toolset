@@ -19,28 +19,21 @@ test('OnPrem port accepts strings and valid numeric TCP ports in local and share
   }
 });
 
-test('automatic assembly extraction is valid only for OnPrem containers in both settings schemas', () => {
+test('environment type is inferred from app.json rather than configured in either settings schema', () => {
   const sharedConfiguration = extension.contributes.configuration
     .flatMap(group => Object.values(group.properties || {}))
     .find(property => property.properties?.configurations)
     .properties.configurations.items;
 
   for (const configuration of [localSettings.definitions.configuration, sharedConfiguration]) {
-    const restriction = configuration.allOf.find(rule =>
-      rule.if?.properties?.serverType?.const === 'Container' &&
-      rule.if?.not?.properties?.environmentType?.const === 'OnPrem');
-    assert.ok(restriction);
-    assert.deepEqual(restriction.if.required, ['serverType']);
-    assert.deepEqual(restriction.if.not.required, ['environmentType']);
-    assert.deepEqual(restriction.then.properties.autoExtractAssemblies, {
-      not: {},
-      errorMessage: 'Field "autoExtractAssemblies" is valid only when "environmentType" is "OnPrem".',
-      doNotSuggest: true
-    });
+    assert.equal(JSON.stringify(configuration).includes('environmentType'), false);
+    const container = configuration.allOf.find(rule => rule.if?.properties?.serverType?.const === 'Container');
+    assert.equal(container.then.properties.autoExtractAssemblies.type, 'boolean');
   }
 
   for (const sample of localSettings.properties.configurations.default) {
-    assert.equal(sample.environmentType, 'Sandbox');
+    assert.equal(Object.hasOwn(sample, 'environmentType'), false);
     assert.equal(Object.hasOwn(sample, 'autoExtractAssemblies'), false);
   }
+  assert.equal(JSON.stringify(extension.contributes.configuration).includes('"environmentType"'), false);
 });

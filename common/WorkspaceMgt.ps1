@@ -202,6 +202,45 @@ function Get-WorkspaceOnPremAppPaths {
     return $onPremAppPaths
 }
 
+function Get-AppArtifactType {
+    param(
+        [Parameter(Mandatory=$true)]
+        [PSObject] $appJSON
+    )
+
+    $target = [string]$appJSON.target
+    if ([string]::IsNullOrWhiteSpace($target) -or $target -eq 'Cloud') {
+        return 'Sandbox'
+    }
+    if ($target -eq 'OnPrem') {
+        return 'OnPrem'
+    }
+    throw "Unsupported app.json target '$target'. Expected Cloud or OnPrem."
+}
+
+function Get-WorkspaceArtifactType {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $scriptPath,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $workspaceJSON,
+        [Parameter(Mandatory=$true)]
+        [PSObject] $appJSON
+    )
+
+    $artifactType = Get-AppArtifactType -appJSON $appJSON
+    foreach ($folderPath in $workspaceJSON.folders.path) {
+        $resolvedAppPath = Resolve-WorkspaceFolderPath -scriptPath $scriptPath -folderPath $folderPath
+        $appFilename = Join-Path $resolvedAppPath 'app.json'
+        if (-not (Test-Path -LiteralPath $appFilename -PathType Leaf)) { continue }
+        $currentAppJSON = Get-Content -LiteralPath $appFilename -Raw | ConvertFrom-Json
+        if ((Get-AppArtifactType -appJSON $currentAppJSON) -eq 'OnPrem') {
+            $artifactType = 'OnPrem'
+        }
+    }
+    return $artifactType
+}
+
 function Add-DefaultAssemblyProbingPath {
     param(
         [Parameter(Mandatory=$true)]
@@ -907,6 +946,8 @@ function Write-LaunchJSON {
         [Parameter(Mandatory=$true)]
         [PSObject] $settingsJSON,
         [Parameter(Mandatory=$false)]
+        [PSObject] $workspaceJSON = $null,
+        [Parameter(Mandatory=$false)]
         [bool] $replaceJSON = $false
     )
     Write-Host ""    
@@ -947,6 +988,10 @@ function Write-LaunchJSON {
 
     # Test apps connect to Test targets; other apps connect to Dev targets.
     $appTargetType = if (Test-AppHasTestDependencies -appJSON $appJSON) { 'Test' } else { 'Dev' }
+    $appArtifactType = Get-AppArtifactType -appJSON $appJSON
+    $containerArtifactType = if ($null -ne $workspaceJSON) {
+        Get-WorkspaceArtifactType -scriptPath $scriptPath -workspaceJSON $workspaceJSON -appJSON $appJSON
+    } else { $appArtifactType }
 
     # Find & Manage Remote Launcher
     foreach ($remote in $($settingsJSON.configurations | Where-Object {
@@ -971,6 +1016,11 @@ function Write-LaunchJSON {
                 $remoteConfigurationName += " $($remote.targetType)"
             }
             $remoteConfigurationName += " $($remote.serverType)"
+            if ($remote.serverType -eq 'Cloud' -and $appArtifactType -eq 'OnPrem') {
+                $launchJSON.configurations = @($launchJSON.configurations | Where-Object Name -ne $remoteConfigurationName)
+                Write-Host "Skipping Cloud launch configuration '$($remote.name)' for '$appPath' because its app.json target is OnPrem." -ForegroundColor Yellow
+                continue
+            }
 			foreach ($configuration in $($launchJSON.configurations | Where-Object Name -eq $remoteConfigurationName)) {
 				Write-Host "Existing setup for '$($configuration.name)' found." -ForegroundColor Blue
                 if ($configuration.PSObject.Properties['environmentName']) {
@@ -1020,13 +1070,9 @@ function Write-LaunchJSON {
                         if ($remote.PSObject.Properties['tenant']) {
                             Write-Host "'tenant' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
                         }
-                        if ($remote.environmentType -eq "OnPrem") {
-                            $configuration | Add-Member -MemberType NoteProperty -Name environmentType -Value $remote.environmentType
-                        } else {
-                            $configuration | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
-                        }
+                        $configuration | Add-Member -MemberType NoteProperty -Name environmentType -Value $containerArtifactType
                         $configuration | Add-Member -MemberType NoteProperty -Name server -Value "http://$($remote.container)"
-                        if (($configuration.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") -or ($appJSON.application -ge [Version]"19.0.0.0")) {
+                        if (($containerArtifactType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") -or ($appJSON.application -ge [Version]"19.0.0.0")) {
                             $configuration | Add-Member -MemberType NoteProperty -Name serverInstance -Value "BC"
                             $configuration | Add-Member -MemberType NoteProperty -Name tenant -Value "default"
                         } else {
@@ -1044,20 +1090,13 @@ function Write-LaunchJSON {
                         if ($remote.PSObject.Properties['authentication']) {
                             Write-Host "'authentication' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
                         }
-                        if (($remote.environmentType -eq "Sandbox") -or (-not $remote.environmentType)) {
-                            $configuration | Add-Member -MemberType NoteProperty -Name environmentType -Value "Sandbox"
-                        } else {
-                            Write-Host "'environmentType' attribute's only valid value is 'Sandbox'. The value '$($remote.environmentType)' is not valid." -ForegroundColor Red
-                        }
+                        $configuration | Add-Member -MemberType NoteProperty -Name environmentType -Value $appArtifactType
                         $configuration | Add-Member -MemberType NoteProperty -Name environmentName -Value $remote.environmentName
                         $configuration | Add-Member -MemberType NoteProperty -Name tenant -Value $remote.tenant
                     }
                     "OnPrem" { 
                         if ($configuration.PSObject.Properties['environmentName']) {
                             Write-Host "'environmentName' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
-                        }
-                        if ($remote.PSObject.Properties['environmentType']) {
-                            Write-Host "'environmentType' attribute is ignored for 'serverType'='$($remote.serverType)'." -ForegroundColor Red
                         }
                         $configuration | Add-Member -MemberType NoteProperty -Name server -Value $remote.server
                         $configuration | Add-Member -MemberType NoteProperty -Name serverInstance -Value $remote.serverInstance
@@ -1306,7 +1345,6 @@ function New-DefaultLocalConfiguration {
         serverType = "Container"
         targetType = "Dev"
         container = $containerName
-        environmentType = "Sandbox"
         includeTestToolkit = "false"
         authentication = "UserPassword"
         bcUser = "admin"
@@ -2188,7 +2226,14 @@ function New-DockerContainer {
         return
     }
 
+    $appArtifactType = Get-WorkspaceArtifactType -scriptPath $scriptPath -workspaceJSON $workspaceJSON -appJSON $appJSON
+
     foreach ($configuration in $selectedConfigurations) {
+
+        if ($configuration.PSObject.Properties['autoExtractAssemblies'] -and
+            $configuration.autoExtractAssemblies -eq $true -and $appArtifactType -ne 'OnPrem') {
+            throw "autoExtractAssemblies requires at least one workspace app.json target OnPrem for container '$($configuration.container)'."
+        }
 
         # No mutex for the time being, we do it manually
         $credential = Get-BcConfigurationCredential -configuration $configuration
@@ -2199,7 +2244,7 @@ function New-DockerContainer {
         } else {
             $appJSONapplication = $appJSON.application
             if ($selectArtifact -eq 'Closest') {
-                Write-Host "Retrieving artifact URL for $($configuration.environmentType) app version $($appJSON.application)."
+                Write-Host "Retrieving artifact URL for $appArtifactType app version $($appJSON.application)."
             } else {
                 $versionParts = $appJSONapplication -split '\.'
                 $cleanVersion = @()
@@ -2215,14 +2260,14 @@ function New-DockerContainer {
 
         if (-not $testmode) {
             $Parameters = @{
-                type = $configuration.environmentType
+                type = $appArtifactType
                 country = $settingsJSON.country
                 version = $appJSONapplication
                 select = $selectArtifact
             }
             $artifactUrl = Get-BcArtifactUrl @Parameters
             if ("$artifactUrl" -eq "") {
-                throw "Artifact URL could not be determined for $($configuration.environmentType) app version $($appJSON.application). Processing aborted."
+                throw "Artifact URL could not be determined for $appArtifactType app version $($appJSON.application). Processing aborted."
             } else {
                 Write-Host "Using artifact URL $artifactUrl."
             }
@@ -2350,7 +2395,7 @@ function New-DockerContainer {
             }
         }
 
-        if ($configuration.environmentType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") {
+        if ($appArtifactType -eq "OnPrem" -and $appJSON.application -ge [Version]"18.0.0.0") {
                 $Parameters.runSandboxAsOnPrem = $true
             }
 
