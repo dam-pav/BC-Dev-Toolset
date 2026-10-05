@@ -304,6 +304,25 @@ test('AL test MCP wait sends interim stage reports and returns the final result'
   ]);
 });
 
+test('resumed AL test MCP wait honors its completion timeout', async () => {
+  let elapsedMs = 0;
+  let polls = 0;
+  const status = await mcpServer.waitForTestOperationWithProgress('resumed-session', { report: () => {} }, {
+    timeoutSeconds: 2,
+    now: () => elapsedMs,
+    wait: async (milliseconds) => { elapsedMs += milliseconds; },
+    getStatus: async () => {
+      polls += 1;
+      return { statusCode: 200, body: { status: 'running', sessionId: 'resumed-session' } };
+    }
+  });
+
+  assert.equal(polls, 3);
+  assert.equal(status.status, 'running');
+  assert.equal(status.timedOutWaitingForCompletion, true);
+  assert.match(mcpServer.formatOperationStatus(status), /use bc_dev_toolset_get_operation_status/);
+});
+
 test('combined test report exposes isolation groups and unmatched selections', () => {
   const compiled = mcpServer.compileInvokeTestsReport('__BCDEVTOOLSET_STAGE__tests::failed', 'failed', {
     applicationCount: 1, total: 3, passed: 1, failed: 1, skipped: 1, durationSeconds: 2,

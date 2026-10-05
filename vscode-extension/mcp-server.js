@@ -1019,7 +1019,7 @@ async function runOperationInTerminal(operation, args, progress) {
   const promptAnswered = bridgeResult.status === 'prompt_answered';
   if (promptAnswered && bridgeResult.sessionId) {
     const followUpStatus = operation.id === 'invokeTests'
-      ? await waitForTestOperationWithProgress(bridgeResult.sessionId, progress)
+      ? await waitForTestOperationWithProgress(bridgeResult.sessionId, progress, { timeoutSeconds: getPromptAnswerStatusTimeoutSeconds(args) })
       : await waitForOperationStatusAfterPrompt(bridgeResult.sessionId, getPromptAnswerStatusTimeoutSeconds(args));
     const followUpResult = followUpStatus.result || {};
     return textResult([
@@ -1191,7 +1191,7 @@ async function answerOperationPrompt(args, progress) {
   const operationSessionId = response.body.sessionId || sessionId;
   const initialStatus = await postBridgeJson('/operation-status', { sessionId: operationSessionId });
   const followUpStatus = initialStatus.body && initialStatus.body.operationId === 'invokeTests'
-    ? await waitForTestOperationWithProgress(operationSessionId, progress)
+    ? await waitForTestOperationWithProgress(operationSessionId, progress, { timeoutSeconds: getPromptAnswerStatusTimeoutSeconds(args) })
     : await waitForOperationStatusAfterPrompt(operationSessionId, getPromptAnswerStatusTimeoutSeconds(args));
   const followUpResult = followUpStatus.result || {};
   return textResult([
@@ -1227,8 +1227,13 @@ function reportCompletedTestStages(output, reportedStages, progress) {
 async function waitForTestOperationWithProgress(sessionId, progress, options = {}) {
   const getStatus = options.getStatus || (() => postBridgeJson('/operation-status', { sessionId }));
   const wait = options.wait || delay;
+  const now = options.now || Date.now;
+  const timeoutMs = Number.isFinite(options.timeoutSeconds) && options.timeoutSeconds > 0
+    ? options.timeoutSeconds * 1000
+    : undefined;
   const reportedStages = new Set();
-  let lastUpdate = Date.now();
+  const startedAt = now();
+  let lastUpdate = startedAt;
   while (true) {
     const response = await getStatus();
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -1236,14 +1241,17 @@ async function waitForTestOperationWithProgress(sessionId, progress, options = {
     }
     const status = response.body || { status: 'unknown', sessionId };
     if (reportCompletedTestStages(status.result && status.result.output, reportedStages, progress)) {
-      lastUpdate = Date.now();
+      lastUpdate = now();
     }
     if (status.status !== 'running') {
       return status;
     }
-    if (Date.now() - lastUpdate >= 20000) {
+    if (timeoutMs !== undefined && now() - startedAt >= timeoutMs) {
+      return { ...status, timedOutWaitingForCompletion: true };
+    }
+    if (now() - lastUpdate >= 20000) {
       progress.report(`AL test operation is still running (session ${sessionId}).`, true);
-      lastUpdate = Date.now();
+      lastUpdate = now();
     }
     await wait(1000);
   }
@@ -1347,6 +1355,9 @@ function formatOperationStatus(status) {
     status.operationTitle ? `Operation: ${status.operationTitle}` : '',
     status.terminalName ? `Terminal: ${status.terminalName}` : '',
     status.status === 'waiting_for_input' ? formatPendingPromptInstruction(status) : '',
+    status.timedOutWaitingForCompletion
+      ? 'The wait for completion timed out. The operation may still be running; use bc_dev_toolset_get_operation_status with this session ID to check its result.'
+      : '',
     result.exitCodeSource ? `Exit code source: ${result.exitCodeSource}` : '',
     typeof result.exitCode === 'number' ? `Exit code: ${result.exitCode}` : '',
     result.output ? ['', getOperationOutputLabel(status.operationId), formatOperationOutput(status.operationId, result.output, status.status, result.operationReport)].join('\n') : '',
@@ -1909,6 +1920,7 @@ module.exports = {
     getPreflightPromptInputs,
     compileAlRunnerTestReport,
     compileInvokeTestsReport,
+    formatOperationStatus,
     reportCompletedTestStages,
     waitForTestOperationWithProgress,
     normalizePromptToolAnswer,
