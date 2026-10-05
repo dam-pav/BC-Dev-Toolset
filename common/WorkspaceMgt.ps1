@@ -401,6 +401,7 @@ function Sync-AppNetPackages {
     )
 
     $manifestPath = Resolve-ContainedAssemblyPath -validatedRoot $destinationPath -segments @('.bcdevtoolset-assemblies.json')
+    Assert-UnlinkedAssemblyFile -validatedPath $manifestPath
     $previousNames = @()
     if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
         $previousNames = @(Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json)
@@ -410,6 +411,7 @@ function Sync-AppNetPackages {
             throw "Invalid managed assembly name in '$manifestPath'."
         }
         $null = Resolve-ContainedAssemblyPath -validatedRoot $destinationPath -segments @($name)
+        Assert-UnlinkedAssemblyFile -validatedPath (Resolve-ContainedAssemblyPath -validatedRoot $destinationPath -segments @($name))
     }
 
     $currentNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
@@ -417,6 +419,7 @@ function Sync-AppNetPackages {
     foreach ($assembly in $assemblies) {
         $null = $currentNames.Add($assembly.Name)
         $destinationFile = Resolve-ContainedAssemblyPath -validatedRoot $destinationPath -segments @($assembly.Name)
+        Assert-UnlinkedAssemblyFile -validatedPath $destinationFile
         if ((Test-Path -LiteralPath $destinationFile -PathType Leaf) -and $assembly.Name -notin $previousNames) {
             throw "Assembly '$destinationFile' already exists and is not managed by BC Dev Toolset. Move it before extraction."
         }
@@ -450,6 +453,19 @@ function Sync-AppNetPackages {
         }
     }
     ConvertTo-Json -InputObject @($remainingNames) | Set-Content -LiteralPath $manifestPath
+}
+
+function Assert-UnlinkedAssemblyFile {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string] $validatedPath
+    )
+
+    # The caller has resolved the leaf within the authorized app directory.
+    $item = Get-Item -LiteralPath $validatedPath -Force -ErrorAction SilentlyContinue
+    if ($null -ne $item -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+        throw "Assembly file '$validatedPath' must not be a symbolic link or reparse point."
+    }
 }
 
 function Export-ContainerAssemblyProbingPaths {
@@ -614,6 +630,24 @@ function Invoke-ContainerAssemblyExtraction {
             if (Add-DefaultAssemblyProbingPath -settings $workspaceFileJSON.settings) {
                 $workspaceFileJSON | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $workspaceFile.FullName
                 Write-Host "Added './.netpackages' to al.assemblyProbingPaths in '$($workspaceFile.FullName)'." -ForegroundColor Gray
+            }
+        } else {
+            $vscodePath = Resolve-ContainedAssemblyPath -validatedRoot $workspaceRootPath -segments @('.vscode')
+            if (Test-Path -LiteralPath $vscodePath) {
+                $vscodeInfo = Get-Item -LiteralPath $vscodePath -Force
+                if ($vscodeInfo.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+                    throw "VS Code settings folder '$vscodePath' must not be a symbolic link or reparse point."
+                }
+            }
+            $null = [System.IO.Directory]::CreateDirectory($vscodePath)
+            $folderSettingsPath = Resolve-ContainedAssemblyPath -validatedRoot $workspaceRootPath -segments @('.vscode', 'settings.json')
+            Assert-UnlinkedAssemblyFile -validatedPath $folderSettingsPath
+            $folderSettings = if (Test-Path -LiteralPath $folderSettingsPath -PathType Leaf) {
+                Get-Content -LiteralPath $folderSettingsPath -Raw | ConvertFrom-Json
+            } else { [PSCustomObject]@{} }
+            if (Add-DefaultAssemblyProbingPath -settings $folderSettings) {
+                $folderSettings | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $folderSettingsPath
+                Write-Host "Added './.netpackages' to al.assemblyProbingPaths in '$folderSettingsPath'." -ForegroundColor Gray
             }
         }
     }
