@@ -23,6 +23,7 @@ foreach ($appPath in $workspaceJSON.folders.path) {
     -scriptPath $scriptPath `
     -appPath $appPath `
     -settingsJSON $settingsJSON `
+    -workspaceJSON $workspaceJSON `
     -replaceJSON $replaceJSON
 }
 

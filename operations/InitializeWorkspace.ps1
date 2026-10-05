@@ -262,7 +262,7 @@ if (-not $workspaceJson.settings.PSObject.Properties['bcDevToolset']) {
         selectArtifact = 'Latest'
         configurations = @([ordered]@{
             name = 'sample'; serverType = ''; targetType = ''; server = ''; serverInstance = ''; container = ''
-            port = ''; environmentType = ''; environmentName = ''; includeTestToolkit = ''; tenant = ''
+            port = ''; environmentName = ''; includeTestToolkit = ''; tenant = ''
             authentication = ''; bcUser = ''; bcPassword = ''; databaseUser = ''; databasePassword = ''
             remoteUser = ''; remotePassword = ''
         })

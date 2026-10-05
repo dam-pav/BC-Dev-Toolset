@@ -1581,7 +1581,6 @@ function getDefaultLocalConfiguration() {
     serverType: 'Container',
     targetType: 'Dev',
     container: workspaceName.replace(/ /g, '-'),
-    environmentType: 'Sandbox',
     includeTestToolkit: 'false',
     authentication: 'UserPassword',
     bcUser: 'admin',

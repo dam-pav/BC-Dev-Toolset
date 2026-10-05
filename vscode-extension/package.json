@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.9.10",
+  "version": "1.9.11",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -106,7 +106,6 @@
                   "serverInstance": "",
                   "container": "",
                   "port": "",
-                  "environmentType": "",
                   "environmentName": "",
                   "includeTestToolkit": "",
                   "tenant": "",
@@ -266,15 +265,6 @@
                             "type": "string",
                             "description": "Docker container name for Container targets."
                           },
-                          "environmentType": {
-                            "type": "string",
-                            "enum": [
-                              "",
-                              "Sandbox",
-                              "OnPrem"
-                            ],
-                            "description": "Business Central environment type."
-                          },
                           "multitenant": {
                             "type": "boolean",
                             "description": "Explicit multitenant mode passed to New-BcContainer. When omitted, Create Docker container infers the mode from a compatible backup set; if the backup does not determine the mode, the parameter is omitted and BcContainerHelper decides. Creation aborts when an explicit value conflicts with the backup type."
@@ -400,43 +390,12 @@
                           "autoExtractAssemblies": {
                             "type": "boolean",
                             "default": false,
-                            "description": "Whether Service and .NET assemblies are extracted automatically after this OnPrem container is built. Manual extraction ignores this setting."
+                            "description": "Whether Service and .NET assemblies are extracted automatically after this container is built. Requires at least one workspace app.json target OnPrem. Manual extraction ignores this setting."
                           },
                           "autoRestoreBackup": {
                             "type": "boolean",
                             "default": true,
                             "description": "Whether Create Docker container and Test operations automatically restore a compatible SQL backup set from sqlBackupPath. Defaults to true when omitted. Manual restore operations ignore this setting."
-                          }
-                        }
-                      }
-                    },
-                    {
-                      "if": {
-                        "properties": {
-                          "serverType": {
-                            "const": "Container"
-                          }
-                        },
-                        "required": [
-                          "serverType"
-                        ],
-                        "not": {
-                          "properties": {
-                            "environmentType": {
-                              "const": "OnPrem"
-                            }
-                          },
-                          "required": [
-                            "environmentType"
-                          ]
-                        }
-                      },
-                      "then": {
-                        "properties": {
-                          "autoExtractAssemblies": {
-                            "not": {},
-                            "errorMessage": "Field \"autoExtractAssemblies\" is valid only when \"environmentType\" is \"OnPrem\".",
-                            "doNotSuggest": true
                           }
                         }
                       }
@@ -454,15 +413,6 @@
                       },
                       "then": {
                         "properties": {
-                          "environmentType": {
-                            "type": "string",
-                            "enum": [
-                              "",
-                              "Sandbox",
-                              "OnPrem"
-                            ],
-                            "description": "Business Central environment type."
-                          },
                           "environmentName": {
                             "type": "string",
                             "description": "Cloud environment name."
@@ -631,32 +581,6 @@
                           "sqlMemoryLimit": {
                             "not": {},
                             "errorMessage": "Field \"sqlMemoryLimit\" is not valid when \"serverType\" is not \"Container\".",
-                            "doNotSuggest": true
-                          }
-                        }
-                      }
-                    },
-                    {
-                      "if": {
-                        "required": [
-                          "serverType"
-                        ],
-                        "not": {
-                          "properties": {
-                            "serverType": {
-                              "enum": [
-                                "Container",
-                                "Cloud"
-                              ]
-                            }
-                          }
-                        }
-                      },
-                      "then": {
-                        "properties": {
-                          "environmentType": {
-                            "not": {},
-                            "errorMessage": "Field \"environmentType\" is not valid when \"serverType\" is not \"Container\" or \"Cloud\".",
                             "doNotSuggest": true
                           }
                         }

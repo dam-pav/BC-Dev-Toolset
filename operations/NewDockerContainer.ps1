@@ -77,7 +77,8 @@ if ($success -eq $true) {
         Write-LaunchJSON `
         -scriptPath $scriptRoot `
         -appPath $appPath `
-        -settingsJSON $settingsJSON
+        -settingsJSON $settingsJSON `
+        -workspaceJSON $workspaceJSON
     }
 }
 
