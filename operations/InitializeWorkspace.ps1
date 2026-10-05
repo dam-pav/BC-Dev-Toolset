@@ -275,6 +275,7 @@ if ([string]::IsNullOrWhiteSpace($region) -and $null -ne $toolsetSettings) {
 }
 if ([string]::IsNullOrWhiteSpace($region)) { $region = 'w1' }
 $workspaceJson.settings | Add-Member -MemberType NoteProperty -Name 'al.symbolsCountryRegion' -Value $region -Force
+$null = Add-DefaultAssemblyProbingPath -settings $workspaceJson.settings
 if ($null -ne $toolsetSettings) {
     $toolsetSettings.PSObject.Properties.Remove('country')
 }

@@ -88,6 +88,7 @@ test('workspace initialization recognizes BC apps nested in a workspace folder',
   assert.ok(initializedWorkspace.settings['bcDevToolset']);
   assert.equal(initializedWorkspace.settings['bcDevToolset'].selectArtifact, 'Latest');
   assert.equal(initializedWorkspace.settings['al.symbolsCountryRegion'], 'w1');
+  assert.deepEqual(initializedWorkspace.settings['al.assemblyProbingPaths'], ['./.netpackages']);
   assert.equal('country' in initializedWorkspace.settings['bcDevToolset'], false);
   assert.equal(fs.existsSync(settingsPath), true); // nosemgrep -- path is contained by the test-owned workspace root
   const localSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- settingsPath is contained by the test-owned workspace root
@@ -116,7 +117,7 @@ test('workspace initialization coordinates repository, app folders, and file exc
       { name: 'Payroll app', path: 'apps/Payroll' },
       { path: 'docs' }
     ],
-    settings: { 'files.exclude': { generated: true } }
+    settings: { 'files.exclude': { generated: true }, 'al.assemblyProbingPaths': ['./custom-assemblies'] }
   }));
 
   const result = runInitializeWorkspace(workspacePath, workspaceFile);
@@ -134,12 +135,14 @@ test('workspace initialization coordinates repository, app folders, and file exc
     'apps/Payroll': true,
     'tests/Payroll.Tests': true
   });
+  assert.deepEqual(initializedWorkspace.settings['al.assemblyProbingPaths'], ['./custom-assemblies', './.netpackages']);
 
   const rerunResult = runInitializeWorkspace(workspacePath, workspaceFile);
   assert.equal(rerunResult.status, 0, rerunResult.stderr);
   const rerunWorkspace = JSON.parse(fs.readFileSync(workspaceFile, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
   assert.deepEqual(rerunWorkspace.folders, initializedWorkspace.folders);
   assert.deepEqual(rerunWorkspace.settings['files.exclude'], initializedWorkspace.settings['files.exclude']);
+  assert.deepEqual(rerunWorkspace.settings['al.assemblyProbingPaths'], ['./custom-assemblies', './.netpackages']);
 });
 
 test('workspace initialization writes local settings beside the active workspace file', () => {
