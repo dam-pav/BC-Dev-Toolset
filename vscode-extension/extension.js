@@ -37,7 +37,7 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 31;
+const mcpServerDefinitionRevision = 32;
 // Increment when bundled runtime content changes without an extension version bump.
 const runtimeToolsetRevision = 26;
 
@@ -651,6 +651,11 @@ function getMcpOperationStatus(body) {
       session.completedAt = session.completedAt || new Date().toISOString();
       session.result = result;
       touchMcpPromptSession(session);
+    } else if (session.operationId === 'invokeTests' && (session.status === 'running' || session.status === 'waiting_for_input')) {
+      session.result = {
+        output: cleanPowerShellTranscript(readTextFileIfExists(session.capture.transcriptPath)),
+        operationReport: readJsonFileIfExists(session.capture.reportPath)
+      };
     }
   }
 
@@ -2219,6 +2224,10 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
 
   if (!shellIntegration) {
     terminal.sendText(command);
+    if (operation.id === 'invokeTests') {
+      void monitorMcpTestCapture(operation, terminalName, capture, options, session);
+      return getMcpPromptSessionSnapshot(session);
+    }
     return waitForMcpCaptureResult(operation, terminalName, capture, options);
   }
 
@@ -2230,9 +2239,28 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
   const execution = shellIntegration.executeCommand(command);
   const outputParts = [];
   const readPromise = readTerminalExecutionOutput(execution, outputParts);
+  if (operation.id === 'invokeTests') {
+    void monitorMcpTestCapture(operation, terminalName, capture, { timeoutMs }, session, readPromise);
+    return getMcpPromptSessionSnapshot(session);
+  }
   const captureResult = await waitForMcpCaptureResult(operation, terminalName, capture, { timeoutMs });
   await waitForTerminalReadToSettle(readPromise, 2000);
   return captureResult;
+}
+
+async function monitorMcpTestCapture(operation, terminalName, capture, options, session, readPromise) {
+  try {
+    await waitForMcpCaptureResult(operation, terminalName, capture, options);
+    if (readPromise) {
+      await waitForTerminalReadToSettle(readPromise, 2000);
+    }
+  } catch (error) {
+    session.status = 'failed';
+    session.completedAt = new Date().toISOString();
+    session.result = { output: `MCP test capture failed: ${error.message}` };
+    touchMcpPromptSession(session);
+    writeOutput(session.result.output);
+  }
 }
 
 function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
