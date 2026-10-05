@@ -17,11 +17,6 @@
       "type": "string",
       "description": "Path where generated packages are written."
     },
-    "assemblyProbingPathsRoot": {
-      "type": "string",
-      "description": "Host folder where Service and .NET assemblies are extracted from containers for on-prem AL apps. Extraction prefers Microsoft.NETCore.App.Ref and falls back to the Microsoft.NETCore.App shared runtime. Relative paths are resolved from the workspace root.",
-      "default": ""
-    },
     "dependenciesPath": {
       "type": "string",
       "description": "Deprecated legacy single path containing app dependency packages. Use dependenciesPaths instead.",
@@ -87,8 +82,7 @@
           "bcUser": "admin",
           "bcPassword": "P@ssw0rd",
           "sqlBackupPath": "",
-          "autoRestoreBackup": true,
-          "autoExtractAssemblies": false
+          "autoRestoreBackup": true
         },
         {
           "name": "Local-Test",
@@ -101,8 +95,7 @@
           "bcUser": "admin",
           "bcPassword": "P@ssw0rd",
           "sqlBackupPath": "",
-          "autoRestoreBackup": true,
-          "autoExtractAssemblies": false
+          "autoRestoreBackup": true
         }
       ],
       "description": "Developer-local Business Central target configuration overrides.",
@@ -601,12 +594,43 @@
               "autoExtractAssemblies": {
                 "type": "boolean",
                 "default": false,
-                "description": "Whether Service and .NET assemblies are extracted automatically after this container is built. Manual extraction ignores this setting."
+                "description": "Whether Service and .NET assemblies are extracted automatically after this OnPrem container is built. Manual extraction ignores this setting."
               },
               "autoRestoreBackup": {
                 "type": "boolean",
                 "default": true,
                 "description": "Whether Create Docker container and Test operations automatically restore a compatible SQL backup set from sqlBackupPath. Defaults to true when omitted. Manual restore operations ignore this setting."
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "serverType": {
+                "const": "Container"
+              }
+            },
+            "required": [
+              "serverType"
+            ],
+            "not": {
+              "properties": {
+                "environmentType": {
+                  "const": "OnPrem"
+                }
+              },
+              "required": [
+                "environmentType"
+              ]
+            }
+          },
+          "then": {
+            "properties": {
+              "autoExtractAssemblies": {
+                "not": {},
+                "errorMessage": "Field \"autoExtractAssemblies\" is valid only when \"environmentType\" is \"OnPrem\".",
+                "doNotSuggest": true
               }
             }
           }

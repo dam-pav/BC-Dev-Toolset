@@ -15,9 +15,11 @@ Ensure-ConfiguredContainers -SettingsJSON $settingsJSON -SkipMissing
 
 Test-DockerProcess
 
-Invoke-ContainerAssemblyExtraction `
+if (-not (Invoke-ContainerAssemblyExtraction `
     -scriptPath $scriptRoot `
     -settingsJSON $settingsJSON `
-    -workspaceJSON $workspaceJSON | Out-Null
+    -workspaceJSON $workspaceJSON)) {
+    return
+}
 
 Write-Done

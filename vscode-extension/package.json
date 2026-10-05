@@ -400,12 +400,43 @@
                           "autoExtractAssemblies": {
                             "type": "boolean",
                             "default": false,
-                            "description": "Whether Service and .NET assemblies are extracted automatically after this container is built. Manual extraction ignores this setting."
+                            "description": "Whether Service and .NET assemblies are extracted automatically after this OnPrem container is built. Manual extraction ignores this setting."
                           },
                           "autoRestoreBackup": {
                             "type": "boolean",
                             "default": true,
                             "description": "Whether Create Docker container and Test operations automatically restore a compatible SQL backup set from sqlBackupPath. Defaults to true when omitted. Manual restore operations ignore this setting."
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": {
+                          "serverType": {
+                            "const": "Container"
+                          }
+                        },
+                        "required": [
+                          "serverType"
+                        ],
+                        "not": {
+                          "properties": {
+                            "environmentType": {
+                              "const": "OnPrem"
+                            }
+                          },
+                          "required": [
+                            "environmentType"
+                          ]
+                        }
+                      },
+                      "then": {
+                        "properties": {
+                          "autoExtractAssemblies": {
+                            "not": {},
+                            "errorMessage": "Field \"autoExtractAssemblies\" is valid only when \"environmentType\" is \"OnPrem\".",
+                            "doNotSuggest": true
                           }
                         }
                       }

@@ -468,6 +468,7 @@ to remove the files from git. You will need to commit these changes. Beware, thi
       "Project/Test-App": true
     },
     "al.symbolsCountryRegion": "w1",
+    "al.assemblyProbingPaths": ["./.netpackages"],
     "bcDevToolset": {
       "selectArtifact": "Latest",
       "executeTestsInContainerName": "",
@@ -535,9 +536,10 @@ These are VS Code extension settings. They belong to the developer's VS Code set
 
 ### Workspace settings
 
-These are stored in the `.code-workspace` file. The AL region setting is stored directly under `settings`; the remaining toolset settings are under `bcDevToolset`. Use them for shared project settings that should travel with the workspace.
+These are stored in the `.code-workspace` file. AL settings are stored directly under `settings`; the remaining toolset settings are under `bcDevToolset`. Use them for shared project settings that should travel with the workspace.
 
 - `al.symbolsCountryRegion`: Business Central artifact region. The default is `w1`; this is the same setting used by the AL extension.
+- `al.assemblyProbingPaths`: Workspace initialization and assembly extraction add `"./.netpackages"` if that exact path is absent, preserving other entries. The path resolves from each app folder, so OnPrem apps can find the assemblies extracted into their own `.netpackages` folders. If an app has an older folder-level `al.assemblyProbingPaths` setting in `.vscode/settings.json`, remove that override to use the workspace setting.
 - `selectArtifact`: Artifact selection strategy. The default is `Latest`; another common value is `Closest`.
 - `testIsolationDisabledCodeunits`: Array of integer AL codeunit IDs from `1` to `2147483647`, default `[]`. For example, set `"testIsolationDisabledCodeunits": [60990, 60992]` inside shared workspace `settings.bcDevToolset` (legacy `settings."dam-pav.bcdevtoolset"` is also supported), or at the root of local `.bcdevtoolset/settings.json`. An explicit local array replaces the shared list; local `[]` clears it. Duplicates are removed, and invalid values are rejected before build or container preparation. IDs absent from all discovered workspace tests are reported and fail the operation. Only explicitly selected codeunits use disabled isolation; failures are never retried with weaker isolation. This supports tests that call `Session.StartSession` across Business Central versions without requiring the `RequiredTestIsolation` property or a platform version check. **Committed data can persist: these integration tests own their setup, cleanup, and recovery after failed runs.** The setting affects **Run AL test tool tests** and `bc_dev_toolset_invoke_tests`; it does not affect page-script or AL Runner tests. The combined report includes the effective list and each group's runner, filter, counts, duration, and status, while counting each application/target once.
 - `testBuildWarningsAsErrors`: Boolean, `false` by default. Set to `true` in shared workspace `bcDevToolset` settings or local `.bcdevtoolset/settings.json` to block **Run AL test tool tests** when its build emits compiler warnings. An explicit local value (including `false`) overrides the workspace setting. The operation stops before container preparation and test execution; the MCP report includes the warnings and instructs the agent to resolve them before rerunning. Standalone builds, page script tests, and AL Runner tests are unaffected.
@@ -571,7 +573,7 @@ Each `configurations` entry can contain:
 - `network`: Optional Docker network passed to `New-BcContainer`. Valid for `Container`. Suggested Windows container network values include `NAT`, `transparent`, `l2bridge`, `l2tunnel`, `overlay`, and `none`; custom Docker network names are also allowed. For suggested network names, the toolset verifies that the Docker network exists with the expected driver and creates missing creatable networks, for example `docker network create -d transparent transparent`. Custom network setup is left to the user. Use a transparent network when the container should appear on the LAN with a real address.
 - `hostIP`: Optional `host.containerhelper.internal` IP address passed to `New-BcContainer`. Valid for `Container`.
 - `updateHosts`: Optional switch controlling whether `New-BcContainer` updates the host machine's hosts file. Defaults to `true` when omitted. Valid for `Container`.
-- `autoExtractAssemblies`: Boolean controlling whether assembly extraction runs automatically after this container is built. Defaults to `false`. Valid only for `Container`; manual extraction ignores it.
+- `autoExtractAssemblies`: Boolean controlling whether assembly extraction runs automatically after this container is built. Defaults to `false` when omitted. Valid only for a `Container` with `environmentType` set to `OnPrem`; manual extraction ignores it.
 - `autoRestoreBackup`: Boolean controlling whether container creation and Test operations automatically restore a compatible backup set from `sqlBackupPath`. Defaults to `true` when omitted; set it explicitly to `false` to disable automatic restore. Valid only for `Container`; manual restore ignores it.
 - `macAddress`: Optional container MAC address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Use Docker's colon-delimited MAC address format, for example `02:42:ac:11:00:02`.
 - `IP`: Optional static container IP address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Leave empty to let the selected network assign the address, for example through DHCP.
@@ -603,7 +605,6 @@ These settings are stored in `.bcdevtoolset/settings.json`:
 - `licenseFile`: Specify if you have one. Mandatory for runtime packages.
 - `certificateFile`: Specify if you have one. Mandatory for runtime packages.
 - `packageOutputPath`: Folder path for runtime packages. If empty, a `runtime` subfolder is created and used in the project.
-- `assemblyProbingPathsRoot`: Host folder where container Service and .NET assemblies are extracted when at least one workspace app targets `OnPrem`. The extraction prefers the `Microsoft.NETCore.App.Ref` targeting pack and falls back to the `Microsoft.NETCore.App` shared runtime when the targeting pack is unavailable. Each container uses its own subfolder, and the resulting absolute paths are added as `al.assemblyProbingPaths` only to the `.vscode/settings.json` files of apps that target `OnPrem`. Run the Container operation *Extract assembly probing paths from Docker container* to refresh them manually; container creation runs the same step after a successful build only when that configuration sets `autoExtractAssemblies` to `true`.
 - `dependenciesPaths`: Folder paths containing the required `.app` packages, or direct `.zip` file paths. Use this setting for dependency publishing.
 - `dependenciesPath`: Deprecated legacy single folder path containing the required app packages. It is still read for compatibility, but users should migrate to `dependenciesPaths`.
 - `loadOnPremMgtModule`: Path to `NavAdminTool.ps1` when OnPrem deployments need the management module on the server host.

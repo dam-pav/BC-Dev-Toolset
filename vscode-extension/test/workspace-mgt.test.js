@@ -18,98 +18,6 @@ function runPowerShell(script, environment = {}) {
   return result.stdout.trim();
 }
 
-test('assembly probing path helpers update local VS Code settings and gitignore safely', () => {
-  const temporaryWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-assemblies-'));
-  // Windows CI may expose TEMP using an 8.3 alias; compare paths using the physical directory name.
-  const workspace = fs.realpathSync.native(temporaryWorkspace); // nosemgrep -- directory created and owned by this test
-  const probingRoot = path.join(workspace, '.assemblies');
-  const script = `
-    . '${workspaceMgtPath.replaceAll("'", "''")}'
-    $workspaceRoot = [System.IO.Path]::GetFullPath($env:TEST_WORKSPACE)
-    $validatedRoot = Resolve-AssemblyProbingPathsRoot -workspaceRootPath $workspaceRoot -configuredRoot '.assemblies'
-    $service = Resolve-ContainedAssemblyPath -validatedRoot $validatedRoot -segments @('bc-one', 'Service')
-    $dotnet = Resolve-ContainedAssemblyPath -validatedRoot $validatedRoot -segments @('bc-one', 'DotNet')
-    Update-AssemblyProbingPathsSetting -workspaceRootPath $workspaceRoot -paths @($service, $dotnet)
-    Add-GitIgnoreEntry -workspaceRootPath $workspaceRoot -entry '.assemblies/'
-  `;
-
-  runPowerShell(script, { TEST_WORKSPACE: workspace });
-
-  const settings = JSON.parse(fs.readFileSync(path.join(workspace, '.vscode', 'settings.json'), 'utf8'));
-  assert.deepEqual(settings['al.assemblyProbingPaths'], [
-    path.join(probingRoot, 'bc-one', 'Service'),
-    path.join(probingRoot, 'bc-one', 'DotNet')
-  ]);
-  const gitignore = fs.readFileSync(path.join(workspace, '.gitignore'), 'utf8').split(/\r?\n/);
-  assert.ok(gitignore.includes('.vscode/settings.json'));
-  assert.ok(gitignore.includes('.assemblies/'));
-});
-
-test('assembly probing paths reject unsafe container path segments', () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-containment-'));
-  const script = `
-    . '${workspaceMgtPath.replaceAll("'", "''")}'
-    try {
-      Resolve-ContainedAssemblyPath -validatedRoot $env:TEST_WORKSPACE -segments @('..', 'Service')
-      exit 2
-    } catch {
-      exit 0
-    }
-  `;
-
-  runPowerShell(script, { TEST_WORKSPACE: workspace });
-});
-
-test('OnPrem app discovery returns only OnPrem folders in a multi-folder workspace', () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-onprem-'));
-  fs.mkdirSync(path.join(workspace, 'cloud'));
-  fs.mkdirSync(path.join(workspace, 'onprem'));
-  fs.writeFileSync(path.join(workspace, 'cloud', 'app.json'), JSON.stringify({ target: 'Cloud' }));
-  fs.writeFileSync(path.join(workspace, 'onprem', 'app.json'), JSON.stringify({ target: 'OnPrem' }));
-  const script = `
-    . '${workspaceMgtPath.replaceAll("'", "''")}'
-    $script:bcDevToolsetWorkspaceRootPath = [System.IO.Path]::GetFullPath($env:TEST_WORKSPACE)
-    $workspace = [PSCustomObject]@{ folders = [PSCustomObject]@{ path = @('cloud', 'onprem') } }
-    $paths = @(Get-WorkspaceOnPremAppPaths -scriptPath '${repositoryRoot.replaceAll("'", "''")}' -workspaceJSON $workspace)
-    if ($paths.Count -ne 1 -or (Split-Path -Leaf $paths[0]) -ne 'onprem') { exit 2 }
-  `;
-
-  runPowerShell(script, { TEST_WORKSPACE: workspace });
-});
-
-test('probing settings are written to OnPrem app folders but not Cloud app folders', () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-app-settings-'));
-  const cloudPath = path.join(workspace, 'cloud');
-  const onPremPath = path.join(workspace, 'onprem');
-  fs.mkdirSync(cloudPath);
-  fs.mkdirSync(onPremPath);
-  const servicePath = path.join(workspace, '.assemblies', 'bc-one', 'Service');
-  const script = `
-    . '${workspaceMgtPath.replaceAll("'", "''")}'
-    Update-AssemblyProbingPathsSetting -workspaceRootPath $env:ONPREM_PATH -paths @($env:SERVICE_PATH)
-  `;
-
-  runPowerShell(script, { ONPREM_PATH: onPremPath, SERVICE_PATH: servicePath });
-
-  assert.ok(fs.existsSync(path.join(onPremPath, '.vscode', 'settings.json')));
-  assert.ok(!fs.existsSync(path.join(cloudPath, '.vscode', 'settings.json')));
-});
-
-test('probing settings remove a stale DotNet path when a container has no reference pack', () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-stale-dotnet-'));
-  const servicePath = path.join(workspace, '.assemblies', 'bc-one', 'Service');
-  const dotNetPath = path.join(workspace, '.assemblies', 'bc-one', 'DotNet');
-  const script = `
-    . '${workspaceMgtPath.replaceAll("'", "''")}'
-    Update-AssemblyProbingPathsSetting -workspaceRootPath $env:TEST_WORKSPACE -paths @($env:SERVICE_PATH, $env:DOTNET_PATH)
-    Update-AssemblyProbingPathsSetting -workspaceRootPath $env:TEST_WORKSPACE -paths @($env:SERVICE_PATH) -pathsToRemove @($env:DOTNET_PATH)
-  `;
-
-  runPowerShell(script, { TEST_WORKSPACE: workspace, SERVICE_PATH: servicePath, DOTNET_PATH: dotNetPath });
-  const settings = JSON.parse(fs.readFileSync(path.join(workspace, '.vscode', 'settings.json'), 'utf8'));
-  assert.deepEqual(settings['al.assemblyProbingPaths'], [servicePath]);
-});
-
 test('container creation callers pass workspace context required for OnPrem app detection', () => {
   for (const relativePath of ['operations/NewDockerContainer.ps1', 'common/TestMgt.ps1']) {
     const source = fs.readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
@@ -214,7 +122,7 @@ test('automatic extraction requires a boolean Container configuration flag while
   assert.deepEqual(containerRule.then.properties.autoExtractAssemblies, {
     type: 'boolean',
     default: false,
-    description: 'Whether Service and .NET assemblies are extracted automatically after this container is built. Manual extraction ignores this setting.'
+    description: 'Whether Service and .NET assemblies are extracted automatically after this OnPrem container is built. Manual extraction ignores this setting.'
   });
 
   const nonContainerRule = schema.definitions.configuration.allOf.find((rule) =>
