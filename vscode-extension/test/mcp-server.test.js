@@ -250,6 +250,79 @@ test('compiles successful test output without prerequisite stage chatter', () =>
   assert.doesNotMatch(compiled, /verbose successful deployment output/);
 });
 
+test('reports each completed AL test stage once while waiting for the final MCP result', () => {
+  const messages = [];
+  const progress = { report: (message) => messages.push(message) };
+  const reportedStages = new Set();
+  const buildOutput = [
+    '__BCDEVTOOLSET_STAGE__build::started',
+    '__BCDEVTOOLSET_STAGE__build::succeeded',
+    '__BCDEVTOOLSET_STAGE__prepare::started'
+  ].join('\n');
+  assert.equal(mcpServer.reportCompletedTestStages(buildOutput, reportedStages, progress), true);
+  assert.equal(mcpServer.reportCompletedTestStages(buildOutput, reportedStages, progress), false);
+  assert.deepEqual(messages, ['Build workspace apps: succeeded']);
+
+  const completedOutput = [
+    buildOutput,
+    '__BCDEVTOOLSET_STAGE__prepare::succeeded',
+    '__BCDEVTOOLSET_STAGE__tests::started',
+    '__BCDEVTOOLSET_STAGE__tests::failed'
+  ].join('\n');
+  assert.equal(mcpServer.reportCompletedTestStages(completedOutput, reportedStages, progress), true);
+  assert.deepEqual(messages, [
+    'Build workspace apps: succeeded',
+    'Prepare test container and deploy apps: succeeded',
+    'Execute AL tests: failed'
+  ]);
+});
+
+test('AL test MCP wait sends interim stage reports and returns the final result', async () => {
+  const messages = [];
+  const outputs = [
+    '__BCDEVTOOLSET_STAGE__build::succeeded',
+    '__BCDEVTOOLSET_STAGE__build::succeeded\n__BCDEVTOOLSET_STAGE__prepare::succeeded',
+    '__BCDEVTOOLSET_STAGE__build::succeeded\n__BCDEVTOOLSET_STAGE__prepare::succeeded\n__BCDEVTOOLSET_STAGE__tests::succeeded'
+  ];
+  let call = 0;
+  const status = await mcpServer.waitForTestOperationWithProgress('test-session', {
+    report: (message) => messages.push(message)
+  }, {
+    getStatus: async () => ({ statusCode: 200, body: {
+      status: call === 2 ? 'completed' : 'running',
+      sessionId: 'test-session',
+      result: { output: outputs[call++] }
+    } }),
+    wait: async () => {}
+  });
+  assert.equal(status.status, 'completed');
+  assert.equal(call, 3);
+  assert.deepEqual(messages, [
+    'Build workspace apps: succeeded',
+    'Prepare test container and deploy apps: succeeded',
+    'Execute AL tests: succeeded'
+  ]);
+});
+
+test('resumed AL test MCP wait honors its completion timeout', async () => {
+  let elapsedMs = 0;
+  let polls = 0;
+  const status = await mcpServer.waitForTestOperationWithProgress('resumed-session', { report: () => {} }, {
+    timeoutSeconds: 2,
+    now: () => elapsedMs,
+    wait: async (milliseconds) => { elapsedMs += milliseconds; },
+    getStatus: async () => {
+      polls += 1;
+      return { statusCode: 200, body: { status: 'running', sessionId: 'resumed-session' } };
+    }
+  });
+
+  assert.equal(polls, 3);
+  assert.equal(status.status, 'running');
+  assert.equal(status.timedOutWaitingForCompletion, true);
+  assert.match(mcpServer.formatOperationStatus(status), /use bc_dev_toolset_get_operation_status/);
+});
+
 test('combined test report exposes isolation groups and unmatched selections', () => {
   const compiled = mcpServer.compileInvokeTestsReport('__BCDEVTOOLSET_STAGE__tests::failed', 'failed', {
     applicationCount: 1, total: 3, passed: 1, failed: 1, skipped: 1, durationSeconds: 2,

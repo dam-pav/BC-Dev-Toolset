@@ -259,7 +259,7 @@ function getServerInstructions() {
     'Use bc_dev_toolset_show_help or read bcdevtoolset://help/readme when the user wants to explore, understand, configure, or troubleshoot BC Dev Toolset itself.',
     'For ordinary AL compile, build, or validation requests, call bc_dev_toolset_build_all_apps when it is exposed. Do not invoke an AL compiler directly while that tool is available. It preserves workspace dependency order, package-cache isolation, and configured assembly probing paths for .NET components.',
     'A failed, timed-out, or bridge-unavailable MCP operation must be reported; it is not permission to retry the same operation with direct compiler, Docker, BcContainerHelper, or PowerShell commands. Use a manual fallback only when no matching MCP tool is exposed or the user explicitly requests it.',
-    'The AL test operation returns a compiled stage and test report. Treat its included failure diagnostics as definitive and do not rerun the build or tests merely to retrieve output.',
+    'The AL test operation reports each completed stage through MCP progress notifications while it runs, then returns a compiled stage and test report. Treat its included failure diagnostics as definitive and do not rerun the build or tests merely to retrieve output.',
     'If bc_dev_toolset_al_runner_test reports an AL Runner tool failure rather than an AL compilation or test failure, report that distinction and suggest bc_dev_toolset_invoke_tests as the container-based fallback. Do not invoke the fallback automatically unless the user asks to proceed with it.',
     'Before answering questions about the active VS Code workspace, workspace file, workspace folders, AL project path, app.json location, .code-workspace settings, local .bcdevtoolset settings path, or AL settings such as assembly probing paths, call bc_dev_toolset_get_workspace or read bcdevtoolset://workspace/current. Do not infer the workspace by scanning parent folders unless this tool/resource is unavailable.',
     'PowerShell-backed operations require the VS Code terminal bridge and run visibly in the BC Dev Toolset terminal. If the bridge is unavailable, report that the BC Dev Toolset VS Code extension must be active instead of falling back to manual PowerShell.',
@@ -532,7 +532,7 @@ async function callTool(params) {
     case 'bc_dev_toolset_get_operation_status':
       return getOperationStatus(toolArguments);
     case 'bc_dev_toolset_answer_operation_prompt':
-      return answerOperationPrompt(toolArguments);
+      return answerOperationPrompt(toolArguments, progress);
     case 'list_bc_dev_toolset_operations':
       return textResult(JSON.stringify(listRunnableOperations(toolArguments.category), null, 2));
     case 'run_bc_dev_toolset_operation':
@@ -656,7 +656,7 @@ function getOperationToolDescription(operation) {
     ? ' Call without execute:true to return relevant input decisions, including conditional questions, without starting the operation; then call again with execute:true and the answers.'
     : '';
   const compiledReportText = operation.id === 'invokeTests'
-    ? ' Returns one compiled report with stage status, test totals, failure details, and diagnostics for the failed stage; do not rerun a failed build or test merely to retrieve output. The testBuildWarningsAsErrors workspace/local setting defaults to false; when true, compiler warnings block tests. Resolve the reported warnings before rerunning.'
+    ? ' Reports completed stages through MCP progress notifications and returns one compiled report with stage status, test totals, failure details, and diagnostics for the failed stage; do not rerun a failed build or test merely to retrieve output. The testBuildWarningsAsErrors workspace/local setting defaults to false; when true, compiler warnings block tests. Resolve the reported warnings before rerunning.'
     : operation.id === 'alRunnerTest'
     ? ' Distinguishes AL Runner availability or compatibility failures from genuine AL compilation and test failures. On a runner-tool failure, report it and suggest bc_dev_toolset_invoke_tests as the container-based fallback; do not invoke the fallback automatically.'
     : '';
@@ -1008,16 +1008,19 @@ async function runOperationInTerminal(operation, args, progress) {
   }
 
   const bridgeResult = response.body || {};
+  if (operation.id === 'invokeTests' && bridgeResult.status === 'running' && bridgeResult.sessionId) {
+    const finalStatus = await waitForTestOperationWithProgress(bridgeResult.sessionId, progress);
+    return textResult(formatOperationStatus(finalStatus), finalStatus.status === 'failed' || finalStatus.status === 'timeout');
+  }
   const completed = bridgeResult.status === 'completed';
   const running = bridgeResult.status === 'running';
   const startedOnly = bridgeResult.status === 'started';
   const waitingForInput = bridgeResult.status === 'waiting_for_input';
   const promptAnswered = bridgeResult.status === 'prompt_answered';
   if (promptAnswered && bridgeResult.sessionId) {
-    const followUpStatus = await waitForOperationStatusAfterPrompt(
-      bridgeResult.sessionId,
-      getPromptAnswerStatusTimeoutSeconds(args)
-    );
+    const followUpStatus = operation.id === 'invokeTests'
+      ? await waitForTestOperationWithProgress(bridgeResult.sessionId, progress, { timeoutSeconds: getPromptAnswerStatusTimeoutSeconds(args) })
+      : await waitForOperationStatusAfterPrompt(bridgeResult.sessionId, getPromptAnswerStatusTimeoutSeconds(args));
     const followUpResult = followUpStatus.result || {};
     return textResult([
       `Status: ${bridgeResult.status}`,
@@ -1164,7 +1167,7 @@ async function getOperationStatus(args) {
   );
 }
 
-async function answerOperationPrompt(args) {
+async function answerOperationPrompt(args, progress) {
   if (!shouldUseTerminalBridge()) {
     return textResult('BC Dev Toolset MCP prompt answers require the VS Code terminal bridge.', true);
   }
@@ -1185,10 +1188,11 @@ async function answerOperationPrompt(args) {
     return textResult(`Failed to answer BC Dev Toolset prompt: ${response.body.error || response.rawBody}`, true);
   }
 
-  const followUpStatus = await waitForOperationStatusAfterPrompt(
-    response.body.sessionId || sessionId,
-    getPromptAnswerStatusTimeoutSeconds(args)
-  );
+  const operationSessionId = response.body.sessionId || sessionId;
+  const initialStatus = await postBridgeJson('/operation-status', { sessionId: operationSessionId });
+  const followUpStatus = initialStatus.body && initialStatus.body.operationId === 'invokeTests'
+    ? await waitForTestOperationWithProgress(operationSessionId, progress, { timeoutSeconds: getPromptAnswerStatusTimeoutSeconds(args) })
+    : await waitForOperationStatusAfterPrompt(operationSessionId, getPromptAnswerStatusTimeoutSeconds(args));
   const followUpResult = followUpStatus.result || {};
   return textResult([
     `Status: ${response.body.status}`,
@@ -1198,6 +1202,59 @@ async function answerOperationPrompt(args) {
     'FOLLOW-UP STATUS:',
     formatOperationStatus(followUpStatus)
   ].join('\n'), followUpStatus.status === 'failed' || hasAlRunnerToolFailure(followUpStatus.operationId, followUpResult.output));
+}
+
+function reportCompletedTestStages(output, reportedStages, progress) {
+  const stageNames = {
+    build: 'Build workspace apps',
+    prepare: 'Prepare test container and deploy apps',
+    tests: 'Execute AL tests'
+  };
+  const markerPattern = /^__BCDEVTOOLSET_STAGE__(build|prepare|tests)::(succeeded|failed|cancelled)\s*$/gm;
+  let match;
+  let reported = false;
+  while ((match = markerPattern.exec(String(output || ''))) !== null) {
+    if (reportedStages.has(match[1])) {
+      continue;
+    }
+    reportedStages.add(match[1]);
+    progress.report(`${stageNames[match[1]]}: ${match[2]}`, true);
+    reported = true;
+  }
+  return reported;
+}
+
+async function waitForTestOperationWithProgress(sessionId, progress, options = {}) {
+  const getStatus = options.getStatus || (() => postBridgeJson('/operation-status', { sessionId }));
+  const wait = options.wait || delay;
+  const now = options.now || Date.now;
+  const timeoutMs = Number.isFinite(options.timeoutSeconds) && options.timeoutSeconds > 0
+    ? options.timeoutSeconds * 1000
+    : undefined;
+  const reportedStages = new Set();
+  const startedAt = now();
+  let lastUpdate = startedAt;
+  while (true) {
+    const response = await getStatus();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return { status: 'failed', sessionId, result: { output: `Failed to get BC Dev Toolset operation status: ${response.body.error || response.rawBody}` } };
+    }
+    const status = response.body || { status: 'unknown', sessionId };
+    if (reportCompletedTestStages(status.result && status.result.output, reportedStages, progress)) {
+      lastUpdate = now();
+    }
+    if (status.status !== 'running') {
+      return status;
+    }
+    if (timeoutMs !== undefined && now() - startedAt >= timeoutMs) {
+      return { ...status, timedOutWaitingForCompletion: true };
+    }
+    if (now() - lastUpdate >= 20000) {
+      progress.report(`AL test operation is still running (session ${sessionId}).`, true);
+      lastUpdate = now();
+    }
+    await wait(1000);
+  }
 }
 
 async function waitForOperationStatusAfterPrompt(sessionId, timeoutSeconds) {
@@ -1298,6 +1355,9 @@ function formatOperationStatus(status) {
     status.operationTitle ? `Operation: ${status.operationTitle}` : '',
     status.terminalName ? `Terminal: ${status.terminalName}` : '',
     status.status === 'waiting_for_input' ? formatPendingPromptInstruction(status) : '',
+    status.timedOutWaitingForCompletion
+      ? 'The wait for completion timed out. The operation may still be running; use bc_dev_toolset_get_operation_status with this session ID to check its result.'
+      : '',
     result.exitCodeSource ? `Exit code source: ${result.exitCodeSource}` : '',
     typeof result.exitCode === 'number' ? `Exit code: ${result.exitCode}` : '',
     result.output ? ['', getOperationOutputLabel(status.operationId), formatOperationOutput(status.operationId, result.output, status.status, result.operationReport)].join('\n') : '',
@@ -1860,6 +1920,9 @@ module.exports = {
     getPreflightPromptInputs,
     compileAlRunnerTestReport,
     compileInvokeTestsReport,
+    formatOperationStatus,
+    reportCompletedTestStages,
+    waitForTestOperationWithProgress,
     normalizePromptToolAnswer,
     tryReadRawJsonMessage
   }
