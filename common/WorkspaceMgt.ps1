@@ -997,7 +997,7 @@ function Write-LaunchJSON {
 
     # Find & Manage Remote Launcher
     foreach ($remote in $($settingsJSON.configurations | Where-Object {
-        (($_.targetType -eq $appTargetType) -or ($_.serverType -eq 'Container' -and $_.includeTestToolkit -eq 'true')) -and
+        $_.targetType -eq $appTargetType -and
         (Test-AutoUpdateLaunchJson -configuration $_ -appTargetType $appTargetType)
     })) {
         $configurationValid = $true
@@ -1014,7 +1014,7 @@ function Write-LaunchJSON {
         if ($configurationValid) {
             $setupFound = $false
             $remoteConfigurationName = "$($remote.name)"
-            $launchTargetType = if ($remote.serverType -eq 'Container' -and $remote.includeTestToolkit -eq 'true') { $appTargetType } else { $remote.targetType }
+            $launchTargetType = $remote.targetType
             if ($launchTargetType) {
                 $remoteConfigurationName += " $launchTargetType"
             }

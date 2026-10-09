@@ -419,24 +419,25 @@ test('Add Test Toolkit operation selects one configured container and aborts inv
     command === 'bcDevToolset.operation.addTestToolkitToBcContainer'));
 });
 
-test('named-container selection is removed and toolkit containers route both app roles in launch files', () => {
+test('named-container selection is removed and launch files preserve configured target roles', () => {
   const schema = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'schemas', 'bcdevtoolset-settings.schema.json'), 'utf8'));
   assert.equal(Object.hasOwn(schema.properties, 'executeTestsInContainerName'), false);
 
   const source = fs.readFileSync(workspaceMgtPath, 'utf8');
   assert.doesNotMatch(source, /workspaceToolsetSettings\.executeTestsInContainerName/);
-  assert.match(source, /\$remote\.serverType -eq 'Container' -and \$remote\.includeTestToolkit -eq 'true'/);
-  assert.match(source, /\$launchTargetType = if \(\$remote\.serverType -eq 'Container'/);
+  assert.match(source, /\$_.targetType -eq \$appTargetType -and/);
+  assert.match(source, /\$launchTargetType = \$remote\.targetType/);
 });
 
-test('one toolkit-enabled platform configuration generates Dev and Test app launch targets', () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-one-platform-launch-'));
+test('launch generation keeps Dev and Test app targets on their configured container roles', () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-role-specific-launch-'));
   const script = `
     . '${workspaceMgtPath.replaceAll("'", "''")}'
     $script:bcDevToolsetWorkspaceRootPath = $env:TEST_WORKSPACE
-    $settings = [PSCustomObject]@{ configurations = @([PSCustomObject]@{
-      name='BC27'; serverType='Container'; targetType='Dev'; container='bc27'; platform='27.1'; includeTestToolkit='true'
-    }) }
+    $settings = [PSCustomObject]@{ configurations = @(
+      [PSCustomObject]@{ name='BC23'; serverType='Container'; targetType='Dev'; container='bc23'; platform='23.0'; includeTestToolkit='true' },
+      [PSCustomObject]@{ name='BC27.1'; serverType='Container'; targetType='Test'; container='bc271'; platform='27.1'; includeTestToolkit='true' }
+    ) }
     foreach ($role in @('Dev', 'Test')) {
       $appPath = Join-Path $env:TEST_WORKSPACE $role
       $null = [System.IO.Directory]::CreateDirectory($appPath)
@@ -445,7 +446,7 @@ test('one toolkit-enabled platform configuration generates Dev and Test app laun
       [PSCustomObject]@{ application='23.0.0.0'; dependencies=$dependencies } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $appPath 'app.json')
       Write-LaunchJSON -scriptPath '${repositoryRoot.replaceAll("'", "''")}' -appPath $role -settingsJSON $settings -replaceJSON:$true
       $launch = Get-Content -LiteralPath (Join-Path $appPath '.vscode/launch.json') -Raw | ConvertFrom-Json
-      $expected = if ($role -eq 'Test') { 'BC27 Test Container' } else { 'BC27 Dev Container' }
+      $expected = if ($role -eq 'Test') { 'BC27.1 Test Container' } else { 'BC23 Dev Container' }
       if ($launch.configurations.Count -ne 1 -or $launch.configurations[0].name -ne $expected) { exit 2 }
     }
   `;
@@ -584,7 +585,7 @@ test('runtime synchronization state includes an explicit content revision', () =
     path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
 
   const revision = Number(extensionSource.match(/const runtimeToolsetRevision = (\d+);/)?.[1]);
-  assert.equal(revision, 30, 'Bundled runtime changes must increment the synchronization revision');
+  assert.equal(revision, 31, 'Bundled runtime changes must increment the synchronization revision');
   assert.match(extensionSource, /`\$\{extensionVersion\}\.\$\{runtimeToolsetRevision\}\|\$\{getToolsetPath\(\)\}`/);
 });
 
