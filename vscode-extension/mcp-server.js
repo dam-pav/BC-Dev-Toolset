@@ -668,39 +668,7 @@ function getOperationPromptInputs(operation) {
 }
 
 function getPreflightPromptInputs(operation, args, context) {
-  const inputs = getOperationPromptInputs(operation);
-  if (!isTestOperation(operation)) return inputs;
-
-  try {
-    // Authorize against the bound workspace, never a caller-supplied root.
-    const root = authorizeRoot(context.workspaceBasePath || context.workspacePath, 'Bound workspace');
-    const workspacePath = resolveWithinRoot(root, args.workspacePath || context.workspacePath || root);
-    const workspaceFile = args.workspaceFile || context.workspaceFilePath;
-    // Discovery can require a runtime choice, so keep questions in that case.
-    if (!workspaceFile && process.env.BCDEVTOOLSET_ALLOW_WORKSPACE_FILE_DISCOVERY === 'true') return inputs;
-    const validatedWorkspaceFile = workspaceFile ? resolveWithinRoot(root, workspacePath, workspaceFile) : '';
-    const workspace = validatedWorkspaceFile
-      ? parseSettingsJsonc(fs.readFileSync(validatedWorkspaceFile, 'utf8')) : {}; // nosemgrep -- resolveWithinRoot verifies containment in the bound workspace before this read
-    const settingsRoot = validatedWorkspaceFile ? path.dirname(validatedWorkspaceFile) : workspacePath;
-    const validatedLocalSettingsPath = resolveWithinRoot(root, settingsRoot,
-      args.localSettingsPath || context.localSettingsPath || '.bcdevtoolset/settings.json');
-    const local = JSON.parse(fs.readFileSync(validatedLocalSettingsPath, 'utf8').replace(/^\uFEFF/, '')); // nosemgrep -- resolveWithinRoot verifies containment in the bound workspace before this read
-    const shared = workspace.settings?.bcDevToolset ?? workspace.settings?.['dam-pav.bcdevtoolset'] ?? {};
-    const configurations = [...(local.configurations || []), ...(shared.configurations || [])]
-      .filter(config => String(config.serverType).toLowerCase() === 'container' &&
-        String(config.includeTestToolkit).toLowerCase() === 'true' && String(config.container || '').trim());
-    const target = (String(local.executeTestsInContainerName || '').trim() ||
-      String(shared.executeTestsInContainerName || '').trim()).toLowerCase();
-    const resolved = configurations.length === 1 || (target &&
-      configurations.filter(config => String(config.container).toLowerCase() === target).length === 1);
-    if (resolved) {
-      return inputs.filter(input => input.inputName !== 'testContainerSelection');
-    }
-  } catch {
-    // Missing, unreadable, or out-of-workspace settings cannot prove that a
-    // question is redundant. Keep the declared questions in that case.
-  }
-  return inputs;
+  return getOperationPromptInputs(operation);
 }
 
 function getOperationToolAliases(operationId) {
@@ -834,13 +802,6 @@ function getOperationToolInputSchema(operation) {
   }
 
   if (isTestOperation(operation)) {
-    properties.testContainerSelection = {
-      anyOf: [
-        { type: 'string' },
-        { type: 'number' }
-      ],
-      description: 'Optional 1-based choice for the test container configuration prompt. Preflight omits this question when settings already resolve the target container. Otherwise use the displayed configuration options to choose an index.'
-    };
     properties.executeTestsInContainer = {
       anyOf: [
         { type: 'boolean' },
@@ -1088,7 +1049,6 @@ function getOperationPromptAnswers(operation, args = {}) {
     promptAnswers['initializeWorkspace.workspaceName'] = String(args.workspaceName).trim();
   }
   if (isTestOperation(operation)) {
-    promptAnswers['selectIndex.Select.the.container.configuration.to.execute.tests.in.'] = normalizePromptAliasAnswer(args.testContainerSelection, '1');
     promptAnswers['tests.executeInContainer'] = normalizePromptAliasAnswer(args.executeTestsInContainer, 'yes');
     promptAnswers['tests.createMissingContainer.pullFullArtifact'] = normalizePromptAliasAnswer(args.pullFullArtifact, 'no');
   }

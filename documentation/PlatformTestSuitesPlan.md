@@ -35,7 +35,7 @@ Phase 2 review decision: `platform` identifies the Business Central application 
 
 Remove `executeTestsInContainerName` everywhere; migrate persisted settings using existing migration infrastructure. Integrate shared selection into all three development modes and MCP preflight. Generate usable Dev/Test app launch entries without duplicate container configurations or new flags. Test migration preservation/idempotence, one/zero/multiple candidates, and human/MCP parity.
 
-### Phase 4 — Compatibility operations and reports
+Phase 3 review decision: development selects exactly the unique resolved baseline config. The same resolver is used by AL test-tool, page-script, and AL Runner; the latter does not require the test toolkit but still uses a configured Container platform as its version target. Old named-target settings are removed on startup from user, workspace, folder, and local settings; a test confirms migration preserves other values and is idempotent. Initialization uses one Local configuration, and toolkit-enabled configs produce role-specific launch entries in both Dev and Test app folders. Full npm run validate passed: 218 passed, 1 skipped, 0 failures.\n\n### Phase 4 — Compatibility operations and reports
 
 Add compatibility counterparts for the three modes and keep operation metadata, command contributions, MCP schemas, help, and revision constants aligned. Iterate newer targets sequentially with isolated build artifacts/caches where required; record per-target actual versions and outcomes. Validate existing containers before mutations. AL Runner must reject unsupported target precision instead of substituting. Test partial failures, mode parity, and reports.
 
@@ -47,5 +47,6 @@ Run full validation and final source review. Make the changed extension availabl
 
 - Phase 0: isolated worktree created from `041d8e6`; BC Data worktree preserved. Initial review confirmed selection-dependent deployment bypass, page-script tests lacking a build step, and AL Runner currently selecting only an application major. Baseline npm run validate passed: 212 passed, 1 skipped (Windows file-symlink capability), 0 failures. Phase 0 accepted.
 - Phase 1: accepted and committed as `7f440b2`. Regression test proves build precedes Docker access, single-candidate target deploys, and a failed build stops before container side effects. Full npm run validate passed: 213 passed, 1 skipped, 0 failures.
-- Phase 2: accepted after review. Shared numeric resolver, Container-only `platform` schema, and container artifact selection implemented. AL Runner version precision remains to be implemented and validated in Phase 4. Full npm run validate passed: 216 passed, 1 skipped, 0 failures. Commit hash recorded after commit.
-- Phases 3–5: pending.
+- Phase 2: accepted after review and committed as `836635f`. Shared numeric resolver, Container-only `platform` schema, and container artifact selection implemented. AL Runner version precision remains to be validated in Phase 4. Full npm run validate passed: 216 passed, 1 skipped, 0 failures.
+- Phase 3: accepted after review; commit hash recorded after commit.
+- Phases 4–5: pending.

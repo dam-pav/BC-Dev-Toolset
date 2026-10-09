@@ -141,7 +141,28 @@ if ($applicationMajors.Count -ne 1) {
         ForEach-Object { "'$($_.ManifestPath)': '$($_.ApplicationVersion)'" }
     throw "All AL Runner workspace apps must target the same Business Central application major. Found: $($versionDetails -join '; ')"
 }
-$bcVersionPrefix = [string]$applicationMajors[0]
+$settingsJSON = @{}
+$targetWorkspaceJSON = @{}
+$initializeParameters = @{
+    scriptPath = $scriptPath
+    settingsJSON = [ref]$settingsJSON
+    workspaceJSON = [ref]$targetWorkspaceJSON
+    WorkspacePath = $workspaceRootPath.FullName
+}
+if ($null -ne $workspaceFile) { $initializeParameters.WorkspaceFile = $workspaceFile.FullName }
+Initialize-Context @initializeParameters
+$baselineApplicationVersion = Get-BcWorkspaceBaselineApplicationVersion `
+    -ScriptPath $scriptPath `
+    -WorkspaceJSON $targetWorkspaceJSON
+$platformTargets = @(Resolve-BcTestTargetConfigurations `
+    -SettingsJSON $settingsJSON `
+    -BaselineApplicationVersion $baselineApplicationVersion `
+    -Suite Development `
+    -RequireTestToolkit:$false)
+if ($platformTargets.Count -ne 1) {
+    throw "AL Runner test target resolution expected one configured Development platform matching '$baselineApplicationVersion'; found $($platformTargets.Count). Add exactly one eligible Container configuration for that release."
+}
+$bcVersionPrefix = [string]$platformTargets[0].Platform.Major
 
 $runnerCommand = Get-Command al-runner -ErrorAction SilentlyContinue
 if (-not $runnerCommand) {
@@ -165,7 +186,7 @@ Write-Host "Running AL Runner for $($appPaths.Count) app folder(s):" -Foreground
 foreach ($appPath in $appPaths) {
     Write-Host "- $appPath" -ForegroundColor Gray
 }
-Write-Host "Business Central artifact version prefix: $bcVersionPrefix (from app.json application versions)" -ForegroundColor Gray
+Write-Host "Business Central artifact version prefix: $bcVersionPrefix (from configured platform '$($platformTargets[0].Platform)' matching app.json baseline '$baselineApplicationVersion')" -ForegroundColor Gray
 
 $runnerArguments = @('--bc-version', $bcVersionPrefix) + $appPaths
 $runnerStartedAt = Get-Date

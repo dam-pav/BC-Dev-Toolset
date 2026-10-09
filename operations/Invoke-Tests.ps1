@@ -48,7 +48,10 @@ Initialize-Context `
 $null = @(Get-TestIsolationDisabledCodeunits -SettingsJSON $settingsJSON -WorkspaceJSON $workspaceJSON)
 Assert-TestIsolationCapabilities
 
-$testContainerSelection = Request-TestExecutionContainerSelection -settingsJSON $settingsJSON
+$baselineVersion = Get-BcWorkspaceBaselineApplicationVersion -ScriptPath $scriptRoot -WorkspaceJSON $workspaceJSON
+$testContainerSelection = Request-TestExecutionContainerSelection `
+    -settingsJSON $settingsJSON `
+    -BaselineApplicationVersion $baselineVersion
 if ($null -eq $testContainerSelection) {
     Write-Done
     return

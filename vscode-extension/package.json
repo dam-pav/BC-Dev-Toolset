@@ -96,7 +96,6 @@
             "scope": "resource",
             "default": {
               "selectArtifact": "Latest",
-              "executeTestsInContainerName": "",
               "configurations": [
                 {
                   "name": "sample",
@@ -163,11 +162,6 @@
                 "type": "boolean",
                 "default": false,
                 "description": "Stop the AL test tool operation before container preparation or tests when its build emits compiler warnings. Resolve the reported warnings and rerun. Defaults to false; an explicit local value overrides the shared workspace setting."
-              },
-              "executeTestsInContainerName": {
-                "type": "string",
-                "default": "",
-                "description": "Optional container name used by Test operations. New workspaces set this to their default Local-Test container. If empty and only one eligible container configuration exists, tests run there without backup restore or app deployment. Otherwise Test operations ask which eligible container to use when needed. If the selected container is missing, it is created before tests continue and exports an initial SQL backup set when sqlBackupPath is non-empty, regardless of targetType."
               },
               "sqlBackupPath": {
                 "not": {},

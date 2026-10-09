@@ -19,12 +19,13 @@ function Resolve-BcTestTargetConfigurations {
     param(
         [Parameter(Mandatory=$true)] [PSObject] $SettingsJSON,
         [Parameter(Mandatory=$true)] [string] $BaselineApplicationVersion,
-        [Parameter(Mandatory=$true)] [ValidateSet('Development', 'Compatibility')] [string] $Suite
+        [Parameter(Mandatory=$true)] [ValidateSet('Development', 'Compatibility')] [string] $Suite,
+        [bool] $RequireTestToolkit = $true
     )
 
     $baseline = ConvertTo-BcReleaseVersion -Value $BaselineApplicationVersion -SettingName "Workspace app.json application"
     $targets = @()
-    foreach ($configuration in @(Get-TestContainerConfigurations -settingsJSON $SettingsJSON)) {
+    foreach ($configuration in @(Get-TestContainerConfigurations -settingsJSON $SettingsJSON -RequireTestToolkit:$RequireTestToolkit)) {
         $configuredPlatform = ''
         if ($configuration.PSObject.Properties['platform']) {
             $configuredPlatform = [string]$configuration.platform
@@ -49,6 +50,41 @@ function Resolve-BcTestTargetConfigurations {
     }
 
     return @($targets | Sort-Object Platform)
+}
+
+function Get-BcWorkspaceBaselineApplicationVersion {
+    param(
+        [Parameter(Mandatory=$true)] [string] $ScriptPath,
+        [Parameter(Mandatory=$true)] [PSObject] $WorkspaceJSON
+    )
+
+    $workspace = if ($WorkspaceJSON.PSObject.Properties['value']) { $WorkspaceJSON.value } else { $WorkspaceJSON }
+    $versions = @()
+    foreach ($folder in @($workspace.folders)) {
+        $folderPath = [string]$folder.path
+        if (Get-Command Resolve-WorkspaceFolderPath -ErrorAction SilentlyContinue) {
+            $appPath = Resolve-WorkspaceFolderPath -scriptPath $ScriptPath -folderPath $folderPath
+        } elseif ([System.IO.Path]::IsPathRooted($folderPath)) {
+            $appPath = [System.IO.Path]::GetFullPath($folderPath)
+        } else {
+            $workspaceRoot = if ($script:bcDevToolsetWorkspaceRootPath) { $script:bcDevToolsetWorkspaceRootPath } else { $ScriptPath }
+            $appPath = [System.IO.Path]::GetFullPath((Join-Path $workspaceRoot $folderPath))
+        }
+        $manifestPath = Join-Path $appPath 'app.json'
+        if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { continue }
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        if ([string]::IsNullOrWhiteSpace([string]$manifest.application)) {
+            throw "Application version is missing in '$manifestPath'."
+        }
+        $versions += ConvertTo-BcReleaseVersion -Value ([string]$manifest.application) -SettingName "'$manifestPath' application"
+    }
+
+    $distinctVersions = @($versions | Sort-Object -Unique)
+    if ($distinctVersions.Count -eq 0) { throw 'No workspace app.json application baseline was found.' }
+    if ($distinctVersions.Count -ne 1) {
+        throw "Workspace apps must use one application baseline for test target resolution. Found: $($distinctVersions -join ', ')."
+    }
+    return $distinctVersions[0].ToString()
 }
 
 function Get-ContainerArtifactApplicationVersion {

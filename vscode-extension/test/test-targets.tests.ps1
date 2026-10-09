@@ -18,6 +18,8 @@ $settings = [pscustomobject]@{ configurations = @(
 $development = @(Resolve-BcTestTargetConfigurations -SettingsJSON $settings -BaselineApplicationVersion '23.0.0.0' -Suite Development)
 Assert ($development.Count -eq 1) 'Development must include the single inherited baseline target'
 Assert ($development[0].Configuration.name -eq 'Development' -and -not $development[0].Explicit) 'Inherited baseline classification'
+$selectedDevelopment = Select-TestContainerConfiguration -SettingsJSON $settings -BaselineApplicationVersion '23.0.0.0'
+Assert ($selectedDevelopment.Configuration.name -eq 'Development') 'Development execution must select the baseline platform even when newer containers exist'
 
 $compatibility = @(Resolve-BcTestTargetConfigurations -SettingsJSON $settings -BaselineApplicationVersion '23.0' -Suite Compatibility)
 Assert (($compatibility | ForEach-Object { [string]$_.Platform }) -join ',' -eq '24.0.0.0,27.1.0.0') 'Compatibility targets must be explicit, newer, sorted versions'
@@ -36,5 +38,15 @@ $duplicate = [pscustomobject]@{ configurations = @(
     [pscustomobject]@{ name='Two'; serverType='Container'; includeTestToolkit='true'; container='two'; platform='27.1.0.0' }
 )}
 Assert-Throws { Resolve-BcTestTargetConfigurations -SettingsJSON $duplicate -BaselineApplicationVersion '23.0' -Suite Compatibility } 'one configuration per platform version'
+
+$workspaceRoot = Join-Path ([IO.Path]::GetTempPath()) ('bc-baseline-' + [guid]::NewGuid())
+$null = New-Item -ItemType Directory -Path (Join-Path $workspaceRoot 'App')
+try {
+    [pscustomobject]@{ application='23.0.0.0' } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $workspaceRoot 'App/app.json')
+    $workspace = [pscustomobject]@{ folders=@([pscustomobject]@{ path=(Join-Path $workspaceRoot 'App') }) }
+    Assert ((Get-BcWorkspaceBaselineApplicationVersion -ScriptPath $PSScriptRoot -WorkspaceJSON $workspace) -eq '23.0.0.0') 'Workspace baseline is read from app.json'
+} finally {
+    Remove-Item -LiteralPath $workspaceRoot -Recurse -Force
+}
 Write-Output 'Platform target resolution tests passed.'
 

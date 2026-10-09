@@ -20,6 +20,7 @@ if ($global:failPreparationBuild) { throw 'build failed' }
     }
     function Confirm-Option { $true }
     function Assert-TestIsolationCapabilities { }
+    function Get-BcWorkspaceBaselineApplicationVersion { '23.0.0.0' }
     function Test-DockerProcess { $global:preparationCalls.Add('docker') }
     function New-TestExecutionContainerIfMissing { $global:preparationCalls.Add('create-if-missing'); $false }
     function Ensure-ConfiguredContainers { $global:preparationCalls.Add('ensure') }

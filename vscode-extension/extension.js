@@ -37,9 +37,9 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 32;
+const mcpServerDefinitionRevision = 33;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 27;
+const runtimeToolsetRevision = 28;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -1562,7 +1562,6 @@ function getMcpWorkspaceSettings() {
 
 function getDefaultLocalSettings() {
   const localConfiguration = getDefaultLocalConfiguration();
-  const testConfiguration = getDefaultLocalTestConfiguration();
   return {
     licenseFile: '',
     certificateFile: '',
@@ -1571,11 +1570,7 @@ function getDefaultLocalSettings() {
     recordingsPath: '',
     pageScriptTestResultsPath: '',
     pageScriptTestHeaded: 'false',
-    executeTestsInContainerName: testConfiguration.container,
-    configurations: [
-      localConfiguration,
-      testConfiguration
-    ]
+    configurations: [localConfiguration]
   };
 }
 
@@ -1586,7 +1581,7 @@ function getDefaultLocalConfiguration() {
     serverType: 'Container',
     targetType: 'Dev',
     container: workspaceName.replace(/ /g, '-'),
-    includeTestToolkit: 'false',
+    includeTestToolkit: 'true',
     authentication: 'UserPassword',
     bcUser: 'admin',
     bcPassword: 'P@ssw0rd',
@@ -1594,16 +1589,6 @@ function getDefaultLocalConfiguration() {
     network: '',
     hostIP: '',
     updateHosts: true
-  };
-}
-
-function getDefaultLocalTestConfiguration() {
-  return {
-    ...getDefaultLocalConfiguration(),
-    name: 'Local-Test',
-    targetType: 'Test',
-    container: `${getWorkspaceName().replace(/ /g, '-')}-Test`,
-    includeTestToolkit: 'true'
   };
 }
 
@@ -1830,17 +1815,18 @@ function ensureDefaultLocalConfiguration(localPath) {
 
   const localSettings = JSON.parse(fs.readFileSync(localPath, 'utf8'));
   const configurations = Array.isArray(localSettings.configurations) ? localSettings.configurations : [];
+  let changed = Object.prototype.hasOwnProperty.call(localSettings, 'executeTestsInContainerName');
+  delete localSettings.executeTestsInContainerName;
   const hasUsableConfiguration = configurations.some((configuration) => configuration.name && configuration.name !== 'sample');
   if (hasUsableConfiguration) {
+    if (changed) fs.writeFileSync(localPath, `${JSON.stringify(localSettings, null, 2)}\n`, 'utf8');
     return;
   }
 
   localSettings.configurations = [
     getDefaultLocalConfiguration(),
-    getDefaultLocalTestConfiguration(),
     ...configurations.filter((configuration) => configuration.name === 'sample')
   ];
-  localSettings.executeTestsInContainerName = getDefaultLocalTestConfiguration().container;
   fs.writeFileSync(localPath, `${JSON.stringify(localSettings, null, 2)}\n`, 'utf8');
 }
 

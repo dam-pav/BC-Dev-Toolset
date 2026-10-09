@@ -43,6 +43,9 @@ test('AL Runner Test passes every app.json-rooted workspace folder in one invoca
   assert.match(source, /& \$runnerCommand\.Source @runnerArguments/);
   assert.match(source, /must target the same Business Central application major/);
   assert.match(source, /Get-AlRunnerShippedEngineVersions/);
+  assert.match(source, /Get-BcWorkspaceBaselineApplicationVersion/);
+  assert.match(source, /Resolve-BcTestTargetConfigurations/);
+  assert.match(source, /-RequireTestToolkit:\$false/);
   assert.match(source, /does not ship a Business Central \$bcVersionPrefix engine variant/);
   assert.match(source, /no artifacts were downloaded/);
   assert.match(source, /__BCDEVTOOLSET_AL_RUNNER_TOOL_FAILURE__::\$Code/);

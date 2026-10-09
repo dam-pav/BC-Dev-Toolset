@@ -27,81 +27,34 @@ function Copy-BcDevToolsetPsObject {
 
 function Get-TestContainerConfigurations {
     Param (
-        [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON
+        [Parameter(Mandatory=$true)] [PSObject] $settingsJSON,
+        [bool] $RequireTestToolkit = $true
     )
 
     return @($settingsJSON.configurations | Where-Object {
-        $_.serverType -eq "Container" -and $_.includeTestToolkit -eq "true" -and -not [string]::IsNullOrWhiteSpace($_.container)
+        $_.serverType -eq "Container" -and
+        -not [string]::IsNullOrWhiteSpace($_.container) -and
+        (-not $RequireTestToolkit -or $_.includeTestToolkit -eq "true")
     })
-}
-
-function Get-ExecuteTestsInContainerName {
-    Param (
-        [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON
-    )
-
-    if ($settingsJSON.PSObject.Properties['executeTestsInContainerName'] -and -not [string]::IsNullOrWhiteSpace($settingsJSON.executeTestsInContainerName)) {
-        return ([string]$settingsJSON.executeTestsInContainerName).Trim()
-    }
-
-    return ""
 }
 
 function Select-TestContainerConfiguration {
     Param (
-        [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON
+        [Parameter(Mandatory=$true)] [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)] [string] $BaselineApplicationVersion
     )
 
-    $configurations = @(Get-TestContainerConfigurations -settingsJSON $settingsJSON)
-    if ($configurations.Count -eq 0) {
+    $targets = @(Resolve-BcTestTargetConfigurations `
+        -SettingsJSON $settingsJSON `
+        -BaselineApplicationVersion $BaselineApplicationVersion `
+        -Suite Development `
+        -RequireTestToolkit:$true)
+    if ($targets.Count -eq 0) {
         throw "No Container configurations with includeTestToolkit set to true and a non-empty container value found. Cannot execute tests."
     }
-
-    $configuredContainerName = Get-ExecuteTestsInContainerName -settingsJSON $settingsJSON
-    if ($configurations.Count -eq 1) {
-        $configuration = $configurations[0]
-        if ([string]::IsNullOrWhiteSpace($configuredContainerName)) {
-            Write-Host "Only one container configuration is available. Tests will run in '$($configuration.container)' after building and deploying workspace apps." -ForegroundColor Blue
-            return [PSCustomObject]@{
-                Configuration = $configuration
-            }
-        }
-
-        if ($configuration.container -ne $configuredContainerName) {
-            Write-Host "The configured executeTestsInContainerName value '$configuredContainerName' was not found among Container configurations with includeTestToolkit set to true." -ForegroundColor Red
-        }
-
-        return [PSCustomObject]@{
-            Configuration = $configuration
-        }
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($configuredContainerName)) {
-        $matchingConfigurations = @($configurations | Where-Object { $_.container -eq $configuredContainerName })
-        if ($matchingConfigurations.Count -eq 1) {
-            return [PSCustomObject]@{
-                Configuration = $matchingConfigurations[0]
-            }
-        }
-
-        Write-Host "The configured executeTestsInContainerName value '$configuredContainerName' was not found among Container configurations with includeTestToolkit set to true." -ForegroundColor Red
-    }
-
-    $options = @()
-    foreach ($configuration in $configurations) {
-        $options += "$($configuration.name) ($($configuration.container))"
-    }
-
-    $selectedIndex = Select-IndexFromList `
-        -Title "Select the container configuration to execute tests in:" `
-        -Options $options `
-        -DefaultIndex 0
-
     return [PSCustomObject]@{
-        Configuration = $configurations[$selectedIndex]
+        Configuration = $targets[0].Configuration
+        Platform = $targets[0].Platform
     }
 }
 
@@ -282,10 +235,11 @@ function New-TestExecutionContainerIfMissing {
 function Request-TestExecutionContainerSelection {
     Param (
         [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON
+        [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)] [string] $BaselineApplicationVersion
     )
 
-    $selection = Select-TestContainerConfiguration -settingsJSON $settingsJSON
+    $selection = Select-TestContainerConfiguration -settingsJSON $settingsJSON -BaselineApplicationVersion $BaselineApplicationVersion
     $containerName = $selection.Configuration.container
     if (-not (Confirm-Option `
         -question "Do you want to execute tests in the '$containerName' container?" `
@@ -314,7 +268,8 @@ function Initialize-TestExecutionContainer {
 
     $selection = $Selection
     if ($null -eq $selection) {
-        $selection = Request-TestExecutionContainerSelection -settingsJSON $settingsJSON
+        $baselineVersion = Get-BcWorkspaceBaselineApplicationVersion -ScriptPath $scriptPath -WorkspaceJSON $workspaceJSON
+        $selection = Request-TestExecutionContainerSelection -settingsJSON $settingsJSON -BaselineApplicationVersion $baselineVersion
     }
     if ($null -eq $selection) {
         return $null

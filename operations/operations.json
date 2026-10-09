@@ -150,8 +150,7 @@
     "script": "operations/Invoke-Tests.ps1",
     "category": "Tests",
     "promptInputs": [
-      { "promptId": "selectIndex.Select.the.container.configuration.to.execute.tests.in.", "inputName": "testContainerSelection", "type": "choice", "question": "Select the container configuration in which to execute tests.", "conditional": true },
-      { "promptId": "tests.executeInContainer", "inputName": "executeTestsInContainer", "type": "confirm", "question": "Do you want to execute tests in the selected container?" },
+        { "promptId": "tests.executeInContainer", "inputName": "executeTestsInContainer", "type": "confirm", "question": "Do you want to execute tests in the selected container?" },
       { "promptId": "clearArtifacts.translationFiles", "inputName": "clearTranslationFiles", "type": "confirm", "question": "Do you want to clear translation files if a test container must be created?", "conditional": true },
       { "promptId": "clearArtifacts.appFiles", "inputName": "clearAppFiles", "type": "confirm", "question": "Do you want to clear APP files if a test container must be created?", "conditional": true },
       { "promptId": "tests.createMissingContainer.pullFullArtifact", "inputName": "pullFullArtifact", "type": "confirm", "question": "Do you want a complete artifact pull if a test container must be created?", "conditional": true }
@@ -163,8 +162,7 @@
     "script": "operations/Invoke-PageScriptTests.ps1",
     "category": "Tests",
     "promptInputs": [
-      { "promptId": "selectIndex.Select.the.container.configuration.to.execute.tests.in.", "inputName": "testContainerSelection", "type": "choice", "question": "Select the container configuration in which to execute tests.", "conditional": true },
-      { "promptId": "tests.executeInContainer", "inputName": "executeTestsInContainer", "type": "confirm", "question": "Do you want to execute page script tests in the selected container?" },
+        { "promptId": "tests.executeInContainer", "inputName": "executeTestsInContainer", "type": "confirm", "question": "Do you want to execute page script tests in the selected container?" },
       { "promptId": "clearArtifacts.translationFiles", "inputName": "clearTranslationFiles", "type": "confirm", "question": "Do you want to clear translation files if a test container must be created?", "conditional": true },
       { "promptId": "clearArtifacts.appFiles", "inputName": "clearAppFiles", "type": "confirm", "question": "Do you want to clear APP files if a test container must be created?", "conditional": true },
       { "promptId": "tests.createMissingContainer.pullFullArtifact", "inputName": "pullFullArtifact", "type": "confirm", "question": "Do you want a complete artifact pull if a test container must be created?", "conditional": true }

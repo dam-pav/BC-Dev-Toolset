@@ -58,11 +58,6 @@
       "default": false,
       "description": "Stop the AL test tool operation before container preparation or tests when its build emits compiler warnings. Resolve the reported warnings and rerun. Defaults to false; an explicit local value overrides the shared workspace setting."
     },
-    "executeTestsInContainerName": {
-      "type": "string",
-      "default": "",
-      "description": "Optional container name used by Test operations. Workspace initialization sets it to the generated Local-Test container name. A non-empty local value takes priority over the shared workspace setting."
-    },
     "sqlBackupPath": {
       "not": {},
       "errorMessage": "Field \"sqlBackupPath\" has moved. Set it inside each relevant \"configurations\" entry.",
@@ -75,18 +70,6 @@
           "name": "Local",
           "serverType": "Container",
           "targetType": "Dev",
-          "container": "",
-          "includeTestToolkit": "false",
-          "authentication": "UserPassword",
-          "bcUser": "admin",
-          "bcPassword": "P@ssw0rd",
-          "sqlBackupPath": "",
-          "autoRestoreBackup": true
-        },
-        {
-          "name": "Local-Test",
-          "serverType": "Container",
-          "targetType": "Test",
           "container": "",
           "includeTestToolkit": "true",
           "authentication": "UserPassword",
