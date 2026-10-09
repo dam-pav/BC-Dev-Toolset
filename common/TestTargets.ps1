@@ -1,3 +1,16 @@
+function Get-TestContainerConfigurations {
+    param(
+        [Parameter(Mandatory=$true)] [PSObject] $SettingsJSON,
+        [bool] $RequireTestToolkit = $true
+    )
+
+    return @($SettingsJSON.configurations | Where-Object {
+        $_.serverType -eq 'Container' -and
+        -not [string]::IsNullOrWhiteSpace($_.container) -and
+        (-not $RequireTestToolkit -or $_.includeTestToolkit -eq 'true')
+    })
+}
+
 function ConvertTo-BcReleaseVersion {
     param(
         [Parameter(Mandatory=$true)] [AllowEmptyString()] [string] $Value,

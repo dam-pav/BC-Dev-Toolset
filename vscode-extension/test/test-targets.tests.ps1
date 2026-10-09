@@ -24,6 +24,12 @@ Assert ($selectedDevelopment.Configuration.name -eq 'Development') 'Development 
 $compatibility = @(Resolve-BcTestTargetConfigurations -SettingsJSON $settings -BaselineApplicationVersion '23.0' -Suite Compatibility)
 Assert (($compatibility | ForEach-Object { [string]$_.Platform }) -join ',' -eq '24.0.0.0,27.1.0.0') 'Compatibility targets must be explicit, newer, sorted versions'
 
+# The AL Runner loads WorkspaceMgt (which loads TestTargets), not TestMgt.
+Remove-Item Function:Get-TestContainerConfigurations
+. "$PSScriptRoot/../../common/TestTargets.ps1"
+$standaloneCompatibility = @(Resolve-BcTestTargetConfigurations -SettingsJSON $settings -BaselineApplicationVersion '23.0' -Suite Compatibility -RequireTestToolkit:$false)
+Assert ($standaloneCompatibility.Count -eq 3) 'Target resolution must define its own configuration selector when loaded outside TestMgt'
+
 $application = [pscustomobject]@{ application='23.0.0.0' }
 Assert ((Get-ContainerArtifactApplicationVersion -Configuration $settings.configurations[0] -WorkspaceAppJSON $application) -eq '23.0.0.0') 'Omitted platform inherits app baseline'
 Assert ((Get-ContainerArtifactApplicationVersion -Configuration $settings.configurations[3] -WorkspaceAppJSON $application) -eq '27.1.0.0') 'Explicit platform normalizes to four components'

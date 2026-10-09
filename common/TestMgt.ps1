@@ -25,19 +25,6 @@ function Copy-BcDevToolsetPsObject {
     return $copy
 }
 
-function Get-TestContainerConfigurations {
-    Param (
-        [Parameter(Mandatory=$true)] [PSObject] $settingsJSON,
-        [bool] $RequireTestToolkit = $true
-    )
-
-    return @($settingsJSON.configurations | Where-Object {
-        $_.serverType -eq "Container" -and
-        -not [string]::IsNullOrWhiteSpace($_.container) -and
-        (-not $RequireTestToolkit -or $_.includeTestToolkit -eq "true")
-    })
-}
-
 function Select-TestContainerConfiguration {
     Param (
         [Parameter(Mandatory=$true)] [PSObject] $settingsJSON,

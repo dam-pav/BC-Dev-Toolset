@@ -453,14 +453,14 @@ test('one toolkit-enabled platform configuration generates Dev and Test app laun
 });
 
 test('test operations allow Container configurations of every target type when the test toolkit is included', () => {
-  const testManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
-    path.join(repositoryRoot, 'common', 'TestMgt.ps1'), 'utf8');
-  const configurationSelector = testManagement.match(/function Get-TestContainerConfigurations[\s\S]*?\n}/)?.[0] ?? '';
+  const targetManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'common', 'TestTargets.ps1'), 'utf8');
+  const configurationSelector = targetManagement.match(/function Get-TestContainerConfigurations[\s\S]*?\n}/)?.[0] ?? '';
 
-  assert.match(configurationSelector, /\$_.serverType -eq "Container"/);
-  assert.match(configurationSelector, /\$_.includeTestToolkit -eq "true"/);
+  assert.match(configurationSelector, /\$_.serverType -eq 'Container'/);
+  assert.match(configurationSelector, /\$_.includeTestToolkit -eq 'true'/);
   assert.doesNotMatch(configurationSelector, /targetType/);
-  assert.doesNotMatch(testManagement, /Dev container configurations|Dev Container configurations/);
+  assert.doesNotMatch(targetManagement, /Dev container configurations|Dev Container configurations/);
 });
 
 test('AL test builds every workspace app before preparing the test container', () => {
