@@ -203,6 +203,21 @@
           "default": false,
           "description": "Run workspace AL tests using AL Runner."
         },
+        "bc_dev_toolset_invoke_compatibility_tests": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run AL test-tool tests sequentially on every configured newer platform."
+        },
+        "bc_dev_toolset_invoke_compatibility_page_script_tests": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run page script tests sequentially on every configured newer platform."
+        },
+        "bc_dev_toolset_al_runner_compatibility_test": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run AL Runner tests sequentially for every configured newer release."
+        },
         "bc_dev_toolset_publish_dependencies2_docker": {
           "type": "boolean",
           "default": false,

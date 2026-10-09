@@ -476,7 +476,7 @@ test('AL test builds every workspace app before preparing the test container', (
 
   assert.match(invokeTestsOperation, /BuildAllApps\.ps1'\) -SkipOperationUI[\s\S]*?Initialize-TestExecutionContainer/);
   assert.match(invokeTestsOperation, /Request-TestExecutionContainerSelection[\s\S]*?BuildAllApps\.ps1/);
-  assert.match(pageScriptOperation, /-BuildAppsBeforeDeployment/);
+  assert.match(pageScriptOperation, /Request-TestExecutionContainerSelection[\s\S]*?BuildAllApps\.ps1'\) -SkipOperationUI[\s\S]*?Initialize-TestExecutionContainer/);
   assert.doesNotMatch(invokeTestsOperation, /-BuildAppsBeforeDeployment/);
   assert.match(initializeContainer, /New-TestExecutionContainerIfMissing/);
   assert.match(buildOperation, /\[switch\] \$SkipOperationUI/);

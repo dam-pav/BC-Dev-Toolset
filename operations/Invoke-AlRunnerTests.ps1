@@ -43,31 +43,6 @@ function Get-AlRunnerApplicationControlEvent {
     return $null
 }
 
-function Get-AlRunnerShippedEngineVersions {
-    param([Parameter(Mandatory=$true)] [string] $RunnerExecutablePath)
-
-    $runnerToolRoot = [System.IO.Path]::GetFullPath((Split-Path $RunnerExecutablePath -Parent))
-    $variantRoots = @()
-    $directVariantRoot = [System.IO.Path]::GetFullPath((Join-Path $runnerToolRoot 'variants'))
-    if ([System.IO.Path]::GetRelativePath($runnerToolRoot, $directVariantRoot) -notmatch '^\.\.(?:[\\/]|$)' -and
-        (Test-Path -LiteralPath $directVariantRoot -PathType Container)) {
-        $variantRoots += $directVariantRoot
-    }
-
-    $toolStoreRoot = [System.IO.Path]::GetFullPath((Join-Path $runnerToolRoot '.store\msdyn365bc.al.runner'))
-    if ([System.IO.Path]::GetRelativePath($runnerToolRoot, $toolStoreRoot) -notmatch '^\.\.(?:[\\/]|$)' -and
-        (Test-Path -LiteralPath $toolStoreRoot -PathType Container)) {
-        $variantRoots += @(Get-ChildItem -LiteralPath $toolStoreRoot -Directory -Recurse -Filter 'variants' |
-            ForEach-Object { $_.FullName })
-    }
-
-    return @($variantRoots | Select-Object -Unique | ForEach-Object {
-        Get-ChildItem -LiteralPath $_ -Directory | ForEach-Object {
-            try { [version]$_.Name } catch { }
-        }
-    } | Sort-Object -Unique)
-}
-
 function Write-AlRunnerToolFailure {
     param(
         [Parameter(Mandatory=$true)] [ValidateSet('not_installed', 'unsupported_engine', 'application_control', 'execution', 'unexpected')] [string] $Code,
@@ -154,15 +129,15 @@ Initialize-Context @initializeParameters
 $baselineApplicationVersion = Get-BcWorkspaceBaselineApplicationVersion `
     -ScriptPath $scriptPath `
     -WorkspaceJSON $targetWorkspaceJSON
+$suite = if ($env:BCDEVTOOLSET_TEST_SUITE -eq 'Compatibility') { 'Compatibility' } else { 'Development' }
 $platformTargets = @(Resolve-BcTestTargetConfigurations `
     -SettingsJSON $settingsJSON `
     -BaselineApplicationVersion $baselineApplicationVersion `
-    -Suite Development `
+    -Suite $suite `
     -RequireTestToolkit:$false)
-if ($platformTargets.Count -ne 1) {
-    throw "AL Runner test target resolution expected one configured Development platform matching '$baselineApplicationVersion'; found $($platformTargets.Count). Add exactly one eligible Container configuration for that release."
+if (($suite -eq 'Development' -and $platformTargets.Count -ne 1) -or ($suite -eq 'Compatibility' -and $platformTargets.Count -eq 0)) {
+    throw "AL Runner $suite target resolution found $($platformTargets.Count) configured platform targets for workspace baseline '$baselineApplicationVersion'. Add one baseline target or at least one explicitly newer platform."
 }
-$bcVersionPrefix = [string]$platformTargets[0].Platform.Major
 
 $runnerCommand = Get-Command al-runner -ErrorAction SilentlyContinue
 if (-not $runnerCommand) {
@@ -172,28 +147,34 @@ if (-not $runnerCommand) {
     return
 }
 
-$shippedEngineVersions = @(Get-AlRunnerShippedEngineVersions -RunnerExecutablePath $runnerCommand.Source)
-if ($shippedEngineVersions.Count -gt 0 -and
-    $bcVersionPrefix -notin @($shippedEngineVersions | ForEach-Object { [string]$_.Major } | Select-Object -Unique)) {
-    $availableVersions = ($shippedEngineVersions | ForEach-Object { "$($_.Major).$($_.Minor)" }) -join ', '
-    Write-AlRunnerToolFailure `
-        -Code 'unsupported_engine' `
-        -Message "The installed AL Runner does not ship a Business Central $bcVersionPrefix engine variant. Available variants: $availableVersions. This workspace cannot run with the published AL Runner package until an upstream build includes its BC major; no artifacts were downloaded."
-    return
-}
-
 Write-Host "Running AL Runner for $($appPaths.Count) app folder(s):" -ForegroundColor Blue
 foreach ($appPath in $appPaths) {
     Write-Host "- $appPath" -ForegroundColor Gray
 }
-Write-Host "Business Central artifact version prefix: $bcVersionPrefix (from configured platform '$($platformTargets[0].Platform)' matching app.json baseline '$baselineApplicationVersion')" -ForegroundColor Gray
+$targetResults = @()
+foreach ($platformTarget in $platformTargets) {
+    $bcVersionPrefix = $platformTarget.Platform.ToString(2)
+    Write-Host "Running AL Runner for configured BC release '$bcVersionPrefix' ($($platformTarget.Configuration.name)); the same exact release is passed through --bc-version." -ForegroundColor Blue
+    $runnerArguments = @('--bc-version', $bcVersionPrefix) + $appPaths
+    $runnerStartedAt = Get-Date
+    & $runnerCommand.Source @runnerArguments
+    $runnerExitCode = $LASTEXITCODE
+    if ($runnerExitCode -eq 0) {
+        $targetResults += [PSCustomObject]@{ configuration=$platformTarget.Configuration.name; platform=$bcVersionPrefix; status='passed'; exitCode=0 }
+        continue
+    }
 
-$runnerArguments = @('--bc-version', $bcVersionPrefix) + $appPaths
-$runnerStartedAt = Get-Date
-& $runnerCommand.Source @runnerArguments
-$runnerExitCode = $LASTEXITCODE
-if ($runnerExitCode -ne 0) {
-    if ($runnerExitCode -notin @(1, 2, 3, 4)) {
+    if ($runnerExitCode -in @(1, 3, 4)) {
+        $exitDescription = switch ($runnerExitCode) {
+            1 { 'one or more tests failed or errored' }
+            3 { 'AL compilation errors' }
+            4 { 'a test or app-group count did not match its declared baseline' }
+        }
+        $targetResults += [PSCustomObject]@{ configuration=$platformTarget.Configuration.name; platform=$bcVersionPrefix; status='failed'; exitCode=$runnerExitCode; error=$exitDescription }
+        continue
+    }
+
+    if ($runnerExitCode -ne 2) {
         $applicationControlEvent = Get-AlRunnerApplicationControlEvent -StartTime $runnerStartedAt
         if ($applicationControlEvent) {
             Write-AlRunnerToolFailure `
@@ -203,28 +184,20 @@ if ($runnerExitCode -ne 0) {
         }
     }
 
-    if ($runnerExitCode -eq 2) {
-        Write-AlRunnerToolFailure `
-            -Code 'execution' `
-            -Message 'AL Runner could not execute a bundle or rejected the invocation. Review the visible runner diagnostics.'
-        return
+    $toolFailure = if ($runnerExitCode -eq 2) {
+        'AL Runner could not execute a bundle or rejected the invocation. Review the visible runner diagnostics.'
+    } else {
+        "AL Runner stopped with unexpected process exit code $runnerExitCode. Review the visible runner diagnostics."
     }
-
-    if ($runnerExitCode -notin @(1, 3, 4)) {
-        Write-AlRunnerToolFailure `
-            -Code 'unexpected' `
-            -Message "AL Runner stopped with unexpected process exit code $runnerExitCode. Review the visible runner diagnostics."
-        return
-    }
-
-    $exitDescription = switch ($runnerExitCode) {
-        1 { 'one or more tests failed or errored' }
-        3 { 'AL compilation errors' }
-        4 { 'a test or app-group count did not match its declared baseline' }
-        default { 'an unexpected runner failure' }
-    }
-    throw "AL Runner exited with code $runnerExitCode ($exitDescription)."
+    Write-AlRunnerToolFailure -Code $(if ($runnerExitCode -eq 2) { 'execution' } else { 'unexpected' }) -Message $toolFailure
+    return
 }
 
-Write-Host 'AL Runner tests completed successfully.' -ForegroundColor Green
+foreach ($targetResult in $targetResults) {
+    Write-Host "AL Runner target '$($targetResult.configuration)' (configured and requested BC $($targetResult.platform)): $($targetResult.status); exit code $($targetResult.exitCode) $($targetResult.error)" -ForegroundColor $(if ($targetResult.status -eq 'passed') { 'Green' } else { 'Red' })
+}
+if (@($targetResults | Where-Object status -ne 'passed').Count -gt 0) {
+    throw "One or more $($suite.ToLowerInvariant()) AL Runner targets failed. Review per-target outcomes above."
+}
+Write-Host "AL Runner $($suite.ToLowerInvariant()) tests completed successfully." -ForegroundColor Green
 Write-Done

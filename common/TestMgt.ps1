@@ -71,6 +71,26 @@ function New-TestExecutionSettings {
     return $testSettings
 }
 
+function Assert-BcTestContainerPlatform {
+    param(
+        [Parameter(Mandatory=$true)] [PSObject] $Configuration,
+        [Parameter(Mandatory=$true)] [string] $ExpectedApplicationVersion
+    )
+
+    $installedApps = @(Get-BcContainerAppInfo -containerName $Configuration.container -installedOnly)
+    $application = @($installedApps | Where-Object { $_.Publisher -eq 'Microsoft' -and $_.Name -eq 'Application' } | Select-Object -First 1)
+    if ($application.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$application[0].Version)) {
+        throw "Could not determine the installed Microsoft Application version in test container '$($Configuration.container)'. The target will not be modified."
+    }
+
+    $expected = ConvertTo-BcReleaseVersion -Value $ExpectedApplicationVersion -SettingName "Expected platform for '$($Configuration.name)'"
+    $actual = ConvertTo-BcReleaseVersion -Value ([string]$application[0].Version) -SettingName "Installed Microsoft Application version in '$($Configuration.container)'"
+    if ($actual.Major -ne $expected.Major -or $actual.Minor -ne $expected.Minor) {
+        throw "Test container '$($Configuration.container)' has Business Central application release '$actual', but configuration '$($Configuration.name)' targets '$expected'. The existing container was left unchanged."
+    }
+    return $actual.ToString()
+}
+
 function Restore-TestContainerBackupIfExists {
     Param (
         [Parameter(Mandatory=$true)]
@@ -236,22 +256,38 @@ function Request-TestExecutionContainerSelection {
     Param (
         [Parameter(Mandatory=$true)]
         [PSObject] $settingsJSON,
-        [Parameter(Mandatory=$true)] [string] $BaselineApplicationVersion
+        [Parameter(Mandatory=$true)] [string] $BaselineApplicationVersion,
+        [ValidateSet('Development', 'Compatibility')] [string] $Suite = 'Development'
     )
 
-    $selection = Select-TestContainerConfiguration -settingsJSON $settingsJSON -BaselineApplicationVersion $BaselineApplicationVersion
-    $containerName = $selection.Configuration.container
+    $targets = @(Resolve-BcTestTargetConfigurations `
+        -SettingsJSON $settingsJSON `
+        -BaselineApplicationVersion $BaselineApplicationVersion `
+        -Suite $Suite `
+        -RequireTestToolkit:$true)
+    if ($targets.Count -eq 0) {
+        $description = if ($Suite -eq 'Compatibility') { 'explicitly configured platforms newer than the workspace baseline' } else { "the workspace baseline '$BaselineApplicationVersion'" }
+        throw "No eligible test Container configuration targets $description."
+    }
+    if ($Suite -eq 'Development' -and $targets.Count -ne 1) {
+        throw "Development test target resolution expected exactly one Container configuration for '$BaselineApplicationVersion'; found $($targets.Count)."
+    }
+
+    $selections = @($targets | ForEach-Object {
+        [PSCustomObject]@{ Configuration=$_.Configuration; Platform=$_.Platform }
+    })
+    $targetList = ($selections | ForEach-Object { "$($_.Configuration.name) ($($_.Configuration.container), BC $($_.Platform))" }) -join '; '
     if (-not (Confirm-Option `
-        -question "Do you want to execute tests in the '$containerName' container?" `
+        -question "Do you want to execute the $($Suite.ToLowerInvariant()) test suite on: $targetList?" `
         -PromptId "tests.executeInContainer" `
-        -Risk "Creates the container and an initial backup if missing, restores a configured SQL backup set if present, publishes dependencies and all workspace apps, then executes tests in the selected container." `
+        -Risk "Builds workspace apps, creates missing containers if needed, restores configured SQL backups, publishes dependencies and all workspace apps, then executes tests sequentially on the listed platform targets." `
         -AgentAllowed $true `
         -Destructive $true)) {
         Write-Host "Test execution aborted." -ForegroundColor Yellow
         return $null
     }
 
-    return $selection
+    return [PSCustomObject]@{ Suite=$Suite; Targets=$selections }
 }
 
 function Initialize-TestExecutionContainer {
@@ -263,13 +299,18 @@ function Initialize-TestExecutionContainer {
         [Parameter(Mandatory=$true)]
         [PSObject] $workspaceJSON,
         [switch] $BuildAppsBeforeDeployment,
-        [PSObject] $Selection
+        [PSObject] $Selection,
+        [ValidateSet('Development', 'Compatibility')] [string] $Suite = 'Development'
     )
 
     $selection = $Selection
     if ($null -eq $selection) {
         $baselineVersion = Get-BcWorkspaceBaselineApplicationVersion -ScriptPath $scriptPath -WorkspaceJSON $workspaceJSON
-        $selection = Request-TestExecutionContainerSelection -settingsJSON $settingsJSON -BaselineApplicationVersion $baselineVersion
+        $requestedSelection = Request-TestExecutionContainerSelection `
+            -settingsJSON $settingsJSON `
+            -BaselineApplicationVersion $baselineVersion `
+            -Suite $Suite
+        if ($null -ne $requestedSelection) { $selection = $requestedSelection.Targets[0] }
     }
     if ($null -eq $selection) {
         return $null
@@ -301,6 +342,13 @@ function Initialize-TestExecutionContainer {
     if (-not (Test-DockerContainerRunning -containerName $containerName)) {
         throw "Container '$containerName' exists but is not running."
     }
+
+    $expectedPlatform = if ($selection.PSObject.Properties['Platform']) { [string]$selection.Platform } else {
+        Get-BcWorkspaceBaselineApplicationVersion -ScriptPath $scriptPath -WorkspaceJSON $workspaceJSON
+    }
+    $actualPlatform = Assert-BcTestContainerPlatform -Configuration $configuration -ExpectedApplicationVersion $expectedPlatform
+    $testSettings | Add-Member -MemberType NoteProperty -Name bcDevToolsetActualPlatformVersion -Value $actualPlatform -Force
+    Write-Host "Verified test container application release '$actualPlatform' against target '$expectedPlatform'." -ForegroundColor Gray
 
     if (-not (Test-AutoRestoreBackup -configuration $configuration)) {
         Write-Host "Skipping automatic SQL backup restore because autoRestoreBackup is false for '$containerName'." -ForegroundColor Gray

@@ -37,13 +37,16 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 33;
+const mcpServerDefinitionRevision = 34;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 28;
+const runtimeToolsetRevision = 29;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
-  'invokeTests'
+  'invokeTests',
+  'invokePageScriptTests',
+  'invokeCompatibilityTests',
+  'invokeCompatibilityPageScriptTests'
 ]);
 
 const directOperationIds = [
@@ -51,6 +54,9 @@ const directOperationIds = [
   'invokeTests',
   'invokePageScriptTests',
   'alRunnerTest',
+  'invokeCompatibilityTests',
+  'invokeCompatibilityPageScriptTests',
+  'alRunnerCompatibilityTest',
   'showBcContainerHelperVersions',
   'initPrerequisites',
   'uninstallPrerequisites',
@@ -651,7 +657,7 @@ function getMcpOperationStatus(body) {
       session.completedAt = session.completedAt || new Date().toISOString();
       session.result = result;
       touchMcpPromptSession(session);
-    } else if (session.operationId === 'invokeTests' && (session.status === 'running' || session.status === 'waiting_for_input')) {
+    } else if (['invokeTests', 'invokeCompatibilityTests'].includes(session.operationId) && (session.status === 'running' || session.status === 'waiting_for_input')) {
       session.result = {
         output: cleanPowerShellTranscript(readTextFileIfExists(session.capture.transcriptPath)),
         operationReport: readJsonFileIfExists(session.capture.reportPath)
@@ -2210,7 +2216,7 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
 
   if (!shellIntegration) {
     terminal.sendText(command);
-    if (operation.id === 'invokeTests') {
+    if (['invokeTests', 'invokeCompatibilityTests'].includes(operation.id)) {
       void monitorMcpTestCapture(operation, terminalName, capture, options, session);
       return getMcpPromptSessionSnapshot(session);
     }
@@ -2225,7 +2231,7 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
   const execution = shellIntegration.executeCommand(command);
   const outputParts = [];
   const readPromise = readTerminalExecutionOutput(execution, outputParts);
-  if (operation.id === 'invokeTests') {
+  if (['invokeTests', 'invokeCompatibilityTests'].includes(operation.id)) {
     void monitorMcpTestCapture(operation, terminalName, capture, { timeoutMs }, session, readPromise);
     return getMcpPromptSessionSnapshot(session);
   }

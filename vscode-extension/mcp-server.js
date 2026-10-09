@@ -655,9 +655,9 @@ function getOperationToolDescription(operation) {
   const preflightText = getOperationPromptInputs(operation).length > 0
     ? ' Call without execute:true to return relevant input decisions, including conditional questions, without starting the operation; then call again with execute:true and the answers.'
     : '';
-  const compiledReportText = operation.id === 'invokeTests'
+  const compiledReportText = ['invokeTests', 'invokeCompatibilityTests'].includes(operation.id)
     ? ' Reports completed stages through MCP progress notifications and returns one compiled report with stage status, test totals, failure details, and diagnostics for the failed stage; do not rerun a failed build or test merely to retrieve output. The testBuildWarningsAsErrors workspace/local setting defaults to false; when true, compiler warnings block tests. Resolve the reported warnings before rerunning.'
-    : operation.id === 'alRunnerTest'
+    : ['alRunnerTest', 'alRunnerCompatibilityTest'].includes(operation.id)
     ? ' Distinguishes AL Runner availability or compatibility failures from genuine AL compilation and test failures. On a runner-tool failure, report it and suggest bc_dev_toolset_invoke_tests as the container-based fallback; do not invoke the fallback automatically.'
     : '';
   return `BC Dev Toolset: ${operation.title}. Category: ${operation.category}.${aliasText}${confirmationText}${preflightText}${compiledReportText} A repeated call with promptAnswers resumes the same pending operation and retains answers for later prompts; it does not restart it.`;
@@ -739,6 +739,12 @@ function getOperationToolAliases(operationId) {
         'run standalone AL tests with AL Runner',
         'run AL Runner tests without a Business Central container'
       ];
+    case 'invokeCompatibilityTests':
+      return ['run AL compatibility tests against every configured newer Business Central platform'];
+    case 'invokeCompatibilityPageScriptTests':
+      return ['run page script compatibility tests against every configured newer Business Central platform'];
+    case 'alRunnerCompatibilityTest':
+      return ['run AL Runner tests against configured newer Business Central platforms'];
     default:
       return [];
   }
@@ -969,7 +975,7 @@ async function runOperationInTerminal(operation, args, progress) {
   }
 
   const bridgeResult = response.body || {};
-  if (operation.id === 'invokeTests' && bridgeResult.status === 'running' && bridgeResult.sessionId) {
+  if (['invokeTests', 'invokeCompatibilityTests'].includes(operation.id) && bridgeResult.status === 'running' && bridgeResult.sessionId) {
     const finalStatus = await waitForTestOperationWithProgress(bridgeResult.sessionId, progress);
     return textResult(formatOperationStatus(finalStatus), finalStatus.status === 'failed' || finalStatus.status === 'timeout');
   }
@@ -979,7 +985,7 @@ async function runOperationInTerminal(operation, args, progress) {
   const waitingForInput = bridgeResult.status === 'waiting_for_input';
   const promptAnswered = bridgeResult.status === 'prompt_answered';
   if (promptAnswered && bridgeResult.sessionId) {
-    const followUpStatus = operation.id === 'invokeTests'
+    const followUpStatus = ['invokeTests', 'invokeCompatibilityTests'].includes(operation.id)
       ? await waitForTestOperationWithProgress(bridgeResult.sessionId, progress, { timeoutSeconds: getPromptAnswerStatusTimeoutSeconds(args) })
       : await waitForOperationStatusAfterPrompt(bridgeResult.sessionId, getPromptAnswerStatusTimeoutSeconds(args));
     const followUpResult = followUpStatus.result || {};
@@ -1016,7 +1022,7 @@ async function runOperationInTerminal(operation, args, progress) {
       ? 'Instruction: The operation is running visibly in the VS Code terminal. Terminal output capture was unavailable, so watch that terminal for progress and final output.'
       : alRunnerToolFailure
       ? 'Instruction: AL Runner itself was unavailable or incompatible; AL tests were not executed. Report this as a tool failure and suggest bc_dev_toolset_invoke_tests as the container-based fallback. Do not invoke the fallback automatically unless the user asks to proceed.'
-      : displayOperationId === 'invokeTests'
+      : ['invokeTests', 'invokeCompatibilityTests'].includes(displayOperationId)
       ? 'Instruction: The operation ran visibly in the VS Code terminal. Use the compiled operation report below as the definitive MCP result; do not rerun a failed stage merely to retrieve diagnostics.'
       : 'Instruction: The operation ran visibly in the VS Code terminal. Use the captured terminal output below as the MCP result.',
     bridgeResult.output ? ['', getOperationOutputLabel(displayOperationId), formatOperationOutput(displayOperationId, bridgeResult.output, bridgeResult.status, bridgeResult.operationReport)].join('\n') : ''
@@ -1024,7 +1030,7 @@ async function runOperationInTerminal(operation, args, progress) {
 }
 
 function isTestOperation(operation) {
-  return operation && (operation.id === 'invokeTests' || operation.id === 'invokePageScriptTests');
+  return operation && ['invokeTests', 'invokePageScriptTests', 'invokeCompatibilityTests', 'invokeCompatibilityPageScriptTests'].includes(operation.id);
 }
 
 function isContainerBackupOperation(operation) {
@@ -1150,7 +1156,7 @@ async function answerOperationPrompt(args, progress) {
 
   const operationSessionId = response.body.sessionId || sessionId;
   const initialStatus = await postBridgeJson('/operation-status', { sessionId: operationSessionId });
-  const followUpStatus = initialStatus.body && initialStatus.body.operationId === 'invokeTests'
+  const followUpStatus = initialStatus.body && ['invokeTests', 'invokeCompatibilityTests'].includes(initialStatus.body.operationId)
     ? await waitForTestOperationWithProgress(operationSessionId, progress, { timeoutSeconds: getPromptAnswerStatusTimeoutSeconds(args) })
     : await waitForOperationStatusAfterPrompt(operationSessionId, getPromptAnswerStatusTimeoutSeconds(args));
   const followUpResult = followUpStatus.result || {};
@@ -1548,12 +1554,12 @@ function truncateOutput(output) {
 }
 
 function formatOperationOutput(operationId, output, operationStatus, operationReport) {
-  if (operationId === 'invokeTests') {
+  if (['invokeTests', 'invokeCompatibilityTests'].includes(operationId)) {
     const compiledReport = compileInvokeTestsReport(output, operationStatus, operationReport);
     return compiledReport || truncateOutput(output);
   }
 
-  if (operationId === 'alRunnerTest') {
+  if (['alRunnerTest', 'alRunnerCompatibilityTest'].includes(operationId)) {
     const compiledReport = compileAlRunnerTestReport(output);
     return compiledReport || truncateOutput(output);
   }
@@ -1562,7 +1568,7 @@ function formatOperationOutput(operationId, output, operationStatus, operationRe
 }
 
 function getOperationOutputLabel(operationId) {
-  return operationId === 'invokeTests' || operationId === 'alRunnerTest' ? 'OPERATION REPORT:' : 'TERMINAL OUTPUT:';
+  return ['invokeTests', 'invokeCompatibilityTests', 'alRunnerTest', 'alRunnerCompatibilityTest'].includes(operationId) ? 'OPERATION REPORT:' : 'TERMINAL OUTPUT:';
 }
 
 function getAlRunnerToolFailure(output) {
@@ -1580,7 +1586,7 @@ function getAlRunnerToolFailure(output) {
 }
 
 function hasAlRunnerToolFailure(operationId, output) {
-  return operationId === 'alRunnerTest' && Boolean(getAlRunnerToolFailure(output));
+  return ['alRunnerTest', 'alRunnerCompatibilityTest'].includes(operationId) && Boolean(getAlRunnerToolFailure(output));
 }
 
 function compileAlRunnerTestReport(output) {
@@ -1662,6 +1668,10 @@ function compileInvokeTestsReport(output, operationStatus, operationReport) {
       `Applications tested: ${Number(testReport.applicationCount) || 0}`,
       `Duration: ${Number(testReport.durationSeconds) || 0} seconds`
     );
+
+    for (const target of Array.isArray(testReport.targets) ? testReport.targets : []) {
+      lines.push(`Target ${target.name || target.container}: configured BC ${target.targetPlatform}, actual application ${target.actualApplicationVersion || 'unknown'}; ${target.status}${target.error ? ` (${target.error})` : ''}`);
+    }
 
     const omittedFailureCount = Number(testReport.omittedFailureCount) || 0;
     if (Array.isArray(testReport.testIsolationDisabledCodeunits)) {

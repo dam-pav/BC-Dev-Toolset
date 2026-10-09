@@ -202,6 +202,22 @@ test('compiles successful test output without prerequisite stage chatter', () =>
   assert.doesNotMatch(compiled, /verbose successful deployment output/);
 });
 
+test('compatibility AL test report lists configured and actual versions per target', () => {
+  const output = [
+    '__BCDEVTOOLSET_STAGE__build::started',
+    '__BCDEVTOOLSET_STAGE__build::succeeded',
+    '__BCDEVTOOLSET_STAGE__prepare::started',
+    '__BCDEVTOOLSET_STAGE__prepare::succeeded',
+    '__BCDEVTOOLSET_STAGE__tests::started',
+    '__BCDEVTOOLSET_STAGE__tests::succeeded'
+  ].join('\n');
+  const report = mcpServer.compileInvokeTestsReport(output, 'completed', {
+    total: 1, passed: 1, failed: 0, skipped: 0, applicationCount: 1, durationSeconds: 1,
+    targets: [{ name: 'BC27.1', targetPlatform: '27.1.0.0', actualApplicationVersion: '27.1.0.0', status: 'passed' }]
+  });
+  assert.match(report, /Target BC27\.1: configured BC 27\.1\.0\.0, actual application 27\.1\.0\.0; passed/);
+});
+
 test('reports each completed AL test stage once while waiting for the final MCP result', () => {
   const messages = [];
   const progress = { report: (message) => messages.push(message) };

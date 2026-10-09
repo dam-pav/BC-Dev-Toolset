@@ -25,6 +25,10 @@ if ($global:failPreparationBuild) { throw 'build failed' }
     function New-TestExecutionContainerIfMissing { $global:preparationCalls.Add('create-if-missing'); $false }
     function Ensure-ConfiguredContainers { $global:preparationCalls.Add('ensure') }
     function Test-DockerContainerRunning { $true }
+    function Get-BcContainerAppInfo {
+        $version = if ($global:failPreparationPlatform) { '27.1.0.0' } else { '23.0.0.0' }
+        @([pscustomobject]@{ Name='Application'; Publisher='Microsoft'; Version=$version })
+    }
     function Test-AutoRestoreBackup { param($configuration) $configuration.autoRestoreBackup }
     function Restore-TestContainerBackupIfExists { $global:preparationCalls.Add('restore') }
     function Publish-Dependencies { $global:preparationCalls.Add('dependencies') }
@@ -47,17 +51,27 @@ if ($global:failPreparationBuild) { throw 'build failed' }
         $body = [scriptblock]::Create($source.Substring($source.IndexOf('$settingsJSON = @{}')))
         $global:preparationCalls = [Collections.Generic.List[string]]::new()
         $global:failPreparationBuild = $false
+        $global:failPreparationPlatform = $false
         & $body
         Assert (($global:preparationCalls -join ',') -eq 'build,docker,create-if-missing,ensure,restore,dependencies,deploy,tests') "$operationName must build before container access and always deploy"
         $global:preparationCalls.Clear()
         $global:failPreparationBuild = $true
+        $global:failPreparationPlatform = $false
         $caught = $false
         try { & $body } catch { if ($_.Exception.Message -ne 'build failed') { throw }; $caught=$true }
         Assert $caught 'Build failure must propagate'
         Assert (($global:preparationCalls -join ',') -eq 'build') "$operationName touched the container after build failure"
+
+        $global:preparationCalls.Clear()
+        $global:failPreparationBuild = $false
+        $global:failPreparationPlatform = $true
+        $caught = $false
+        try { & $body } catch { if ($_.Exception.Message -notmatch "targets '23.0.0.0'") { throw }; $caught=$true }
+        Assert $caught 'Container platform mismatch must fail before restore or deployment'
+        Assert (($global:preparationCalls -join ',') -eq 'build,docker,create-if-missing,ensure') "$operationName mutated a mismatched container"
     }
 } finally {
     # Only the newly allocated fixture root is removed.
     Remove-Item -LiteralPath $fixtureRoot -Recurse -Force
-    Remove-Variable preparationCalls, failPreparationBuild -Scope Global -ErrorAction SilentlyContinue
+    Remove-Variable preparationCalls, failPreparationBuild, failPreparationPlatform -Scope Global -ErrorAction SilentlyContinue
 }

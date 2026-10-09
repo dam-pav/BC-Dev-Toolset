@@ -50,6 +50,9 @@
     "onCommand:bcDevToolset.operation.invokeTests",
     "onCommand:bcDevToolset.operation.invokePageScriptTests",
     "onCommand:bcDevToolset.operation.alRunnerTest",
+    "onCommand:bcDevToolset.operation.invokeCompatibilityTests",
+    "onCommand:bcDevToolset.operation.invokeCompatibilityPageScriptTests",
+    "onCommand:bcDevToolset.operation.alRunnerCompatibilityTest",
     "onCommand:bcDevToolset.operation.showBcContainerHelperVersions",
     "onCommand:bcDevToolset.operation.initPrerequisites",
     "onCommand:bcDevToolset.operation.uninstallPrerequisites",
@@ -787,6 +790,21 @@
                     "default": false,
                     "description": "Run workspace AL tests using AL Runner."
                   },
+                  "bc_dev_toolset_invoke_compatibility_tests": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Run AL test-tool tests sequentially on every configured newer platform."
+                  },
+                  "bc_dev_toolset_invoke_compatibility_page_script_tests": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Run page script tests sequentially on every configured newer platform."
+                  },
+                  "bc_dev_toolset_al_runner_compatibility_test": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Run AL Runner tests sequentially for every configured newer release."
+                  },
                   "bc_dev_toolset_publish_dependencies2_docker": {
                     "type": "boolean",
                     "default": false,
@@ -992,6 +1010,18 @@
       {
         "command": "bcDevToolset.operation.alRunnerTest",
         "title": "BC Dev Toolset: AL Runner Test"
+      },
+      {
+        "command": "bcDevToolset.operation.invokeCompatibilityTests",
+        "title": "BC Dev Toolset: Run AL compatibility tests on newer platforms"
+      },
+      {
+        "command": "bcDevToolset.operation.invokeCompatibilityPageScriptTests",
+        "title": "BC Dev Toolset: Run page script compatibility tests on newer platforms"
+      },
+      {
+        "command": "bcDevToolset.operation.alRunnerCompatibilityTest",
+        "title": "BC Dev Toolset: Run AL Runner compatibility tests on newer platforms"
       },
       {
         "command": "bcDevToolset.operation.showBcContainerHelperVersions",
