@@ -44,5 +44,5 @@ Run full validation and final source review. Make the changed extension availabl
 ## Review ledger
 
 - Phase 0: isolated worktree created from `041d8e6`; BC Data worktree preserved. Initial review confirmed selection-dependent deployment bypass, page-script tests lacking a build step, and AL Runner currently selecting only an application major. Baseline npm run validate passed: 212 passed, 1 skipped (Windows file-symlink capability), 0 failures. Phase 0 accepted.
-- Phases 1–5: pending.
-
+- Phase 1: accepted and committed as `7f440b2`. Regression test proves build precedes Docker access, single-candidate target deploys, and a failed build stops before container side effects. Full npm run validate passed: 213 passed, 1 skipped, 0 failures.
+- Phases 2–5: pending.

@@ -47,7 +47,6 @@ Initialize-Context `
 # Reject invalid isolation settings before build or environment preparation.
 $null = @(Get-TestIsolationDisabledCodeunits -SettingsJSON $settingsJSON -WorkspaceJSON $workspaceJSON)
 Assert-TestIsolationCapabilities
-Test-DockerProcess
 
 $testContainerSelection = Request-TestExecutionContainerSelection -settingsJSON $settingsJSON
 if ($null -eq $testContainerSelection) {

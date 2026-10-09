@@ -6,9 +6,6 @@ $scriptRoot = (get-item $PSScriptRoot).Parent
 . $scriptRoot/common/PublishApps.ps1
 . $scriptRoot/common/TestMgt.ps1
 
-# Make sure Docker is running
-Test-DockerProcess
-
 $settingsJSON = @{}
 $workspaceJSON = @{}
 Initialize-Context `
@@ -19,7 +16,8 @@ Initialize-Context `
 $testSettingsJSON = Initialize-TestExecutionContainer `
     -scriptPath $scriptRoot `
     -settingsJSON $settingsJSON `
-    -workspaceJSON $workspaceJSON
+    -workspaceJSON $workspaceJSON `
+    -BuildAppsBeforeDeployment
 
 if ($null -eq $testSettingsJSON) {
     Write-Done

@@ -63,10 +63,9 @@ function Select-TestContainerConfiguration {
     if ($configurations.Count -eq 1) {
         $configuration = $configurations[0]
         if ([string]::IsNullOrWhiteSpace($configuredContainerName)) {
-            Write-Host "Only one container configuration is available and executeTestsInContainerName is empty. Tests will run in '$($configuration.container)' without backup restore or app deployment." -ForegroundColor Blue
+            Write-Host "Only one container configuration is available. Tests will run in '$($configuration.container)' after building and deploying workspace apps." -ForegroundColor Blue
             return [PSCustomObject]@{
                 Configuration = $configuration
-                PrepareContainer = $false
             }
         }
 
@@ -76,7 +75,6 @@ function Select-TestContainerConfiguration {
 
         return [PSCustomObject]@{
             Configuration = $configuration
-            PrepareContainer = $true
         }
     }
 
@@ -85,7 +83,6 @@ function Select-TestContainerConfiguration {
         if ($matchingConfigurations.Count -eq 1) {
             return [PSCustomObject]@{
                 Configuration = $matchingConfigurations[0]
-                PrepareContainer = $true
             }
         }
 
@@ -104,7 +101,6 @@ function Select-TestContainerConfiguration {
 
     return [PSCustomObject]@{
         Configuration = $configurations[$selectedIndex]
-        PrepareContainer = $true
     }
 }
 
@@ -331,6 +327,8 @@ function Initialize-TestExecutionContainer {
         & (Join-Path $scriptPath 'operations/BuildAllApps.ps1') -SkipOperationUI
     }
 
+    Test-DockerProcess
+
     $testSettings = New-TestExecutionSettings `
         -settingsJSON $settingsJSON `
         -configuration $configuration
@@ -346,10 +344,6 @@ function Initialize-TestExecutionContainer {
 
     if (-not (Test-DockerContainerRunning -containerName $containerName)) {
         throw "Container '$containerName' exists but is not running."
-    }
-
-    if (-not $selection.PrepareContainer) {
-        return $testSettings
     }
 
     if (-not (Test-AutoRestoreBackup -configuration $configuration)) {
