@@ -2196,6 +2196,22 @@ function Select-DockerContainerConfigurations {
     return @($qualifiedConfigurations[$selectedIndex])
 }
 
+function Get-ConfiguredContainerLicenseFile {
+    Param ([PSObject] $settingsJSON)
+
+    $configuredPath = [string]$settingsJSON.licenseFile
+    if ([string]::IsNullOrWhiteSpace($configuredPath)) {
+        return ""
+    }
+
+    if (-not (Test-Path -LiteralPath $configuredPath -PathType Leaf)) {
+        Write-Warning "The license file '$configuredPath' could not be found. Verify and install the license as a separate step."
+        return ""
+    }
+
+    return (Resolve-Path -LiteralPath $configuredPath).Path
+}
+
 function New-DockerContainer {
     Param (
         [bool] $testMode = $false,
@@ -2403,15 +2419,9 @@ function New-DockerContainer {
             $Parameters.alwaysPull = $true
         }
 
-        $licenseFile = ""
-        if ($settingsJSON.licenseFile -ne "") {
-            if (-not (Test-Path -Path $settingsJSON.licenseFile)) {
-                Write-Host "WARNING: The license file '$($settingsJSON.licenseFile)' could not be found. Verify and install the license as a separate step." -ForegroundColor Red
-            }
-            else {
-                $licenseFile = (Resolve-Path -Path $settingsJSON.licenseFile).Path
-                $Parameters.licenseFile = $licenseFile
-            }
+        $licenseFile = Get-ConfiguredContainerLicenseFile -settingsJSON $settingsJSON
+        if (-not [string]::IsNullOrWhiteSpace($licenseFile)) {
+            $Parameters.licenseFile = $licenseFile
         }
 
         if ($configuration.includeTestToolkit -eq 'true') {
