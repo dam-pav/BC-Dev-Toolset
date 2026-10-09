@@ -1,4 +1,5 @@
 . (Join-Path $PSScriptRoot 'ContainerLifecycle.ps1')
+. (Join-Path $PSScriptRoot 'TestTargets.ps1')
 
 function Get-BcConfigurationCredentialValues {
     param(

@@ -1,4 +1,5 @@
 . (Join-Path $PSScriptRoot 'BackupMgt.ps1')
+. (Join-Path $PSScriptRoot 'TestTargets.ps1')
 
 function Get-HostHelperFolder {
     param(
@@ -2242,7 +2243,9 @@ function New-DockerContainer {
         if ($appJSON.application -eq "") {
             throw "Artifact URL could not be determined based on $appPath\app.json. Processing aborted."
         } else {
-            $appJSONapplication = $appJSON.application
+            $appJSONapplication = Get-ContainerArtifactApplicationVersion `
+                -Configuration $configuration `
+                -WorkspaceAppJSON $appJSON
             if ($selectArtifact -eq 'Closest') {
                 Write-Host "Retrieving artifact URL for $appArtifactType app version $($appJSON.application)."
             } else {

@@ -10,7 +10,7 @@ Branch: `feature/platform-test-suites`. Started 2026-10-09.
 - Humans and agents use the same resolver and operation pipeline. Development resolves one target (or asks on ambiguity); compatibility executes every eligible newer target.
 - Container test operations build before container access, then prepare, deploy dependencies and built apps, and test. Selection never disables deployment.
 - AL tests, page-script tests, and AL Runner use the same platform selection policy. AL Runner does not need a running container.
-- App manifests retain their minimum supported version. Configured release versions are provisioning intent; actual application and internal platform versions are separate facts.
+- App manifests retain their minimum supported version. A Container configuration's `platform` is the BC application release used for artifact provisioning; actual application and internal platform versions are separate facts.
 - Existing container version mismatches fail clearly; never silently recreate or substitute a version.
 
 ## Execution and acceptance
@@ -29,6 +29,8 @@ Remove the deployment bypass. Ensure both container modes build before Docker ac
 
 Implement a pure shared resolver with numeric version parsing, inherited baseline, deterministic ordering, eligibility diagnostics, and development ambiguity handling. Establish BC release versus internal platform semantics and supported AL Runner precision from evidence before committing the contract. Add Container-only `platform` to both schemas and artifact creation. Test invalid inputs, boundary versions, equal/newer/older targets, and workspace baseline consistency.
 
+Phase 2 review decision: `platform` identifies the Business Central application release passed to container artifact selection, while `app.json.application` remains the workspace minimum. The resolver normalizes release versions to four numeric components, inherits the baseline when omitted, selects equal-baseline configs for development, and explicitly newer configs for compatibility. Lower versions are excluded; duplicate normalized targets fail with a correction message. Container creation also rejects an explicitly configured release below the workspace minimum. Omitted values preserve current provisioning behavior.
+
 ### Phase 3 — Remove legacy selection and fix launch routing
 
 Remove `executeTestsInContainerName` everywhere; migrate persisted settings using existing migration infrastructure. Integrate shared selection into all three development modes and MCP preflight. Generate usable Dev/Test app launch entries without duplicate container configurations or new flags. Test migration preservation/idempotence, one/zero/multiple candidates, and human/MCP parity.
@@ -45,4 +47,5 @@ Run full validation and final source review. Make the changed extension availabl
 
 - Phase 0: isolated worktree created from `041d8e6`; BC Data worktree preserved. Initial review confirmed selection-dependent deployment bypass, page-script tests lacking a build step, and AL Runner currently selecting only an application major. Baseline npm run validate passed: 212 passed, 1 skipped (Windows file-symlink capability), 0 failures. Phase 0 accepted.
 - Phase 1: accepted and committed as `7f440b2`. Regression test proves build precedes Docker access, single-candidate target deploys, and a failed build stops before container side effects. Full npm run validate passed: 213 passed, 1 skipped, 0 failures.
-- Phases 2–5: pending.
+- Phase 2: accepted after review. Shared numeric resolver, Container-only `platform` schema, and container artifact selection implemented. AL Runner version precision remains to be implemented and validated in Phase 4. Full npm run validate passed: 216 passed, 1 skipped, 0 failures. Commit hash recorded after commit.
+- Phases 3–5: pending.

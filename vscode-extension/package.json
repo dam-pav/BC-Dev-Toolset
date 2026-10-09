@@ -265,6 +265,11 @@
                             "type": "string",
                             "description": "Docker container name for Container targets."
                           },
+                          "platform": {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)(\\.(0|[1-9][0-9]*)){0,3}$",
+                            "description": "Business Central application release used to create this Container (for example 27.1). Omit to use the workspace app.json application baseline."
+                          },
                           "multitenant": {
                             "type": "boolean",
                             "description": "Explicit multitenant mode passed to New-BcContainer. When omitted, Create Docker container infers the mode from a compatible backup set; if the backup does not determine the mode, the parameter is omitted and BcContainerHelper decides. Creation aborts when an explicit value conflicts with the backup type."
@@ -526,6 +531,11 @@
                           "container": {
                             "not": {},
                             "errorMessage": "Field \"container\" is not valid when \"serverType\" is not \"Container\".",
+                            "doNotSuggest": true
+                          },
+                          "platform": {
+                            "not": {},
+                            "errorMessage": "Field \"platform\" is valid only when \"serverType\" is \"Container\".",
                             "doNotSuggest": true
                           },
                           "includeTestToolkit": {

@@ -25,6 +25,11 @@ test('container creation callers pass workspace context required for OnPrem app 
   }
 });
 
+test('container artifact version comes from configuration platform or workspace baseline', () => {
+  const source = fs.readFileSync(workspaceMgtPath, 'utf8');
+  assert.match(source, /Get-ContainerArtifactApplicationVersion\s+`?\s*-Configuration \$configuration\s+`?\s*-WorkspaceAppJSON \$appJSON/);
+});
+
 test('launch.json updates honor explicit values and target-based defaults', () => {
   const script = `
     . '${workspaceMgtPath.replaceAll("'", "''")}'

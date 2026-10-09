@@ -559,6 +559,7 @@ Each `configurations` entry can contain:
 - `server`: Valid for `OnPrem`.
 - `serverInstance`: Valid for `OnPrem`.
 - `container`: Docker container name. The default value is the name of the workspace. Valid for `Container`. Create-container processing only includes Container configurations with a non-empty `container` value, and duplicate `container` values abort the operation.
+- `platform`: Optional Business Central application release version used to provision a Container, such as `27.1`. If omitted, the workspace apps' `app.json` `application` version is used. This lets a workspace keep one test container configuration per release while retaining its minimum supported application version. Valid only for `Container`.
 - `port`: Valid for `OnPrem`.
 - Container artifact type comes from workspace apps' `app.json` targets: if any app targets `OnPrem`, the container uses OnPrem artifacts; otherwise it uses Sandbox artifacts. Container launch entries use that same type. Cloud launch entries use Sandbox and are skipped for apps targeting `OnPrem`. An omitted app target defaults to `Cloud`. Existing configuration `environmentType` entries are ignored and can be removed.
 - `environmentName`: Valid for `Cloud`.
