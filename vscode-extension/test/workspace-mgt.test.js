@@ -452,14 +452,14 @@ test('one toolkit-enabled platform configuration generates Dev and Test app laun
   runPowerShell(script, { TEST_WORKSPACE: workspace });
 });
 
-test('test operations allow Container configurations of every target type when the test toolkit is included', () => {
+test('automated test target selection requires Test-role Container configurations', () => {
   const targetManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
     path.join(repositoryRoot, 'common', 'TestTargets.ps1'), 'utf8');
   const configurationSelector = targetManagement.match(/function Get-TestContainerConfigurations[\s\S]*?\n}/)?.[0] ?? '';
 
   assert.match(configurationSelector, /\$_.serverType -eq 'Container'/);
+  assert.match(configurationSelector, /\$_.targetType -eq 'Test'/);
   assert.match(configurationSelector, /\$_.includeTestToolkit -eq 'true'/);
-  assert.doesNotMatch(configurationSelector, /targetType/);
   assert.doesNotMatch(targetManagement, /Dev container configurations|Dev Container configurations/);
 });
 

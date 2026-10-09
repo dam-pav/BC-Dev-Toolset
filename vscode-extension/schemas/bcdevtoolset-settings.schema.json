@@ -346,7 +346,7 @@
             "Test",
             "Production"
           ],
-          "description": "Target environment role."
+          "description": "Target environment role. Automated testing requires Test."
         },
         "autoUpdateLaunchJson": {
           "type": "boolean",

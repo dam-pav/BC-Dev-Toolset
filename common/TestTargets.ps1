@@ -6,6 +6,7 @@ function Get-TestContainerConfigurations {
 
     return @($SettingsJSON.configurations | Where-Object {
         $_.serverType -eq 'Container' -and
+        $_.targetType -eq 'Test' -and
         -not [string]::IsNullOrWhiteSpace($_.container) -and
         (-not $RequireTestToolkit -or $_.includeTestToolkit -eq 'true')
     })

@@ -14,7 +14,7 @@ if ($global:failPreparationBuild) { throw 'build failed' }
         param($scriptPath, [ref]$settingsJSON, [ref]$workspaceJSON)
         # The reported discrepancy: a single eligible target, no legacy default setting.
         $settingsJSON.Value = [pscustomobject]@{ configurations = @([pscustomobject]@{
-            name='Test'; serverType='Container'; container='bc-test'; includeTestToolkit='true'; autoRestoreBackup=$true
+            name='Test'; serverType='Container'; targetType='Test'; container='bc-test'; includeTestToolkit='true'; autoRestoreBackup=$true
         }) }
         $workspaceJSON.Value = [pscustomobject]@{}
     }

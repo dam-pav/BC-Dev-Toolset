@@ -410,11 +410,11 @@ The Tests group contains three operations:
 - *Run page script tests* runs page scripting recordings from *recordingsPath* and writes results to *pageScriptTestResultsPath*.
 - *AL Runner Test* is a BC Dev Toolset feature based on Stefan Maron's [BusinessCentral.AL.Runner](https://github.com/StefanMaron/BusinessCentral.AL.Runner) tool. It invokes the standalone tool once and passes every workspace folder containing an *app.json* file as a bundle directory. The operation resolves the configured Container platform matching the workspace `app.json` application baseline, then passes that exact release's major and minor through `--bc-version`; mixed baselines or missing targets stop before execution. Unlike the other test operations, it does not build or prepare a Docker container.
 
-The AL test tool and page script operations run in a Docker container selected from configurations whose *serverType* is `Container`, whose *includeTestToolkit* value is `true`, and whose *container* value is not empty. The configuration's *targetType* does not affect eligibility. Both container test operations build workspace apps before accessing containers, then prepare the baseline-matching container and deploy dependencies and workspace apps before executing tests.
+The AL test tool and page script operations run only in a Docker container selected from configurations whose *serverType* is `Container`, *targetType* is `Test`, *includeTestToolkit* is `true`, and *container* is not empty. Dev, Production, and unspecified target roles are never eligible for automated tests. The AL Runner also resolves only Test-role Container configurations, but does not require a test toolkit because it does not use the BC container. Both container test operations build workspace apps before accessing containers, then prepare the baseline-matching container and deploy dependencies and workspace apps before executing tests.
 
 The operation asks for explicit confirmation before running tests in the resolved container. A missing or ambiguous baseline target is reported as a configuration error.
 
-When a selected container does not exist, the operation creates it from the selected configuration. If *includeTestToolkit* is `true` and *sqlBackupPath* is non-empty, creation triggered by a Test operation immediately exports an initial SQL backup set regardless of *targetType*. Manual Create/Overwrite Docker container does the same only when *targetType* is also `Test`. Restore is skipped for that test run because the container was just created.
+When a selected Test-role container does not exist, the operation creates it from the selected configuration. If *includeTestToolkit* is `true` and *sqlBackupPath* is non-empty, creation triggered by a Test operation immediately exports an initial SQL backup set. Manual Create/Overwrite Docker container does the same only when *targetType* is `Test`. Restore is skipped for that test run because the container was just created.
 
 When preparation is required for an existing selected container, the operation restores the SQL backup set from *sqlBackupPath* if compatible backup files exist, publishes dependency apps, publishes all workspace apps including test apps, and then discovers and executes tests separately for each installed workspace extension. Apps without test codeunits are allowed; a workspace app that is not installed causes the operation to stop instead of silently omitting its tests.
 
@@ -475,7 +475,7 @@ to remove the files from git. You will need to commit these changes. Beware, thi
         {
           "name": "Local",
           "serverType": "Container",
-          "targetType": "Dev",
+          "targetType": "Test",
           "container": "TEST",
           "includeTestToolkit": "true",
           "authentication": "UserPassword",
@@ -552,7 +552,7 @@ Each `configurations` entry can contain:
 - `name`: Distinctive name of the configuration. Mandatory. Entries with an empty name or the name `sample` are ignored.
 - `serverType`: Accepted values are `Container`, `Cloud`, or `OnPrem`. Mandatory.
 - `multitenant`: Explicit container mode passed to `New-BcContainer` by the Create container operation. When omitted, creation infers the mode from a compatible backup set. If neither the setting nor the backup determines the mode, the parameter is omitted and BcContainerHelper decides. An explicit value has priority; creation aborts with an explanation if it conflicts with the detected `*.app.bak` or `*.database.bak` backup type. Valid only for `Container`.
-- `targetType`: Accepted values are `Dev`, `Test`, `Production`.
+- `targetType`: Accepted values are `Dev`, `Test`, `Production`. Automated test operations require `Test`; Dev, Production, and unspecified roles are excluded.
 - `autoUpdateLaunchJson`: Optional override controlling whether this entry is included when launch.json files are updated, both manually and after container creation. It applies to all `serverType` values. When omitted, the effective value is `true` for the target selected for the app: `Test` for apps depending on a Microsoft Test Toolkit app, `Dev` otherwise.
 - `server`: Valid for `OnPrem`.
 - `serverInstance`: Valid for `OnPrem`.
