@@ -26,7 +26,7 @@ if ($global:failPreparationBuild) { throw 'build failed' }
     function Ensure-ConfiguredContainers { $global:preparationCalls.Add('ensure') }
     function Test-DockerContainerRunning { $true }
     function Get-BcContainerAppInfo {
-        $version = if ($global:failPreparationPlatform) { '27.1.0.0' } else { '23.0.0.0' }
+        $version = if ($global:preparationActualVersion) { $global:preparationActualVersion } elseif ($global:failPreparationPlatform) { '27.1.0.0' } else { '23.18.32409.0' }
         @([pscustomobject]@{ Name='Application'; Publisher='Microsoft'; Version=$version })
     }
     function Test-AutoRestoreBackup { param($configuration) $configuration.autoRestoreBackup }
@@ -70,8 +70,17 @@ if ($global:failPreparationBuild) { throw 'build failed' }
         Assert $caught 'Container platform mismatch must fail before restore or deployment'
         Assert (($global:preparationCalls -join ',') -eq 'build,docker,create-if-missing,ensure') "$operationName mutated a mismatched container"
     }
+
+    $exactMinorTarget = [pscustomobject]@{ name='BC27.1'; container='bcdata271' }
+    $global:preparationActualVersion = '27.0.32409.0'
+    $caught = $false
+    try { Assert-BcTestContainerPlatform -Configuration $exactMinorTarget -ExpectedApplicationVersion '27.1.0.0' | Out-Null }
+    catch { if ($_.Exception.Message -notmatch "targets '27.1.0.0'") { throw }; $caught=$true }
+    Assert $caught 'A non-zero configured minor must match the installed Application minor exactly'
+    $global:preparationActualVersion = '27.1.32409.0'
+    Assert ((Assert-BcTestContainerPlatform -Configuration $exactMinorTarget -ExpectedApplicationVersion '27.1.0.0') -eq '27.1.32409.0') 'A matching non-zero configured minor must pass'
 } finally {
     # Only the newly allocated fixture root is removed.
     Remove-Item -LiteralPath $fixtureRoot -Recurse -Force
-    Remove-Variable preparationCalls, failPreparationBuild, failPreparationPlatform -Scope Global -ErrorAction SilentlyContinue
+    Remove-Variable preparationCalls, failPreparationBuild, failPreparationPlatform, preparationActualVersion -Scope Global -ErrorAction SilentlyContinue
 }

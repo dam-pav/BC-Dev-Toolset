@@ -49,7 +49,7 @@ test('platform is available only for Container configurations and schema copies 
     assert.deepEqual(container.then.properties.platform, {
       type: 'string',
       pattern: '^(0|[1-9][0-9]*)(\\.(0|[1-9][0-9]*)){0,3}$',
-      description: 'Business Central application release used to create this Container (for example 27.1). Omit to use the workspace app.json application baseline.'
+      description: 'Business Central artifact release used to create this Container. A major-only value such as 23.0 selects the latest artifact for that major; a non-zero minor such as 27.1 selects that release. Omit to use the workspace app.json application baseline.'
     });
     const nonContainer = configuration.allOf.find(rule =>
       rule.if?.not?.properties?.serverType?.const === 'Container' && rule.then?.properties?.platform);

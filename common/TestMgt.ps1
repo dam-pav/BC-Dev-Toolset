@@ -85,7 +85,11 @@ function Assert-BcTestContainerPlatform {
 
     $expected = ConvertTo-BcReleaseVersion -Value $ExpectedApplicationVersion -SettingName "Expected platform for '$($Configuration.name)'"
     $actual = ConvertTo-BcReleaseVersion -Value ([string]$application[0].Version) -SettingName "Installed Microsoft Application version in '$($Configuration.container)'"
-    if ($actual.Major -ne $expected.Major -or $actual.Minor -ne $expected.Minor) {
+    # A configured major-only release such as 23.0 selects the latest artifact
+    # in that BC major line (for example 23.18), so its cumulative app minor
+    # is not an exact release constraint. Non-zero minors such as 27.1 remain exact.
+    $minorMismatch = $expected.Minor -ne 0 -and $actual.Minor -ne $expected.Minor
+    if ($actual.Major -ne $expected.Major -or $minorMismatch) {
         throw "Test container '$($Configuration.container)' has Business Central application release '$actual', but configuration '$($Configuration.name)' targets '$expected'. The existing container was left unchanged."
     }
     return $actual.ToString()
