@@ -583,7 +583,8 @@ test('runtime synchronization state includes an explicit content revision', () =
   const extensionSource = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
     path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
 
-  assert.match(extensionSource, /const runtimeToolsetRevision = \d+;/);
+  const revision = Number(extensionSource.match(/const runtimeToolsetRevision = (\d+);/)?.[1]);
+  assert.equal(revision, 30, 'Bundled runtime changes must increment the synchronization revision');
   assert.match(extensionSource, /`\$\{extensionVersion\}\.\$\{runtimeToolsetRevision\}\|\$\{getToolsetPath\(\)\}`/);
 });
 
