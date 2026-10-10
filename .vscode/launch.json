@@ -6,7 +6,8 @@
       "type": "extensionHost",
       "request": "launch",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}/vscode-extension"
+        "--extensionDevelopmentPath=${workspaceFolder}/vscode-extension",
+        "--user-data-dir=${workspaceFolder}/.vscode/development-user-data"
       ]
     }
   ]

@@ -16,3 +16,4 @@ test-results/.last-run.json
 .github/instructions/
 vscode-extension/.github/instructions/
 .codacy/
+.vscode/development-user-data/
