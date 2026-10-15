@@ -72,6 +72,44 @@ test('launch.json target follows whether app dependencies identify it as a test 
   runPowerShell(script);
 });
 
+test('BC Data companion and designated test app receive Dev and Test container launches', () => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdata-launch-'));
+  try {
+    for (const appName of ['BCData', 'BCData.Tests']) {
+      const appFolder = path.join(fixtureRoot, appName);
+      fs.mkdirSync(appFolder);
+      fs.copyFileSync(
+        path.join(repositoryRoot, 'al', appName, 'app.json'),
+        path.join(appFolder, 'app.json')
+      );
+    }
+    const script = `
+      . '${workspaceMgtPath.replaceAll("'", "''")}'
+      $script:bcDevToolsetWorkspaceRootPath = $env:TEST_WORKSPACE
+      $settings = [pscustomobject]@{ configurations = @(
+        [pscustomobject]@{ name = 'BC23'; serverType = 'Container'; targetType = 'Dev'; container = 'bc23'; authentication = 'UserPassword' },
+        [pscustomobject]@{ name = 'BC23'; serverType = 'Container'; targetType = 'Test'; container = 'bc23'; authentication = 'UserPassword' }
+      ) }
+      $workspace = [pscustomobject]@{ folders = @(
+        [pscustomobject]@{ path = 'BCData' },
+        [pscustomobject]@{ path = 'BCData.Tests' }
+      ) }
+      foreach ($app in $workspace.folders.path) {
+        Write-LaunchJSON -scriptPath '${repositoryRoot.replaceAll("'", "''")}' -appPath $app -settingsJSON $settings -workspaceJSON $workspace -replaceJSON $true
+      }
+    `;
+    runPowerShell(script, { TEST_WORKSPACE: fixtureRoot });
+    for (const [appName, target] of [['BCData', 'Dev'], ['BCData.Tests', 'Test']]) {
+      const launch = JSON.parse(fs.readFileSync(path.join(fixtureRoot, appName, '.vscode', 'launch.json'), 'utf8'));
+      assert.equal(launch.configurations.length, 1);
+      assert.equal(launch.configurations[0].name, `BC23 ${target} Container`);
+      assert.equal(launch.configurations[0].server, 'http://bc23');
+    }
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true }); // nosemgrep -- fixtureRoot is a newly created test-owned temporary directory
+  }
+});
+
 test('app.json target determines container launch and artifact type', () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-app-target-'));
   const script = `

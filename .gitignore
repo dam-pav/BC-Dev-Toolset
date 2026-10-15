@@ -11,6 +11,8 @@ test-results/.last-run.json
 .altestrunner
 .serena/
 .keys
+.bcdevtoolset/
+al/BCData.Container27/
 
 #Ignore vscode AI rules
 .github/instructions/

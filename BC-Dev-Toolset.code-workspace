@@ -1,0 +1,77 @@
+{
+  "folders": [
+    {
+      "name": "BC-Dev-Toolset",
+      "path": "."
+    },
+    {
+      "name": "VS Code Extension",
+      "path": "vscode-extension"
+    },
+    {
+      "name": "BC Data AL",
+      "path": "al/BCData"
+    },
+    {
+      "name": "BC Data AL Tests",
+      "path": "al/BCData.Tests"
+    },
+    {
+      "path": "C:\\Projekti\\DAM-PAV\\BCQuality"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "vscode-extension": true,
+      "al/BCData": true,
+      "al/BCData.Tests": true
+    },
+    "bcDevToolset": {
+      "mcpTools": {
+        "bc_dev_toolset_get_workspace": true,
+        "bc_dev_toolset_get_operation_status": true,
+        "bc_dev_toolset_answer_operation_prompt": true,
+        "bc_dev_toolset_initialize_workspace": false,
+        "bc_dev_toolset_show_help": false,
+        "bc_dev_toolset_clear_app_artifacts": false,
+        "bc_dev_toolset_build_all_apps": false,
+        "bc_dev_toolset_new_docker_container": true,
+        "bc_dev_toolset_ensure_containers": true,
+        "bc_dev_toolset_extract_container_assemblies": false,
+        "bc_dev_toolset_add_test_toolkit_to_bc_container": true,
+        "bc_dev_toolset_update_launch_json": false,
+        "bc_dev_toolset_update_bc_license_container": false,
+        "bc_dev_toolset_show_active_licenses": false,
+        "bc_dev_toolset_update_bc_container_server_configuration": false,
+        "bc_dev_toolset_backup_bc_container_databases": false,
+        "bc_dev_toolset_configure_stored_credentials": false,
+        "bc_dev_toolset_configure_win_rm": false,
+        "bc_dev_toolset_backup_bc_service_databases": false,
+        "bc_dev_toolset_restore_bc_container_databases": false,
+        "bc_dev_toolset_invoke_tests": true,
+        "bc_dev_toolset_invoke_page_script_tests": false,
+        "bc_dev_toolset_al_runner_test": false,
+        "bc_dev_toolset_publish_dependencies2_docker": false,
+        "bc_dev_toolset_publish_dependencies2_test": false,
+        "bc_dev_toolset_publish_apps2_docker": false,
+        "bc_dev_toolset_publish_apps2_production": false,
+        "bc_dev_toolset_publish_apps2_test": false,
+        "bc_dev_toolset_create_runtime_package": false,
+        "bc_dev_toolset_publish_runtime_apps2_docker": false,
+        "bc_dev_toolset_publish_runtime_apps2_production": false,
+        "bc_dev_toolset_publish_runtime_apps2_test": false,
+        "bc_dev_toolset_unpublish_docker_apps": false,
+        "bc_dev_toolset_unpublish_test_apps": false,
+        "bc_dev_toolset_prepare_object_id_range_visualization_data": false,
+        "bc_dev_toolset_init_prerequisites": false,
+        "bc_dev_toolset_uninstall_prerequisites": false,
+        "bc_dev_toolset_show_bc_container_helper_versions": false,
+        "bc_dev_toolset_update_power_shell": false,
+        "list_bc_dev_toolset_operations": false,
+        "run_bc_dev_toolset_operation": false,
+        "show_active_container_licenses": false
+      }
+    },
+    "al.symbolsCountryRegion": "w1"
+  }
+}
