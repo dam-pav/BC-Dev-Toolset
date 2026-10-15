@@ -1,4 +1,5 @@
 . (Join-Path $PSScriptRoot 'BackupMgt.ps1')
+. (Join-Path $PSScriptRoot 'TestTargets.ps1')
 
 function Get-HostHelperFolder {
     param(
@@ -833,7 +834,8 @@ function Test-AutoUpdateLaunchJson {
         return $configuration.autoUpdateLaunchJson -eq $true
     }
 
-    return $configuration.targetType -eq $appTargetType
+    return $configuration.targetType -eq $appTargetType -or
+        ($configuration.serverType -eq 'Container' -and $configuration.includeTestToolkit -eq 'true')
 }
 
 function Test-AppHasTestDependencies {
@@ -1012,8 +1014,9 @@ function Write-LaunchJSON {
         if ($configurationValid) {
             $setupFound = $false
             $remoteConfigurationName = "$($remote.name)"
-            if ($remote.targetType) {
-                $remoteConfigurationName += " $($remote.targetType)"
+            $launchTargetType = $remote.targetType
+            if ($launchTargetType) {
+                $remoteConfigurationName += " $launchTargetType"
             }
             $remoteConfigurationName += " $($remote.serverType)"
             if ($remote.serverType -eq 'Cloud' -and $appArtifactType -eq 'OnPrem') {
@@ -1345,26 +1348,13 @@ function New-DefaultLocalConfiguration {
         serverType = "Container"
         targetType = "Dev"
         container = $containerName
-        includeTestToolkit = "false"
+        includeTestToolkit = "true"
         authentication = "UserPassword"
         bcUser = "admin"
         bcPassword = "P@ssw0rd"
         sqlBackupPath = ""
         autoRestoreBackup = $true
     }
-}
-
-function New-DefaultLocalTestConfiguration {
-    Param (
-        [Parameter(Mandatory=$true)]
-        [string] $containerName
-    )
-
-    $configuration = New-DefaultLocalConfiguration -containerName $containerName
-    $configuration.name = "Local-Test"
-    $configuration.targetType = "Test"
-    $configuration.includeTestToolkit = "true"
-    return $configuration
 }
 
 function Build-Settings {
@@ -1397,17 +1387,11 @@ function Build-Settings {
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestResultsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestHeaded -Value "false"
         $defaultContainerName = $workspaceName.Replace(' ','-')
-        $testContainerName = "$defaultContainerName-Test"
-        $defaultSettings | Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value $testContainerName
         $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
 
-        # add container configuration
+        # Add one local container configuration for development and test workflows.
         $remoteConfiguration = New-DefaultLocalConfiguration -containerName $defaultContainerName
         $defaultSettings.configurations += $remoteConfiguration
-
-        # add test container configuration
-        $testConfiguration = New-DefaultLocalTestConfiguration -containerName $testContainerName
-        $defaultSettings.configurations += $testConfiguration
 
         $defaultSettings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
         Write-Host "$settingsPath created." -ForegroundColor Green
@@ -1433,27 +1417,9 @@ function Build-Settings {
             }
         }
 
-        $existingTestConfiguration = @($configurations | Where-Object { $_.name -eq "Local-Test" }) | Select-Object -First 1
-        if ($null -ne $existingTestConfiguration) {
-            Write-Host "Workspace local settings already contain Local-Test; existing values were preserved." -ForegroundColor Gray
-        } else {
-            $testContainerName = "$defaultContainerName-Test"
-            $testContainerConflict = @($configurations | Where-Object {
-                $_.serverType -eq "Container" -and $_.container -eq $testContainerName
-            }) | Select-Object -First 1
-            if ($null -ne $testContainerConflict) {
-                Write-Host "Local-Test was not added because container '$testContainerName' is already used by configuration '$($testContainerConflict.name)'." -ForegroundColor Yellow
-            } else {
-                $configurations = @($configurations) + @(New-DefaultLocalTestConfiguration -containerName $testContainerName)
-                $settingsChanged = $true
-                Write-Host "Added Local-Test configuration for '$testContainerName'." -ForegroundColor Green
-
-                $configuredTestContainer = [string]$settings.executeTestsInContainerName
-                if ([string]::IsNullOrWhiteSpace($configuredTestContainer)) {
-                    $settings | Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value $testContainerName -Force
-                    Write-Host "Selected '$testContainerName' as the test execution container." -ForegroundColor Green
-                }
-            }
+        if ($settings.PSObject.Properties['executeTestsInContainerName']) {
+            $settings.PSObject.Properties.Remove('executeTestsInContainerName')
+            $settingsChanged = $true
         }
 
         if ($settingsChanged) {
@@ -1654,11 +1620,9 @@ function Initialize-Context {
 
     $workspaceToolsetSettings = $workspaceJSON.value.settings.bcDevToolset
     if ($null -eq $workspaceToolsetSettings) { $workspaceToolsetSettings = $workspaceJSON.value.settings."dam-pav.bcdevtoolset" }
-    $executeTestsInContainerName = [string]$settingsJSONvalue.executeTestsInContainerName
-    if ([string]::IsNullOrWhiteSpace($executeTestsInContainerName) -and $workspaceToolsetSettings.executeTestsInContainerName) {
-        $executeTestsInContainerName = $workspaceToolsetSettings.executeTestsInContainerName
+    if ($settingsJSONvalue.PSObject.Properties['executeTestsInContainerName']) {
+        $settingsJSONvalue.PSObject.Properties.Remove('executeTestsInContainerName')
     }
-    $settingsJSONvalue | Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value $executeTestsInContainerName -Force
 
     # Add missing defaults
     if ($null -eq $settingsJSONvalue.shortcuts) {
@@ -2196,6 +2160,22 @@ function Select-DockerContainerConfigurations {
     return @($qualifiedConfigurations[$selectedIndex])
 }
 
+function Get-ConfiguredContainerLicenseFile {
+    Param ([PSObject] $settingsJSON)
+
+    $configuredPath = [string]$settingsJSON.licenseFile
+    if ([string]::IsNullOrWhiteSpace($configuredPath)) {
+        return ""
+    }
+
+    if (-not (Test-Path -LiteralPath $configuredPath -PathType Leaf)) {
+        Write-Warning "The license file '$configuredPath' could not be found. Verify and install the license as a separate step."
+        return ""
+    }
+
+    return (Resolve-Path -LiteralPath $configuredPath).Path
+}
+
 function New-DockerContainer {
     Param (
         [bool] $testMode = $false,
@@ -2242,7 +2222,9 @@ function New-DockerContainer {
         if ($appJSON.application -eq "") {
             throw "Artifact URL could not be determined based on $appPath\app.json. Processing aborted."
         } else {
-            $appJSONapplication = $appJSON.application
+            $appJSONapplication = Get-ContainerArtifactApplicationVersion `
+                -Configuration $configuration `
+                -WorkspaceAppJSON $appJSON
             if ($selectArtifact -eq 'Closest') {
                 Write-Host "Retrieving artifact URL for $appArtifactType app version $($appJSON.application)."
             } else {
@@ -2403,15 +2385,9 @@ function New-DockerContainer {
             $Parameters.alwaysPull = $true
         }
 
-        $licenseFile = ""
-        if ($settingsJSON.licenseFile -ne "") {
-            if (-not (Test-Path -Path $settingsJSON.licenseFile)) {
-                Write-Host "WARNING: The license file '$($settingsJSON.licenseFile)' could not be found. Verify and install the license as a separate step." -ForegroundColor Red
-            }
-            else {
-                $licenseFile = (Resolve-Path -Path $settingsJSON.licenseFile).Path
-                $Parameters.licenseFile = $licenseFile
-            }
+        $licenseFile = Get-ConfiguredContainerLicenseFile -settingsJSON $settingsJSON
+        if (-not [string]::IsNullOrWhiteSpace($licenseFile)) {
+            $Parameters.licenseFile = $licenseFile
         }
 
         if ($configuration.includeTestToolkit -eq 'true') {

@@ -58,11 +58,6 @@
       "default": false,
       "description": "Stop the AL test tool operation before container preparation or tests when its build emits compiler warnings. Resolve the reported warnings and rerun. Defaults to false; an explicit local value overrides the shared workspace setting."
     },
-    "executeTestsInContainerName": {
-      "type": "string",
-      "default": "",
-      "description": "Optional container name used by Test operations. Workspace initialization sets it to the generated Local-Test container name. A non-empty local value takes priority over the shared workspace setting."
-    },
     "sqlBackupPath": {
       "not": {},
       "errorMessage": "Field \"sqlBackupPath\" has moved. Set it inside each relevant \"configurations\" entry.",
@@ -75,18 +70,6 @@
           "name": "Local",
           "serverType": "Container",
           "targetType": "Dev",
-          "container": "",
-          "includeTestToolkit": "false",
-          "authentication": "UserPassword",
-          "bcUser": "admin",
-          "bcPassword": "P@ssw0rd",
-          "sqlBackupPath": "",
-          "autoRestoreBackup": true
-        },
-        {
-          "name": "Local-Test",
-          "serverType": "Container",
-          "targetType": "Test",
           "container": "",
           "includeTestToolkit": "true",
           "authentication": "UserPassword",
@@ -220,6 +203,21 @@
           "default": false,
           "description": "Run workspace AL tests using AL Runner."
         },
+        "bc_dev_toolset_invoke_compatibility_tests": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run AL test-tool tests sequentially on every configured newer platform."
+        },
+        "bc_dev_toolset_invoke_compatibility_page_script_tests": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run page script tests sequentially on every configured newer platform."
+        },
+        "bc_dev_toolset_al_runner_compatibility_test": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run AL Runner tests sequentially for every configured newer release."
+        },
         "bc_dev_toolset_publish_dependencies2_docker": {
           "type": "boolean",
           "default": false,
@@ -348,7 +346,7 @@
             "Test",
             "Production"
           ],
-          "description": "Target environment role."
+          "description": "Target environment role. Automated testing requires Test."
         },
         "autoUpdateLaunchJson": {
           "type": "boolean",
@@ -457,6 +455,11 @@
               "container": {
                 "type": "string",
                 "description": "Docker container name for Container targets."
+              },
+              "platform": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)(\\.(0|[1-9][0-9]*)){0,3}$",
+                "description": "Business Central artifact release used to create this Container. A major-only value such as 23.0 selects the latest artifact for that major; a non-zero minor such as 27.1 selects that release. Omit to use the workspace app.json application baseline."
               },
               "multitenant": {
                 "type": "boolean",
@@ -719,6 +722,11 @@
               "container": {
                 "not": {},
                 "errorMessage": "Field \"container\" is not valid when \"serverType\" is not \"Container\".",
+                "doNotSuggest": true
+              },
+              "platform": {
+                "not": {},
+                "errorMessage": "Field \"platform\" is valid only when \"serverType\" is \"Container\".",
                 "doNotSuggest": true
               },
               "includeTestToolkit": {

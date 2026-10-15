@@ -41,8 +41,19 @@ test('invalid JSONC never produces partial edits', () => {
 });
 
 test('empty files need no migration and escaped legacy names are still recognized', () => {
-  assert.deepEqual(planSettingsMigration(' // User settings\n'), { edits: [], conflicts: [] });
+  assert.deepEqual(planSettingsMigration(' // User settings\n'), { edits: [], conflicts: [], removed: 0 });
   assert.equal(renamed('{"dam\\u002dpav.bcDevToolset.x":false}').text, '{"bcDevToolset.x":false}');
+});
+
+test('removes obsolete test target settings from local and workspace settings while preserving other values', () => {
+  const local = renamed('{\n "executeTestsInContainerName": "old-test",\n "keep": true\n}');
+  assert.equal(local.plan.removed, 1);
+  assert.deepEqual(JSON.parse(local.text), { keep: true });
+  assert.equal(renamed(local.text).plan.edits.length, 0);
+
+  const workspace = renamed('{"settings":{"bcDevToolset":{"executeTestsInContainerName":"old-test","selectArtifact":"Latest"}}}', true);
+  assert.equal(workspace.plan.removed, 1);
+  assert.deepEqual(JSON.parse(workspace.text).settings.bcDevToolset, { selectArtifact: 'Latest' });
 });
 
 function harness(initialFiles, dirty = new Set()) {
@@ -91,24 +102,28 @@ test('startup migrates user, workspace and folder files, then notifies without a
   const setup = harness({
     '/user/settings.json': '{"dam-pav.bcDevToolset.custom":{"a":[1,2]}}',
     '/project/project.code-workspace': '{"settings":{"dam-pav.bcdevtoolset":{"configurations":[{"name":"test"}]}}}',
-    '/project/app/.vscode/settings.json': '{"dam-pav.bcdevtoolset.custom":false}'
+    '/project/app/.vscode/settings.json': '{"dam-pav.bcdevtoolset.custom":false}',
+    '/project/app/.bcdevtoolset/settings.json': '{"executeTestsInContainerName":"old","configurations":[]}'
   });
-  assert.deepEqual(await setup.run(), { renamed: 3, conflicts: 0, failed: 0 });
+  assert.deepEqual(await setup.run(), { renamed: 3, removed: 1, conflicts: 0, failed: 0 });
   assert.equal(setup.notifications.length, 1);
   assert.equal(setup.notifications[0].length, 1); // no buttons or modal confirmation
   for (const text of setup.files.values()) assert.ok(!text.includes('dam-pav.'));
-  assert.deepEqual(await setup.run(), { renamed: 0, conflicts: 0, failed: 0 });
+  assert.deepEqual(await setup.run(), { renamed: 0, removed: 0, conflicts: 0, failed: 0 });
   assert.equal(setup.notifications.length, 1);
 });
 
 test('startup leaves dirty files and collisions intact and does not create absent files', async () => {
   const original = '{"dam-pav.bcdevtoolset.x":true}';
+  const dirtyLocal = '{"executeTestsInContainerName":"old"}';
   const setup = harness({
     '/user/settings.json': original,
-    '/project/app/.vscode/settings.json': '{"dam-pav.bcdevtoolset.x":true,"bcDevToolset.x":false}'
-  }, new Set(['/user/settings.json']));
-  assert.deepEqual(await setup.run(), { renamed: 0, conflicts: 1, failed: 1 });
+    '/project/app/.vscode/settings.json': '{"dam-pav.bcdevtoolset.x":true,"bcDevToolset.x":false}',
+    '/project/app/.bcdevtoolset/settings.json': dirtyLocal
+  }, new Set(['/user/settings.json', '/project/app/.bcdevtoolset/settings.json']));
+  assert.deepEqual(await setup.run(), { renamed: 0, removed: 0, conflicts: 1, failed: 2 });
   assert.equal(setup.files.get('/user/settings.json'), original);
-  assert.equal(setup.files.size, 2);
+  assert.equal(setup.files.get('/project/app/.bcdevtoolset/settings.json'), dirtyLocal);
+  assert.equal(setup.files.size, 3);
   assert.equal(setup.warnings.length, 1);
 });

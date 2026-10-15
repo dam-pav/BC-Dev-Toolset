@@ -42,16 +42,19 @@ test('AL Runner Test passes every app.json-rooted workspace folder in one invoca
   assert.match(source, /@\('--bc-version', \$bcVersionPrefix\) \+ \$appPaths/);
   assert.match(source, /& \$runnerCommand\.Source @runnerArguments/);
   assert.match(source, /must target the same Business Central application major/);
-  assert.match(source, /Get-AlRunnerShippedEngineVersions/);
-  assert.match(source, /does not ship a Business Central \$bcVersionPrefix engine variant/);
-  assert.match(source, /no artifacts were downloaded/);
+  assert.match(source, /Get-BcWorkspaceBaselineApplicationVersion/);
+  assert.match(source, /Resolve-BcTestTargetConfigurations/);
+  assert.match(source, /-RequireTestToolkit:\$false/);
+  assert.match(source, /foreach \(\$platformTarget in \$platformTargets\)/);
+  assert.match(source, /\$platformTarget\.Platform\.ToString\(2\)/);
+  assert.match(source, /@\('--bc-version', \$bcVersionPrefix\) \+ \$appPaths/);
   assert.match(source, /__BCDEVTOOLSET_AL_RUNNER_TOOL_FAILURE__::\$Code/);
   assert.match(source, /Suggested fallback:.*bc_dev_toolset_invoke_tests/);
-  assert.match(source, /Write-AlRunnerToolFailure[\s\S]*-Code 'unsupported_engine'/);
+  assert.match(source, /Write-AlRunnerToolFailure -Code \$\(if \(\$runnerExitCode -eq 2\) \{ 'execution' \}/);
   assert.match(source, /No AL apps with an app\.json file were found/);
   assert.match(source, /Microsoft-Windows-CodeIntegrity\/Operational/);
   assert.match(source, /BC Dev Toolset will not disable or bypass that protection/);
-  assert.match(source, /AL Runner exited with code \$runnerExitCode/);
+  assert.match(source, /One or more \$\(\$suite\.ToLowerInvariant\(\)\) AL Runner targets failed/);
 });
 
 test('AL Runner MCP report distinguishes a runner-tool failure from AL test results', () => {

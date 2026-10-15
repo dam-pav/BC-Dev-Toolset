@@ -30,13 +30,17 @@ function parseSettingsTree(text) {
         const name = JSON.parse(key.raw);
         take(':');
         const child = value();
-        properties.push({ name, key, value: child });
+        const property = { name, key, value: child, start: key.start, end: child.end };
         Object.defineProperty(parsed, name, { value: child.parsed, enumerable: true, configurable: true, writable: true });
-        if (tokens[index]?.raw !== ',') break;
-        take(',');
+        if (tokens[index]?.raw !== ',') {
+          properties.push(property);
+          break;
+        }
+        property.comma = take(',');
+        properties.push(property);
       }
-      take('}');
-      return { properties, parsed };
+      const close = take('}');
+      return { properties, parsed, start: token.start, end: close.end };
     }
     if (token.raw === '[') {
       const parsed = [];
@@ -45,10 +49,10 @@ function parseSettingsTree(text) {
         if (tokens[index]?.raw !== ',') break;
         take(',');
       }
-      take(']');
-      return { parsed };
+      const close = take(']');
+      return { parsed, start: token.start, end: close.end };
     }
-    return { parsed: JSON.parse(token.raw) };
+    return { parsed: JSON.parse(token.raw), start: token.start, end: token.end };
   }
   const root = value();
   if (index !== tokens.length || !root.properties) throw new Error('Invalid settings document; file was left unchanged.');
@@ -58,10 +62,25 @@ function parseSettingsTree(text) {
 function planSettingsMigration(text, isWorkspaceFile = false) {
   // Do not report unrelated empty or unfinished settings files as migration failures.
   // Unicode escapes may encode part of a legacy key, so parse those conservatively.
-  if (!/dam-pav|\\u/i.test(text)) return { edits: [], conflicts: [] };
+  if (!/dam-pav|\\u|executeTestsInContainerName/i.test(text)) return { edits: [], conflicts: [], removed: 0 };
   const root = parseSettingsTree(text);
   const settings = isWorkspaceFile ? root.properties.find(property => property.name === 'settings')?.value : root;
-  const edits = [], conflicts = [];
+  const edits = [], conflicts = [], removals = [];
+  const localSettings = isWorkspaceFile ? null : root;
+  const workspaceSettings = isWorkspaceFile ? settings : null;
+  const legacyTestSetting = node => {
+    if (!node?.properties) return;
+    const index = node.properties.findIndex(property => property.name === 'executeTestsInContainerName');
+    if (index < 0) return;
+    const property = node.properties[index];
+    if (property.comma) removals.push({ start: property.start, end: property.comma.end, text: '' });
+    else if (index > 0 && node.properties[index - 1].comma) {
+      removals.push({ start: node.properties[index - 1].comma.start, end: property.end, text: '' });
+    } else removals.push({ start: property.start, end: property.end, text: '' });
+  };
+  legacyTestSetting(localSettings);
+  legacyTestSetting(workspaceSettings?.properties?.find(property => property.name === 'bcDevToolset')?.value);
+  legacyTestSetting(workspaceSettings?.properties?.find(property => property.name === 'dam-pav.bcdevtoolset')?.value);
   function visit(node) {
     if (!node?.properties) return;
     const names = new Set(node.properties.map(property => property.name));
@@ -78,7 +97,7 @@ function planSettingsMigration(text, isWorkspaceFile = false) {
     }
   }
   visit(settings);
-  return { edits, conflicts };
+  return { edits: [...edits, ...removals], conflicts, removed: removals.length };
 }
 
 async function migrateSettingsOnStartup(vscode, context, log) {
@@ -89,10 +108,13 @@ async function migrateSettingsOnStartup(vscode, context, log) {
       root: vscode.Uri.joinPath(context.globalStorageUri, '..', '..') },
     ...(vscode.workspace.workspaceFile && vscode.workspace.workspaceFile.scheme !== 'untitled'
       ? [{ uri: vscode.workspace.workspaceFile, root: vscode.Uri.joinPath(vscode.workspace.workspaceFile, '..'), isWorkspaceFile: true }] : []),
-    ...(vscode.workspace.workspaceFolders || []).map(folder => ({ uri: vscode.Uri.joinPath(folder.uri, '.vscode', 'settings.json'), root: folder.uri }))
+    ...(vscode.workspace.workspaceFolders || []).flatMap(folder => [
+      { uri: vscode.Uri.joinPath(folder.uri, '.vscode', 'settings.json'), root: folder.uri },
+      { uri: vscode.Uri.joinPath(folder.uri, '.bcdevtoolset', 'settings.json'), root: folder.uri }
+    ])
   ];
   const seen = new Set();
-  let renamed = 0, conflicts = 0, failed = 0;
+  let renamed = 0, removed = 0, conflicts = 0, failed = 0;
   for (const target of targets) {
     if (seen.has(target.uri.toString())) continue;
     seen.add(target.uri.toString());
@@ -113,19 +135,20 @@ async function migrateSettingsOnStartup(vscode, context, log) {
         edit.replace(target.uri, new vscode.Range(document.positionAt(change.start), document.positionAt(change.end)), change.text);
       }
       if (!await vscode.workspace.applyEdit(edit) || !await document.save()) throw new Error('Could not save migrated settings.');
-      renamed += plan.edits.length;
+      renamed += plan.edits.length - (plan.removed || 0);
+      removed += plan.removed || 0;
     } catch (error) {
       failed++;
       log(`Settings migration: ${target.uri.toString()}: ${error.message}`);
     }
   }
-  if (renamed) {
-    void vscode.window.showInformationMessage(`BC Dev Toolset migrated ${renamed} setting entries to bcDevToolset. Existing contents were preserved.`);
+  if (renamed || removed) {
+    void vscode.window.showInformationMessage(`BC Dev Toolset migrated ${renamed} setting names and removed ${removed} obsolete test target entries. Other contents were preserved.`);
   }
   if (conflicts || failed) {
     void vscode.window.showWarningMessage(`BC Dev Toolset settings migration left ${conflicts} conflicting entries and ${failed} files for review. See the BC Dev Toolset output; no conflicting values were overwritten.`);
   }
-  return { renamed, conflicts, failed };
+  return { renamed, removed, conflicts, failed };
 }
 
 function parseSettingsJsonc(text) {

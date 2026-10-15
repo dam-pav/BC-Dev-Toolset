@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.9.12",
+  "version": "1.10.1",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -50,6 +50,9 @@
     "onCommand:bcDevToolset.operation.invokeTests",
     "onCommand:bcDevToolset.operation.invokePageScriptTests",
     "onCommand:bcDevToolset.operation.alRunnerTest",
+    "onCommand:bcDevToolset.operation.invokeCompatibilityTests",
+    "onCommand:bcDevToolset.operation.invokeCompatibilityPageScriptTests",
+    "onCommand:bcDevToolset.operation.alRunnerCompatibilityTest",
     "onCommand:bcDevToolset.operation.showBcContainerHelperVersions",
     "onCommand:bcDevToolset.operation.initPrerequisites",
     "onCommand:bcDevToolset.operation.uninstallPrerequisites",
@@ -96,7 +99,6 @@
             "scope": "resource",
             "default": {
               "selectArtifact": "Latest",
-              "executeTestsInContainerName": "",
               "configurations": [
                 {
                   "name": "sample",
@@ -163,11 +165,6 @@
                 "type": "boolean",
                 "default": false,
                 "description": "Stop the AL test tool operation before container preparation or tests when its build emits compiler warnings. Resolve the reported warnings and rerun. Defaults to false; an explicit local value overrides the shared workspace setting."
-              },
-              "executeTestsInContainerName": {
-                "type": "string",
-                "default": "",
-                "description": "Optional container name used by Test operations. New workspaces set this to their default Local-Test container. If empty and only one eligible container configuration exists, tests run there without backup restore or app deployment. Otherwise Test operations ask which eligible container to use when needed. If the selected container is missing, it is created before tests continue and exports an initial SQL backup set when sqlBackupPath is non-empty, regardless of targetType."
               },
               "sqlBackupPath": {
                 "not": {},
@@ -264,6 +261,11 @@
                           "container": {
                             "type": "string",
                             "description": "Docker container name for Container targets."
+                          },
+                          "platform": {
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)(\\.(0|[1-9][0-9]*)){0,3}$",
+                            "description": "Business Central artifact release used to create this Container. A major-only value such as 23.0 selects the latest artifact for that major; a non-zero minor such as 27.1 selects that release. Omit to use the workspace app.json application baseline."
                           },
                           "multitenant": {
                             "type": "boolean",
@@ -528,6 +530,11 @@
                             "errorMessage": "Field \"container\" is not valid when \"serverType\" is not \"Container\".",
                             "doNotSuggest": true
                           },
+                          "platform": {
+                            "not": {},
+                            "errorMessage": "Field \"platform\" is valid only when \"serverType\" is \"Container\".",
+                            "doNotSuggest": true
+                          },
                           "includeTestToolkit": {
                             "not": {},
                             "errorMessage": "Field \"includeTestToolkit\" is not valid when \"serverType\" is not \"Container\".",
@@ -783,6 +790,21 @@
                     "default": false,
                     "description": "Run workspace AL tests using AL Runner."
                   },
+                  "bc_dev_toolset_invoke_compatibility_tests": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Run AL test-tool tests sequentially on every configured newer platform."
+                  },
+                  "bc_dev_toolset_invoke_compatibility_page_script_tests": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Run page script tests sequentially on every configured newer platform."
+                  },
+                  "bc_dev_toolset_al_runner_compatibility_test": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Run AL Runner tests sequentially for every configured newer release."
+                  },
                   "bc_dev_toolset_publish_dependencies2_docker": {
                     "type": "boolean",
                     "default": false,
@@ -988,6 +1010,18 @@
       {
         "command": "bcDevToolset.operation.alRunnerTest",
         "title": "BC Dev Toolset: AL Runner Test"
+      },
+      {
+        "command": "bcDevToolset.operation.invokeCompatibilityTests",
+        "title": "BC Dev Toolset: Run AL compatibility tests on newer platforms"
+      },
+      {
+        "command": "bcDevToolset.operation.invokeCompatibilityPageScriptTests",
+        "title": "BC Dev Toolset: Run page script compatibility tests on newer platforms"
+      },
+      {
+        "command": "bcDevToolset.operation.alRunnerCompatibilityTest",
+        "title": "BC Dev Toolset: Run AL Runner compatibility tests on newer platforms"
       },
       {
         "command": "bcDevToolset.operation.showBcContainerHelperVersions",

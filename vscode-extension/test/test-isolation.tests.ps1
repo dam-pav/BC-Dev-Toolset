@@ -109,7 +109,7 @@ function Run-TestsInBcContainer {
 $previousHelperFolder = $env:BCDEVTOOLSET_HOST_HELPER_FOLDER
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ('bc-isolation-' + [guid]::NewGuid().ToString('N'))
 $env:BCDEVTOOLSET_HOST_HELPER_FOLDER = $testRoot
-$settings = [pscustomobject]@{ configurations=@([pscustomobject]@{ name='Test'; serverType='Container'; container='test' }) }
+$settings = [pscustomobject]@{ configurations=@([pscustomobject]@{ name='Test'; serverType='Container'; targetType='Test'; container='test' }) }
 try {
     Assert-TestIsolationCapabilities
     foreach ($failedRunner in @(0,130450,130451)) {
