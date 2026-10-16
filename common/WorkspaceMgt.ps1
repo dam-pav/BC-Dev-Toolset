@@ -2488,6 +2488,10 @@ Import-NAVServerLicense -LicenseFile '$escapedContainerLicenseFile' -ServerInsta
                     -workspaceJSON $workspaceJSON `
                     -configurations @($configuration) | Out-Null
             }
+            if ($null -ne $configuration.bcData) {
+                . (Join-Path $scriptPath 'common/BcDataMgt.ps1')
+                Sync-ConfiguredBcData -ToolsetRoot $scriptPath -Configuration $configuration
+            }
         }
 
         Write-Host "The docker instance $($configuration.container) should be ready." -ForegroundColor Green

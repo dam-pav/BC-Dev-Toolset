@@ -369,5 +369,30 @@
     "title": "Configure MCP Tools",
     "command": "configureMcpTools",
     "category": "MCP Configuration"
+  },
+  {
+    "id": "initializeBcData",
+    "title": "Initialize BC Data Access",
+    "script": "operations/InitializeBcData.ps1",
+    "category": "BC Data",
+    "promptInputs": [
+      {
+        "promptId": "bcData.connectionId",
+        "inputName": "connectionId",
+        "type": "text",
+        "question": "Exact configuration name of the Dev/Test container to initialize",
+        "inputSchema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      {
+        "promptId": "bcData.initialize",
+        "inputName": "initializeCompanion",
+        "type": "confirm",
+        "question": "Install or upgrade the companion on this one development container? Tool exposure remains separately configured."
+      }
+    ]
   }
 ]

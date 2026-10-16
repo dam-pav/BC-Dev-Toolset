@@ -346,6 +346,11 @@
           "type": "boolean",
           "default": false,
           "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. Read 1-50 selected fields from an ordinary table in primary-key ascending order, at most 100 rows. Supports BC filter expressions and separate FlowFilters. Returns SystemId and string rowversion; decimal/BigInteger are strings, enum/option are ordinals, BLOB/Media are descriptors. Date/time types and other sorting are not yet supported. Continuation tokens expire after 30 minutes and bind target revision/company/query/client session. Pagination is not a snapshot; rowversion does not cover FlowField dependencies. Reduce selection/page size on response_too_large."
+        },
+        "bc_dev_toolset_initialize_bc_data": {
+          "type": "boolean",
+          "default": false,
+          "description": "Explicitly install/upgrade and verify the bundled BC Data companion on one named Dev/Test container; never downgrade or enable data tools implicitly."
         }
       },
       "additionalProperties": {
@@ -630,7 +635,7 @@
               "bcData": {
                 "type": "object",
                 "additionalProperties": false,
-                "description": "Read-only BC Data endpoint overrides. Does not enable tools or provision the companion. Default: http://<container>:7048/BC/ODataV4, tenant default.",
+                "description": "BC Data endpoint and optional companion provisioning. Data tool exposure is configured independently with MCP switches.",
                 "properties": {
                   "baseUrl": {
                     "type": "string",
@@ -640,6 +645,11 @@
                     "type": "string",
                     "minLength": 1,
                     "description": "Tenant ID; defaults to default."
+                  },
+                  "provisioningEnabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Maintain the bundled companion during container creation/start and test preparation. Does not expose data tools. Disabling preserves the installed app."
                   }
                 }
               }

@@ -23,7 +23,8 @@ function Ensure-ConfiguredContainers {
     param(
         $SettingsJSON,
         [ValidateRange(0, 600)] [int] $TimeoutSeconds = 120,
-        [switch] $SkipMissing
+        [switch] $SkipMissing,
+        [switch] $SkipBcDataProvisioning
     )
 
     # Validate every target before issuing Docker commands. Reject option-like values.
@@ -77,6 +78,12 @@ function Ensure-ConfiguredContainers {
                 $health = [string]$state.Health.Status
                 if ($state.Status -eq 'running' -and ($health -eq '' -or $health -eq 'healthy')) {
                     Write-Host "Container '$name': before=$before; action=$action; after=$($state.Status)/$health; ready."
+                    foreach ($configuration in @($SettingsJSON.configurations | Where-Object { $_.serverType -eq 'Container' -and $_.container -eq $name })) {
+                        if (-not $SkipBcDataProvisioning -and $null -ne $configuration.bcData) {
+                            . (Join-Path $PSScriptRoot 'BcDataMgt.ps1')
+                            Sync-ConfiguredBcData -ToolsetRoot (Split-Path -Parent $PSScriptRoot) -Configuration $configuration
+                        }
+                    }
                     break
                 }
                 if ($timer.Elapsed.TotalSeconds -ge $TimeoutSeconds) {

@@ -27,8 +27,9 @@ function createDataRuntime({ getConfigurations, getToolSettings, createClient })
       throw error('invalid_configuration', 'This BC Data slice requires a named development container with UserPassword authentication.');
     }
     const settings = value.bcData || {};
-    if (!settings || typeof settings !== 'object' || Array.isArray(settings) || Object.keys(settings).some(key => !['baseUrl', 'tenant'].includes(key))) {
-      throw error('invalid_configuration', 'bcData accepts only baseUrl and tenant.');
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings) || Object.keys(settings).some(key => !['baseUrl', 'tenant', 'provisioningEnabled'].includes(key)) ||
+        (settings.provisioningEnabled !== undefined && typeof settings.provisioningEnabled !== 'boolean')) {
+      throw error('invalid_configuration', 'bcData accepts baseUrl, tenant and boolean provisioningEnabled.');
     }
     // Custom endpoint is explicit configuration, never a tool argument. Retain
     // configured endpoint/tenant/principal in cursor scope, not filesystem data.

@@ -204,3 +204,12 @@ test('configured-container operation is exposed through MCP by default and the C
   const schema = require('../schemas/bcdevtoolset-settings.schema.json');
   assert.equal(schema.properties.mcpTools.properties[tool.name].default, true);
 });
+
+test('test preparation can defer opted-in provisioning until platform verification and restore', () => {
+  const calls = run(`
+    $script:states = @{ready=@{Status='running';Health=@{Status='healthy'}}}
+    Ensure-ConfiguredContainers -SettingsJSON @{configurations=@(@{name='Dedicated';serverType='Container';targetType='Test';container='ready';authentication='UserPassword';bcData=@{provisioningEnabled=$true}})} -SkipBcDataProvisioning 6>$null
+    ConvertTo-Json -InputObject $script:calls -Depth 5 -Compress
+  `);
+  assert.ok(calls.every(args => args[0] === 'info' || args[1] === 'inspect'));
+});

@@ -1,6 +1,6 @@
 # BC Data: agreed design and verification plan
 
-Status (2026-10-16): companion read-only contract 1, bounded Node HTTP/1.0 transport and six opt-in read-only MCP tools are implemented and exercised on dedicated BC23/BC27.1 targets. Calls resolve configured Dev/Test containers through the workspace-bound extension bridge. Automatic provisioning, bundled app packaging, stored-credential integration and mutations are pending. See the compatibility ledger for exact runtime verification and remaining experiments.
+Status (2026-10-16): companion read-only contract 1, bounded Node HTTP/1.0 transport, six opt-in read-only MCP tools, companion bundling, explicit initialization and independent opt-in provisioning are implemented and exercised on dedicated BC23/BC27.1 targets. See the compatibility ledger for exact evidence and limits. Read-only stored-credential integration, mutations and remaining compatibility experiments are pending.
 Decision record: 2026-10-06.
 
 ## Purpose and scope

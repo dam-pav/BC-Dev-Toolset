@@ -38,9 +38,9 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 35;
+const mcpServerDefinitionRevision = 36;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 31;
+const runtimeToolsetRevision = 32;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -66,6 +66,7 @@ const directOperationIds = [
   'disableCodexMcp',
   'clearAppArtifacts',
   'buildAllApps',
+  'initializeBcData',
   'newDockerContainer',
   'ensureContainers',
   'extractContainerAssemblies',
@@ -95,13 +96,16 @@ const directOperationIds = [
 const requiredRuntimeFiles = [
   'README.md',
   'Invoke-BcDevToolsetOperation.ps1',
-  'operations/operations.json'
+  'operations/operations.json',
+  'bc-data/manifest.json',
+  'bc-data/BCData.app'
 ];
 
 const runtimeDirectories = [
   'common',
   'operations',
-  'visualization'
+  'visualization',
+  'bc-data'
 ];
 
 async function activate(context) {

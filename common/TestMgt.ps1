@@ -328,7 +328,9 @@ function Initialize-TestExecutionContainer {
         -testSettings $testSettings `
         -configuration $configuration
 
-    Ensure-ConfiguredContainers -SettingsJSON $testSettings
+    # Defer companion deployment until target platform verification and any
+    # restore have completed. Container readiness itself must not publish apps.
+    Ensure-ConfiguredContainers -SettingsJSON $testSettings -SkipBcDataProvisioning
 
     if (-not (Test-DockerContainerRunning -containerName $containerName)) {
         throw "Container '$containerName' exists but is not running."
@@ -353,6 +355,10 @@ function Initialize-TestExecutionContainer {
 
     Write-Host ""
     Write-Host "Deploying dependencies to '$containerName'." -ForegroundColor Green
+    if ($null -ne $configuration.bcData) {
+        . (Join-Path $scriptPath 'common/BcDataMgt.ps1')
+        Sync-ConfiguredBcData -ToolsetRoot $scriptPath -Configuration $configuration
+    }
     Publish-Dependencies `
         -settingsJSON $testSettings
 
