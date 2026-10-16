@@ -170,6 +170,16 @@ codeunit 50211 "BCD Permission Probe"
             Header.Init();
             Header."Run ID" := RunId;
             Header."Line No." := LineNo;
+            if LineNo = 1 then begin
+                Header."Probe Date" := 20240229D;
+                Header."Probe Time" := 123456.010T;
+                Evaluate(Header."Probe DateTime", '2026-10-25T01:30:00.123Z', 9);
+                Evaluate(Header."Probe BigInteger", '9223372036854775807', 9);
+                Header."Probe Code" := '  mixed Code  ';
+            end else begin
+                Header."Probe Date" := ClosingDate(20261231D);
+                Header."Probe Time" := 000000T;
+            end;
             Header.Insert();
             Entry.Init();
             Entry."Entry No." := 0;

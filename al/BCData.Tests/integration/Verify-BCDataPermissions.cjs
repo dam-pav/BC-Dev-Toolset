@@ -130,6 +130,14 @@ async function main(input) {
     const result = await read('filtered', { fieldIds: [11] });
     assert.equal(result.records[0].values['11'], '10');
   });
+  await check('date/time, closing, zero and precision values preserve their wire types', async () => {
+    const result = await read('related', { fieldIds: [20, 21, 22, 23, 24, 25, 26], pageSize: 10 });
+    assert.equal(result.records.length, 2);
+    assert.deepEqual(result.records[0].values, { '20': '2024-02-29', '21': '12:34:56.010',
+      '22': '2026-10-25T01:30:00.123Z', '23': '', '24': '', '25': '9223372036854775807', '26': 'MIXED CODE' });
+    assert.deepEqual(result.records[1].values, { '20': { date: '2026-12-31', closing: true },
+      '21': '00:00:00.000', '22': '', '23': '', '24': '', '25': '0', '26': '' });
+  });
   const readiness = await adminClient.readiness(admin.id, companyId);
   return { companyId, appVersion: readiness.appVersion, results, passed: results.every(result => result.passed) };
 }

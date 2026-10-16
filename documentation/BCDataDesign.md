@@ -119,10 +119,12 @@ Successful insert/modify responses include the resulting identity, version, and 
 | GUID | Standard GUID string |
 | Date | `YYYY-MM-DD` |
 | Time | `HH:mm:ss.fff` |
-| DateTime | UTC ISO 8601 string |
+| DateTime | UTC ISO 8601 string, `YYYY-MM-DDTHH:mm:ss.fffZ` |
 | Enum / Option | Integer ordinal, interpreted through schema |
 
 Zero dates, times, and datetimes use `""`, distinguished by schema type. Closing dates use an explicit shape such as `{ "date": "2026-12-31", "closing": true }`. Reject null; use explicit type-appropriate empty/zero values to clear fields. Display captions are supplementary, never authoritative values. Other AL types need explicit mappings before being advertised as supported; no fallback to locale-dependent Format output.
+
+Read encodings describe the values persisted by BC. SQL storage can round Time/DateTime fractions, so eventual mutation responses must reread and report persisted values instead of echoing inputs. E11 observed a Time input of 23:59:59.999 persisting as defined midnight; precision-preserving text transport cannot undo storage normalization. Arbitrary-millisecond write round trips remain unqualified.
 
 BLOB, Media, and MediaSet reads return content descriptors. Dedicated content retrieval/mutation tools are deferred; ordinary RIMD must explicitly reject unsupported content changes rather than silently drop them.
 

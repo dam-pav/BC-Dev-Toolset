@@ -28,6 +28,13 @@ table 50200 "BCD Probe Header"
         field(5; Amount; Decimal) { }
         field(6; "Validation Trace"; Text[20]) { }
         field(7; "Modify Count"; Integer) { }
+        field(20; "Probe Date"; Date) { }
+        field(21; "Probe Time"; Time) { }
+        field(22; "Probe DateTime"; DateTime) { }
+        field(23; "Probe Empty Time"; Time) { }
+        field(24; "Probe Empty Date"; Date) { }
+        field(25; "Probe BigInteger"; BigInteger) { }
+        field(26; "Probe Code"; Code[20]) { }
         field(10; "Bucket Filter"; Integer)
         {
             FieldClass = FlowFilter;

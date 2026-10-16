@@ -11,7 +11,7 @@ codeunit 50100 "BCD Data Service"
         Capabilities.Add('schema');
         Capabilities.Add('read-primary-key');
         Response.Add('contractVersion', 1);
-        Response.Add('appVersion', '0.1.5.0');
+        Response.Add('appVersion', '0.1.6.0');
         Response.Add('capabilities', Capabilities);
         Response.Add('mutationsEnabled', false);
         Response.Add('maxPageSize', 100);
@@ -340,6 +340,10 @@ codeunit 50100 "BCD Data Service"
         BooleanValue: Boolean;
         TextValue: Text;
         GuidValue: Guid;
+        DateValue: Date;
+        TimeValue: Time;
+        DateTimeValue: DateTime;
+        XmlValue: Text;
         Descriptor: JsonObject;
     begin
         case ValueField.Type of
@@ -373,6 +377,41 @@ codeunit 50100 "BCD Data Service"
                     GuidValue := ValueField.Value;
                     Values.Add(PropertyName, LowerCase(Format(GuidValue, 0, 4)));
                 end;
+            FieldType::Date:
+                begin
+                    DateValue := ValueField.Value;
+                    if DateValue = 0D then
+                        Values.Add(PropertyName, '')
+                    else
+                        if DateValue <> NormalDate(DateValue) then begin
+                            Descriptor.Add('date', Format(NormalDate(DateValue), 0, 9));
+                            Descriptor.Add('closing', true);
+                            Values.Add(PropertyName, Descriptor);
+                        end else
+                            Values.Add(PropertyName, Format(DateValue, 0, 9));
+                end;
+            FieldType::Time:
+                begin
+                    TimeValue := ValueField.Value;
+                    if TimeValue = 0T then
+                        Values.Add(PropertyName, '')
+                    else
+                        Values.Add(PropertyName, MillisecondTime(Format(TimeValue, 0, 9)));
+                end;
+            FieldType::DateTime:
+                begin
+                    DateTimeValue := ValueField.Value;
+                    if DateTimeValue = 0DT then
+                        Values.Add(PropertyName, '')
+                    else begin
+                        // Standard XML format is UTC; do not construct from local DT2Date/DT2Time.
+                        XmlValue := Format(DateTimeValue, 0, 9);
+                        if (StrLen(XmlValue) < 20) or (CopyStr(XmlValue, StrLen(XmlValue), 1) <> 'Z') then
+                            Error('BCD_UNSUPPORTED_TYPE: unexpected UTC DateTime encoding.');
+                        Values.Add(PropertyName, CopyStr(XmlValue, 1, 11) +
+                            MillisecondTime(CopyStr(XmlValue, 12, StrLen(XmlValue) - 12)) + 'Z');
+                    end;
+                end;
             FieldType::Blob, FieldType::Media, FieldType::MediaSet:
                 begin
                     Descriptor.Add('type', WireType(ValueField));
@@ -382,6 +421,16 @@ codeunit 50100 "BCD Data Service"
             else
                 Error('BCD_UNSUPPORTED_TYPE: scalar encoding is not yet qualified for field %1.', ValueField.Number());
         end;
+    end;
+
+    local procedure MillisecondTime(XmlTime: Text): Text
+    begin
+        // XML may omit zero fractional digits; the contract always carries three.
+        if StrLen(XmlTime) = 8 then
+            exit(XmlTime + '.000');
+        if (StrLen(XmlTime) in [10, 11, 12]) and (CopyStr(XmlTime, 9, 1) = '.') then
+            exit(PadStr(XmlTime, 12, '0'));
+        Error('BCD_UNSUPPORTED_TYPE: unexpected millisecond Time encoding.');
     end;
 
     local procedure WireType(ValueField: FieldRef): Text
@@ -416,6 +465,7 @@ codeunit 50100 "BCD Data Service"
             exit(false);
         exit(ValueField.Type in [FieldType::Integer, FieldType::BigInteger, FieldType::Decimal,
             FieldType::Boolean, FieldType::Text, FieldType::Code, FieldType::Guid, FieldType::Option,
+            FieldType::Date, FieldType::Time, FieldType::DateTime,
             FieldType::Blob, FieldType::Media, FieldType::MediaSet]);
     end;
 
