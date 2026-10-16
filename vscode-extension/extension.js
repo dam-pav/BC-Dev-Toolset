@@ -33,6 +33,7 @@ let mcpBridgeStatePath;
 let mcpBridgeInstanceId;
 let mcpBridgeWorkspace;
 let bcDataRuntime;
+let bcDataCredentialProvider;
 const mcpPromptSessions = new Map();
 const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
@@ -40,7 +41,7 @@ const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
 const mcpServerDefinitionRevision = 36;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 32;
+const runtimeToolsetRevision = 33;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -136,6 +137,7 @@ async function activate(context) {
     }),
     startMcpBridgeServer(context),
     startMcpPromptSessionCleanup(),
+    { dispose: resetBcDataCredentials },
     registerMcpServerDefinitionProvider(context),
     vscode.languages.registerCompletionItemProvider(
       [
@@ -290,7 +292,9 @@ async function handleMcpBridgeRequest(request, response) {
       }
       bcDataRuntime ||= require('./bc-data-runtime').createDataRuntime({
         getConfigurations: getBcDataConfigurations,
-        getToolSettings: getEffectiveMcpToolSettings
+        getToolSettings: getEffectiveMcpToolSettings,
+        getStoredCredential: readBcDataStoredCredential,
+        invalidateCredentials: resetBcDataCredentials
       });
       writeMcpBridgeResponse(response, 200, await bcDataRuntime.call(body.name, body.arguments));
       return;
@@ -945,6 +949,19 @@ function getBcDataConfigurations() {
   if ((shared.configurations !== undefined && !Array.isArray(shared.configurations)) ||
       (local.configurations !== undefined && !Array.isArray(local.configurations))) throw new Error('Configurations must be arrays.');
   return [...(shared.configurations || []), ...(local.configurations || [])];
+}
+
+function resetBcDataCredentials() {
+  bcDataCredentialProvider?.dispose();
+  bcDataCredentialProvider = undefined;
+}
+
+async function readBcDataStoredCredential({ container }) {
+  bcDataCredentialProvider ||= require('./bc-data-credentials').createCredentialProvider({
+    toolsetRoot: getToolsetPath(),
+    powershellExecutable: getConfiguration().get('powershellExecutable') || 'pwsh'
+  });
+  return bcDataCredentialProvider.read(container);
 }
 
 function getMcpToolConfiguration() {

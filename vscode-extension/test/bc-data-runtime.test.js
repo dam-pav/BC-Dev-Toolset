@@ -12,7 +12,7 @@ const { dataTools, validateDataArguments } = require('../bc-data-tools');
 const { resolveToolSettings } = require('../mcp-tool-settings');
 const companyId = '11111111-2222-3333-4444-555555555555';
 const query = { connectionId: 'Test A', companyId, tableId: 4, fieldIds: [1], pageSize: 1 };
-function fixture() {
+function fixture(options = {}) {
   const configurations = [{ name: 'Test A', serverType: 'Container', targetType: 'Test', container: 'test-a', authentication: 'UserPassword', bcUser: 'fixture', bcPassword: 'fixture-secret' },
     { name: 'Test B', serverType: 'Container', targetType: 'Dev', container: 'test-b', authentication: 'UserPassword', bcUser: 'fixture-b', bcPassword: 'fixture-secret-b' }];
   let settings = resolveToolSettings(Object.fromEntries(dataTools.map(tool => [tool.name, true])));
@@ -28,7 +28,7 @@ function fixture() {
             : { tableId: 4, records: [{ systemId: companyId, version: '12345678901234567', values: { 1: 'ABC' } }], hasMore: true, position: '1=CONST(ABC)' };
         return { status: 200, body: Buffer.from(JSON.stringify({ value: JSON.stringify({ ...value, companyId }) })) };
       } });
-    } });
+    }, ...options });
   return { runtime, configurations, requests, get imports() { return imports; }, setSettings: value => { settings = resolveToolSettings(value); } };
 }
 test('disabled runtime neither resolves targets nor imports or connects the client', async () => {
@@ -54,9 +54,60 @@ test('ambiguous configuration names and stored credentials fail without plaintex
   f.configurations.pop();
   f.configurations[0].bcCredential = true;
   const result = await f.runtime.call('bc_data_list_companies', { connectionId: 'Test A' });
-  assert.equal(result.structuredContent.error.category, 'unsupported_authentication');
+  assert.equal(result.structuredContent.error.category, 'credential_unavailable');
   assert.equal(f.requests.length, 0);
   assert.ok(!JSON.stringify(result).includes('fixture-secret'));
+});
+
+test('stored identities ignore plaintext traps and are resolved afresh without exposure in results', async () => {
+  const reads = [];
+  let password = 'stored-secret-one';
+  const f = fixture({ getStoredCredential: async input => { reads.push(input); return { username: 'stored-user', password }; } });
+  f.configurations[0].bcCredential = true;
+  const first = await f.runtime.call('bc_data_list_companies', { connectionId: 'Test A' });
+  password = 'stored-secret-two';
+  const second = await f.runtime.call('bc_data_list_companies', { connectionId: 'Test A' });
+  assert.ok(!first.isError && !second.isError);
+  assert.deepEqual(reads, [{ container: 'test-a' }, { container: 'test-a' }]);
+  assert.ok(f.requests.every(request => request.username === 'stored-user'));
+  assert.deepEqual(f.requests.map(request => request.password), ['stored-secret-one', 'stored-secret-one', 'stored-secret-two', 'stored-secret-two']);
+  assert.ok(!JSON.stringify([first, second]).includes('stored-secret'));
+});
+
+test('stored-credential awaits preserve captured target and invalidation disposes its provider', async () => {
+  let release;
+  let invalidated = 0;
+  const f = fixture({ getStoredCredential: () => new Promise(resolve => { release = resolve; }), invalidateCredentials: () => { invalidated++; } });
+  f.configurations[0].bcCredential = true;
+  const pending = f.runtime.call('bc_data_list_companies', { connectionId: 'Test A' });
+  f.configurations[0].container = 'changed-target';
+  f.configurations[0].bcData = { baseUrl: 'http://changed-target/BC/ODataV4' };
+  release({ username: 'stored-user', password: 'stored-secret' });
+  assert.equal((await pending).isError, false);
+  assert.ok(f.requests.every(request => request.url.startsWith('http://test-a:7048/')));
+  f.runtime.invalidate();
+  assert.equal(invalidated, 1);
+});
+
+test('missing or failed stored credentials never trigger HTTP or plaintext fallback', async () => {
+  const { DataCredentialError } = require('../bc-data-credentials');
+  const f = fixture({ getStoredCredential: async () => { throw new DataCredentialError('credential_missing'); } });
+  f.configurations[0].bcCredential = true;
+  const result = await f.runtime.call('bc_data_list_companies', { connectionId: 'Test A' });
+  assert.equal(result.structuredContent.error.category, 'credential_missing');
+  assert.equal(f.requests.length, 0);
+  assert.ok(!JSON.stringify(result).includes('fixture-secret'));
+});
+
+test('stored identity cannot be redirected through endpoint overrides to a different host', async () => {
+  const f = fixture({ getStoredCredential: () => assert.fail('Read credentials for a redirected endpoint') });
+  f.configurations[0].bcCredential = true;
+  for (const baseUrl of ['http://elsewhere:7048/BC/ODataV4', 'http://user:password@test-a/BC/ODataV4', 'not a URL']) {
+    f.configurations[0].bcData = { baseUrl };
+    const result = await f.runtime.call('bc_data_list_companies', { connectionId: 'Test A' });
+    assert.equal(result.structuredContent.error.category, 'invalid_configuration');
+  }
+  assert.equal(f.requests.length, 0);
 });
 test('tool schemas reject credentials, endpoints, writes, unknown options and oversized inputs', async () => {
   const f = fixture();

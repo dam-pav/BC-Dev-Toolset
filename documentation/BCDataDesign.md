@@ -1,6 +1,6 @@
 # BC Data: agreed design and verification plan
 
-Status (2026-10-16): companion read-only contract 1, bounded Node HTTP/1.0 transport, six opt-in read-only MCP tools, companion bundling, explicit initialization and independent opt-in provisioning are implemented and exercised on dedicated BC23/BC27.1 targets. See the compatibility ledger for exact evidence and limits. Read-only stored-credential integration, mutations and remaining compatibility experiments are pending.
+Status (2026-10-16): companion read-only contract 1, bounded Node HTTP/1.0 transport, six opt-in read-only MCP tools, companion bundling, explicit initialization, independent opt-in provisioning and Windows stored-credential integration are implemented and exercised on dedicated BC23/BC27.1 targets. See the compatibility ledger for exact evidence and limits. Mutations and remaining compatibility experiments are pending.
 Decision record: 2026-10-06.
 
 ## Purpose and scope
