@@ -10,6 +10,7 @@ const os = require('os');
 const bridgeIdentity = require('./mcp-bridge-identity');
 const { authorizeRoot, resolveWithinRoot } = require('./path-security');
 const { parseSettingsJsonc } = require('./settings-migration');
+const { dataTools, validateDataArguments } = require('./bc-data-tools');
 
 const defaultProtocolVersion = '2025-11-25';
 const toolsetPath = authorizeRoot(process.env.BCDEVTOOLSET_MCP_TOOLSET_PATH || path.resolve(__dirname, '..'), 'BC Dev Toolset MCP toolset path');
@@ -477,7 +478,7 @@ function readHelpContent() {
 }
 
 function getAllTools() {
-  return [...getTools(), ...getLegacyTools()];
+  return [...getTools(), ...getLegacyTools(), ...dataTools];
 }
 
 function getToolsForList() {
@@ -508,6 +509,7 @@ function getGenericToolsForDocumentation() {
 async function callTool(params) {
   await ensureStartupToolSettings();
   if (!getToolsForList().some((tool) => tool.name === params.name)) {
+    if (dataTools.some(tool => tool.name === params.name)) return dataToolError('disabled', 'This BC Data tool is disabled. Enable it in Configure MCP Tools and restart the MCP client.');
     return textResult(`Tool is disabled or unknown: ${params.name}. Enable its BC Dev Toolset user or workspace setting and restart the MCP server/client.`, true);
   }
   const targetOperation = params.name === 'run_bc_dev_toolset_operation'
@@ -517,6 +519,17 @@ async function callTool(params) {
     return textResult(`Operation tool is disabled: bc_dev_toolset_${toSnakeCase(targetOperation)}. Enable its user or workspace setting and restart the MCP server/client.`, true);
   }
   const toolArguments = params.arguments || {};
+  if (dataTools.some(tool => tool.name === params.name)) {
+    if (!validateDataArguments(params.name, toolArguments)) return dataToolError('invalid_input', 'Arguments do not match this read-only BC Data tool schema.');
+    if (!shouldUseTerminalBridge()) return dataToolError('bridge_unavailable', 'Reload the matching BC Dev Toolset extension host and restart the MCP client.');
+    try {
+      const response = await postBridgeJson('/data-call', { name: params.name, arguments: toolArguments });
+      if (response.statusCode === 200 && Array.isArray(response.body?.content) && typeof response.body.isError === 'boolean') return response.body;
+      return dataToolError(response.statusCode === 403 ? 'disabled' : 'bridge_unavailable', 'BC Data bridge rejected the call. Check tool settings and reload the matching extension host.');
+    } catch {
+      return dataToolError('bridge_unavailable', 'BC Data workspace bridge is unavailable or mismatched. Reload the matching extension host and restart the MCP client.');
+    }
+  }
   const progress = createProgressReporter(params._meta && params._meta.progressToken);
   const operationId = getOperationIdForToolName(params.name);
   if (operationId) {
@@ -545,6 +558,11 @@ async function callTool(params) {
     default:
       return textResult(`Unknown tool: ${params.name}`, true);
   }
+}
+
+function dataToolError(category, message) {
+  const value = { error: { category, message, outcome: 'not_applied', correlationId: require('node:crypto').randomUUID() } };
+  return { ...textResult(JSON.stringify(value), true), structuredContent: value };
 }
 
 async function getWorkspaceContext() {
@@ -1425,8 +1443,8 @@ function postBridgeJsonRaw(route, body) {
       });
     });
 
-    if (route === '/handshake' || route === '/tool-settings') {
-      request.setTimeout(5000, () => request.destroy(new Error('BC Dev Toolset workspace bridge timed out. Reload the extension host and restart the MCP client.')));
+    if (route === '/handshake' || route === '/tool-settings' || route === '/data-call') {
+      request.setTimeout(route === '/data-call' ? 70000 : 5000, () => request.destroy(new Error('BC Dev Toolset workspace bridge timed out. Reload the extension host and restart the MCP client.')));
     }
     request.on('error', reject);
     request.write(content);

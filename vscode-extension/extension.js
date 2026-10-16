@@ -32,12 +32,13 @@ let mcpBridgeToken;
 let mcpBridgeStatePath;
 let mcpBridgeInstanceId;
 let mcpBridgeWorkspace;
+let bcDataRuntime;
 const mcpPromptSessions = new Map();
 const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 34;
+const mcpServerDefinitionRevision = 35;
 // Increment when bundled runtime content changes without an extension version bump.
 const runtimeToolsetRevision = 31;
 
@@ -272,6 +273,22 @@ async function handleMcpBridgeRequest(request, response) {
 
     if (request.url === '/workspace-context') {
       writeMcpBridgeResponse(response, 200, getMcpWorkspaceContext());
+      return;
+    }
+
+    if (request.url === '/data-call') {
+      // Recheck current settings at the authenticated bridge, even if an MCP
+      // process still advertises an earlier enabled selection.
+      const settings = getEffectiveMcpToolSettings();
+      if (typeof body.name !== 'string' || !body.name.startsWith('bc_data_') || settings[body.name] !== true) {
+        writeMcpBridgeResponse(response, 403, { error: 'BC Data tool is disabled.' });
+        return;
+      }
+      bcDataRuntime ||= require('./bc-data-runtime').createDataRuntime({
+        getConfigurations: getBcDataConfigurations,
+        getToolSettings: getEffectiveMcpToolSettings
+      });
+      writeMcpBridgeResponse(response, 200, await bcDataRuntime.call(body.name, body.arguments));
       return;
     }
 
@@ -653,6 +670,7 @@ function getMcpOperationStatus(body) {
       session.capture
     );
     if (result) {
+      if (!session.completedAt) bcDataRuntime?.invalidate();
       session.status = result.status;
       session.completedAt = session.completedAt || new Date().toISOString();
       session.result = result;
@@ -813,6 +831,7 @@ function waitForMcpBridgeServer() {
 function registerMcpServerDefinitionProvider(context) {
   const definitionsChanged = new vscode.EventEmitter();
   context.subscriptions.push(definitionsChanged, vscode.workspace.onDidChangeConfiguration((event) => {
+    bcDataRuntime?.invalidate();
     if (affectsToolsetConfiguration(event, 'mcpTools') || affectsToolsetConfiguration(event, 'localSettingsPath')) {
       definitionsChanged.fire();
       queueCodexMcpReconciliation(context, { notifyWhenChanged: false });
@@ -824,7 +843,10 @@ function registerMcpServerDefinitionProvider(context) {
     const changed = uri => {
       const root = authorizeRoot(getWorkspaceBasePath(), 'Workspace root');
       const localPath = resolveWithinRoot(root, getConfiguration().get('localSettingsPath') || '.bcdevtoolset/settings.json');
-      if (path.relative(localPath, uri.fsPath) === '') definitionsChanged.fire();
+      if (path.relative(localPath, uri.fsPath) === '') {
+        bcDataRuntime?.invalidate();
+        definitionsChanged.fire();
+      }
     };
     context.subscriptions.push(watcher, watcher.onDidChange(changed), watcher.onDidCreate(changed), watcher.onDidDelete(changed));
   }
@@ -908,6 +930,17 @@ function getLocalMcpSettings() {
 
 function getEffectiveMcpToolSettings() {
   return readEffectiveToolSettings(getMcpToolConfiguration(), getLocalMcpSettings().settings.mcpTools);
+}
+
+function getBcDataConfigurations() {
+  // Toolset Merge-Settings appends local target entries to shared entries.
+  // Ambiguous names are rejected by the data runtime instead of choosing one.
+  const root = vscode.workspace.getConfiguration();
+  const shared = root.get('bcDevToolset') || root.get('dam-pav.bcDevToolset') || root.get('dam-pav.bcdevtoolset') || {};
+  const local = getLocalMcpSettings().settings;
+  if ((shared.configurations !== undefined && !Array.isArray(shared.configurations)) ||
+      (local.configurations !== undefined && !Array.isArray(local.configurations))) throw new Error('Configurations must be arrays.');
+  return [...(shared.configurations || []), ...(local.configurations || [])];
 }
 
 function getMcpToolConfiguration() {
@@ -2179,6 +2212,7 @@ async function executeOperation(operation, toolsetPath) {
 
   const { command, powershellExecutable } = buildOperationTerminalCommand(operation, toolsetPath, { nonInteractive: false });
 
+  bcDataRuntime?.invalidate();
   const terminal = getOperationTerminal(powershellExecutable);
   terminal.sendText(command);
 }
@@ -2188,6 +2222,7 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
     throw new Error(`BC Dev Toolset operation '${operation.id}' cannot be run by this extension.`);
   }
 
+  bcDataRuntime?.invalidate();
   const capture = createMcpCapturePaths();
   const session = getOrCreateMcpPromptSession(capture.sessionId);
   session.operationId = operation.id;

@@ -71,6 +71,8 @@ You do not need to know the MCP tool names for normal use. Ask the agent for the
 
 #### MCP tool switches
 
+BC Data development adds six opt-in read-only `bc_data_*` tools for connection/company discovery, readiness, table search, schema and paginated record reads. They default to disabled and require explicit companion deployment; data calls never install apps or launch a PowerShell operation. This slice supports configured Dev/Test containers with UserPassword credentials. Automatic provisioning, stored-credential integration and writes remain pending. See the [BC Data setup and limits](vscode-extension/README.md#bc-data-development) and [runtime verification](documentation/BCDataCompatibilityExperiments.md).
+
 All extension settings use the `bcDevToolset` prefix. On startup, the extension automatically renames `dam-pav.bcdevtoolset` and `dam-pav.bcDevToolset` entries in the current user profile, open workspace, and workspace-folder settings. Entire values, including unknown properties and arrays, are preserved. A notification reports completed migration; no confirmation is requested. Entries whose destination already exists are left intact and reported for review. Unsaved or invalid settings files are left unchanged and retried on a later startup.
 
 Workspace and User MCP tool selections are stored inside the `bcDevToolset` object under `mcpTools`. Run **BC Dev Toolset: Configure MCP Tools**, choose **Local**, **Workspace**, or **User**, and select the tools to expose. Saving writes an explicit boolean for every known tool at that scope, even when it matches the inherited value, and preserves unrelated settings. JSON settings also provide completion for all tool names.

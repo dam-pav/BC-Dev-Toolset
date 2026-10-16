@@ -1,6 +1,6 @@
 # BC Data: agreed design and verification plan
 
-Status (2026-10-16): the companion implements read-only contract 1 and an internal Node client implements bounded HTTP/1.0 transport, target capture and scoped pagination. Public MCP data handlers, Toolset provisioning/configuration integration and mutations are pending. See the compatibility ledger for exact runtime verification and remaining experiments.
+Status (2026-10-16): companion read-only contract 1, bounded Node HTTP/1.0 transport and six opt-in read-only MCP tools are implemented and exercised on dedicated BC23/BC27.1 targets. Calls resolve configured Dev/Test containers through the workspace-bound extension bridge. Automatic provisioning, bundled app packaging, stored-credential integration and mutations are pending. See the compatibility ledger for exact runtime verification and remaining experiments.
 Decision record: 2026-10-06.
 
 ## Purpose and scope
@@ -23,7 +23,7 @@ Keep these implementation boundaries:
 2. Data client and tool handlers: direct HTTP calls, structured MCP inputs/results, target-scoped caching, errors, and retry handling. Keep these modules separate from VS Code UI and the PowerShell operation runner.
 3. Toolset integration: resolve configured targets and credentials, provision the companion app, register tools, and expose configuration/status operations.
 
-Implemented internal transport: a published codeunit with OData V4 unbound actions carrying structured JSON in Text parameters, called through bounded native Node HTTP/1.0 connection-close requests. This avoids the reproduced HTTP.sys unbuffered chunked-response failure without changing BC server settings. TLS retains normal certificate validation; live HTTPS qualification remains pending. Candidate exposure remains `bc_data_*` tools in the existing MCP server; none are registered yet.
+Implemented transport: a published codeunit with OData V4 unbound actions carrying structured JSON in Text parameters, called through bounded native Node HTTP/1.0 connection-close requests. This avoids the reproduced HTTP.sys unbuffered chunked-response failure without changing BC server settings. TLS retains normal certificate validation; live HTTPS qualification remains pending. The existing MCP server exposes six read-only `bc_data_*` tools behind default-off switches. Credential resolution and data execution stay inside the extension host; MCP forwards validated arguments through its authenticated workspace bridge.
 
 Ordinary data calls must not launch a PowerShell operation per request. Deployment and upgrades use the existing Toolset deployment mechanisms. No dependencies on the developer's project apps belong in the companion app.
 

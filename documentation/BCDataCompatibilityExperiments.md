@@ -234,3 +234,26 @@ Credential-free evidence: `.bcdevtoolset/bc-data-client-qualification.json`. The
 Extension `npm run validate` passed: **245 tests, 244 passed, one skipped, zero failures**, including transport framing/limits/cancellation and client disabled behavior, capability checks, cursor binding/expiry, concurrent target capture, query capture and error classification. Log: `.bcdevtoolset/bc-data-npm-validation.log`. App manifests parse as JSON. No shared runtime, production installation or global MCP binding was changed.
 
 Next development stage: integrate the read-only client with Toolset target resolution and explicit provisioning/exposure scopes, then register and test the read-only MCP surface. Keep write operations gated on E04/E06/E07, finish scalar/localization and restricted-permission qualification, and test intervening BC versions before claiming the full support range.
+
+### Read-only MCP integration 2026-10-16
+
+The read-only foundation was committed as `0806f2a` and pushed to `origin/feature/bc-data`. Development then added six `bc_data_*` tools: list connections, list companies, get readiness, find tables, get table schema and read records. Each has an individual default-off switch in both shared/local settings schemas and Configure MCP Tools. MCP definition revision is **35**. These are direct data handlers, not new PowerShell operations, and introduce no operation commands or data mutation tools.
+
+MCP validates inputs and forwards them through the authenticated, identity-checked workspace bridge. The extension host rechecks current switches and lazily loads the data client. Credentials stay inside that host; neither tool arguments nor bridge results contain them. Shared/local configuration arrays append using Toolset semantics, exact unique names identify connections, and ambiguous names are rejected. Only Container targets with Dev/Test role are currently accepted. UserPassword credentials use existing bcUser/bcPassword. bcCredential=true fails explicitly with no plaintext fallback; a stored-credential adapter remains pending. Optional container bcData.baseUrl/bcData.tenant configure custom endpoints; endpoints cannot be supplied as tool inputs.
+
+Connection discovery is offline and reports readiness as not_checked. Calls never install or upgrade apps. Settings changes, extension-host reload, scripted Toolset operation starts and observed MCP operation completion invalidate the extension-host client/cursors. External lifecycle changes require host reload. No schema cache or background connection checks were introduced. Automatic provisioning, bundled app packaging, stored credentials and restricted-identity E12 remain unfinished.
+
+After the user reloaded the Extension Development Host, `bc_dev_toolset_get_workspace` again confirmed `BCData.Development.code-workspace`. All six new tools were exposed through the actual development MCP binding, with opt-in switches set only in that ignored development workspace. Live calls used **BC23 Baseline/bcdata23test** and **BC27.1/bcdata271**, leaving the separate Dev container unqueried:
+
+| Assertion through actual MCP tools | BC23 | BC27.1 |
+| --- | --- | --- |
+| Company discovery before company selection | one company | one company |
+| Readiness | contract 1, app 0.1.3.0, mutations disabled | contract 1, app 0.1.3.0, mutations disabled |
+| Currency table search, page size 3 | passed | passed |
+| Currency schema | 52 fields; extension field 50203 and enum ordinal 50242 visible | same |
+| Currency selected fields 1,4,5, page size 1 | SystemId and string version returned | same |
+| Follow continuation | different SystemId | different SystemId |
+
+Sending the BC23 continuation token to BC27.1 returned structured **invalid_cursor**, with correlation ID and not_applied outcome, before a BC request. No AL code changed in this integration step; the prior 17/17 runtime results on each version still cover companion 0.1.3.0.
+
+Final extension validation: **254 tests, 253 passed, one skipped, zero failures**, including nine new runtime/MCP tests. These exercise disabled behavior without client import, offline/redacted connection discovery, ambiguous IDs, stored-credential fail-closed behavior, rejected credentials/endpoints/write/oversized arguments, captured concurrent targets, cursor invalidation, error redaction, actual MCP-process bridge routing and mismatched workspace rejection. `node --check vscode-extension/mcp-server.js` and `git diff --check` passed. Validation log: `.bcdevtoolset/bc-data-mcp-validation.log`. The remaining work is explicit provisioning/packaging, stored-credential reuse and the open semantic/permission/support-range experiments; this is not a production release or a claim of complete BC Data support.
