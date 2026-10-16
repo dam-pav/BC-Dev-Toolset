@@ -1,6 +1,6 @@
 # BC Data compatibility experiments
 
-Status (2026-10-15): initial six-test batch passed on BC27.1; BC23 baseline success confirmed by the user. E01 HTTP transport and remaining experiments are pending. Older entries below are historical, including resolved symbol and MCP blockers.
+Status (2026-10-15): the expanded nine-test AL batch built, deployed, and passed on BC23 and BC27.1 through the verified Development Host. E01's larger-payload failure was reproduced and isolated to ASP.NET Core 8 HTTP.sys unbuffered chunked-response writing in this container environment, with an independent server reproduction. BC27.1's full E01 HTTP assertions subsequently passed using gzip and HTTP/1.0. The default failing path is not fixed or certified; E01 remains open. The dedicated container was recovered after diagnosis. Older entries below are historical.
 Related requirements: [BC Data design](BCDataDesign.md).
 
 ## Execution prerequisites
@@ -47,12 +47,12 @@ Implement assertions in AL test codeunits for database semantics and bridge inte
 
 | Target | Compile | Runtime experiments | Outcome |
 | --- | --- | --- | --- |
-| BC23 | Baseline test run succeeded (user confirmation); compiler details not captured | Initial six-test batch; detailed report unavailable | Partial evidence; no full compatibility claim |
+| BC23 | Expanded batch build/deployment succeeded; Application 23.18.32409.0 | 9/9 AL tests; E01 HTTP small/large/error checks passed | Partial evidence; no full compatibility claim |
 | BC24 | Not run | Not run | Pending |
 | BC25 | Not run | Not run | Pending |
 | BC26 | Not run | Not run | Pending |
 | BC27.0 | Not run | Not run | Pending |
-| BC27.1 | Build/deployment completed for test run | Initial batch 6/6 passed; Application 27.1.41698.41776 | Partial E02/E03/E05/E13 only |
+| BC27.1 | Expanded batch build/deployment succeeded; Application 27.1.41698.41776 | 9/9 AL tests; E01 small/error HTTP checks passed, large-payload transport failed | Partial E01/E02/E03/E05/E13; no full compatibility claim |
 
 Reconciled 2026-10-15 from `feature/platform-test-suites` / `documentation/PlatformTestSuitesPlan.md`:
 
@@ -100,3 +100,137 @@ The fixture/design baseline was committed as `e5b788e`; the platform-test infras
 A local `BCData.Development.code-workspace` was prepared and opened using `--extensionDevelopmentPath=<repository>/vscode-extension` and `--user-data-dir=<repository>/.vscode/development-user-data`. It enables the build and compatibility-test tools. The file is excluded locally and uses the existing dedicated BC Data target settings. No development VSIX was installed and no global MCP settings were changed.
 
 Before E01, reconnect the agent to the Development Host and verify `bc_dev_toolset_get_workspace` reports `BCData.Development.code-workspace`. The original session continued reporting `BC-Dev-Toolset.code-workspace`, so no build, deployment, or container test was started from it. E01 still needs a minimal published codeunit probe and HTTP evidence; selecting this transport is not yet an accepted implementation decision.
+
+### E01 preparation and binding verification 2026-10-15
+
+- `bc_dev_toolset_get_workspace({})` succeeded with `source: vscode`, workspace file `BCData.Development.code-workspace`, active project `al/BCData`, and manifest `al/BCData/app.json`. The workspace root is `C:\Projekti\DAM-PAV\BC-Dev-Toolset`; the returned assembly probing setting is `./.netpackages`. This resolves the preceding workspace-binding gate. No global MCP binding or installed extension was changed.
+- The returned local settings select dedicated containers `bcdata23` (BC23 Dev), `bcdata23test` (BC23 Baseline Test), and `bcdata271` (BC27.1 Test). All use `UserPassword`, with restore disabled. These are configuration facts, not freshly measured runtime versions.
+- Added normal fixture codeunit 50210 `BCD Transport Probe` to the separate test app. `Echo(inputJson: Text): Text` returns fixture revision, company, exact input Text, and parsed JSON; `Fail(inputJson: Text): Text` raises the fixed marker `BCD_E01_DELIBERATE_ERROR` without echoing input. There are no record mutations or permission elevation in this codeunit.
+- Packaged `E01Transport.WebService.xml` registers the fixture as `BCDCompatibilityE01`. Registration through this XML has not been verified on either target. The companion app remains without service objects.
+- Added test codeunit 50201 with three AutoRollback tests for exact Text/nested JSON types/company, the deliberate error, and malformed JSON rejection. These are source-level preparations and have not been compiled or run. They do not prove HTTP behavior or permissions.
+- `bc_dev_toolset_invoke_tests({})` preflight returned `isError: true`: **"MCP tool call requires approval, but approval policy is never"**. No operation session, compiler diagnostics, build, deployment, or runtime test results were returned. No compatibility operation or manual fallback was attempted. Corrective action: enable the requested Toolset MCP operation in the agent session's approval policy, reconnect if necessary, and verify the development binding again before execution. This error does not establish that the VS Code terminal bridge is unavailable.
+
+Next execution sequence:
+
+1. Run Toolset baseline tests and compatibility tests from the verified Development Host, preserving the BC23 manifest baseline. Capture build and deployment outcomes separately from the expected nine AL test results per target. Do not claim nine passed until returned reports confirm them.
+2. Confirm packaged service registration, then use direct HTTP against each dedicated Test target. Following [Microsoft's unbound-action format](https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/devenv-creating-and-interacting-with-odatav4-unbound-action), send `POST <ODataV4 base>/BCDCompatibilityE01_Echo?company=<encoded company>` with `Content-Type: application/json` and an outer object whose `inputJson` property contains JSON Text. Exercise Unicode, escaping, empty strings, number/boolean/null values, nested structures, and a larger payload. Compare both the exact returned `inputJson` and parsed `payload`, and assert the requested company.
+3. Call `BCDCompatibilityE01_Fail` with the same parameter envelope and record the actual HTTP status and error body containing the fixed marker. Exercise malformed inner JSON and authentication failure separately. Do not assume custom status-code control or infer HTTP outcomes from AL assertions.
+4. Record credential-free request/response envelopes, observed authentication mode, exact application/platform/compiler/localization/fixture versions, and actual payload sizes/results. E01 remains open until both BC23 and BC27.1 have this evidence.
+
+### E01 execution retry 2026-10-15
+
+The user requested a retry. `bc_dev_toolset_get_workspace({})` again reported `BCData.Development.code-workspace` with `al/BCData` active. Toolset preflight then succeeded; the earlier approval-policy blocker was resolved. Both operations used `executeTestsInContainer: true`, `clearTranslationFiles: false`, `clearAppFiles: false`, and `pullFullArtifact: false` after preflight. No manual build/deployment fallback was used.
+
+| Operation / target | Session reference | Build | Prepare/deploy | AL runtime |
+| --- | --- | --- | --- | --- |
+| `bc_dev_toolset_invoke_tests` / `bcdata23test` | `839d82ad-8a70-4b7d-982d-dbe0ba6fc1b1` | Succeeded | Succeeded | 9 passed, 0 failed/skipped; 0.201 s; Application 23.18.32409.0 |
+| `bc_dev_toolset_invoke_compatibility_tests` / `bcdata271` | `b4500bda-7993-436f-90fd-fd5fbd42bc12` | Succeeded | Succeeded | 9 passed, 0 failed/skipped; 0.362 s; Application 27.1.41698.41776 |
+
+Both returned exit code 0 and tested two applications. Tests were discovered in test codeunits `50200|50201`, using runner 130450 with Codeunit isolation. No codeunit used Disabled isolation. The first six tests remain limited to the earlier E02/E03/E05/E13 hypotheses; the three added tests cover AL-only E01 behavior.
+
+Direct HTTP was exercised with `al/BCData.Tests/integration/Invoke-E01Transport.ps1` using PowerShell 7 and .NET HttpClient. It accepts only the two dedicated Test target names, validates their expected container/authentication settings, disables proxies and redirects, and keeps credentials out of results. Existing local settings supply HTTP Basic credentials; the observed company is `CRONUS International Ltd.`, tenant `default`. Each request has a 30-second full-response timeout. The fixture is revision `1`, test app manifest version `0.1.0.0`, BC23/runtime 12.0 baseline.
+
+| HTTP assertion | BC23 | BC27.1 |
+| --- | --- | --- |
+| Anonymous `GET /BC/ODataV4/$metadata?tenant=default` | 401 | 401 |
+| Authenticated company discovery | 200 | 200 |
+| `BCDCompatibilityE01_Echo`: 195 UTF-8 request bytes; Unicode, escaping, empty Text, number, boolean, null, array | 200; exact Text, parsed payload, and company assertions passed | 200; same assertions passed |
+| Echo: 65,536-character value, 65,568 UTF-8 request bytes | 200; 131,323 UTF-8 response bytes; exact round trip passed | No full response under the 30-second limit; underlying `SocketException`; recorded status `0` means no HTTP status, not an HTTP response |
+| `BCDCompatibilityE01_Fail` | 400; `Application_DialogException`, deliberate marker | 400; same code/marker |
+| Echo with malformed inner JSON | 400; `Application_DialogException`, invalid-JSON marker | 400; same code/marker |
+
+The successful Echo action calls establish packaged service registration on both targets. Requests use `POST http://<dedicated host>:7048/BC/ODataV4/BCDCompatibilityE01_<action>?tenant=default&company=CRONUS%20International%20Ltd.`, `Content-Type: application/json; charset=utf-8`, and an outer `{"inputJson":"<JSON Text>"}` object. Responses use `{"@odata.context":"<base>/$metadata#Edm.String","value":"<JSON Text>"}`. Error bodies use `{"error":{"code":"Application_DialogException","message":"<fixed marker>  CorrelationId:  <id>."}}`; neither error echoed the synthetic private-input marker. No custom HTTP status control was attempted.
+
+Credential-free exact envelopes are retained locally in `.bcdevtoolset/e01-http-bc23.json` and `.bcdevtoolset/e01-http-bc271.json` (ignored experiment artifacts). The latter explicitly reports `passed: false`. The initial PowerShell web-request adapter encountered a PowerShell 7 response API mismatch, then stalled; it was replaced with bounded HttpClient requests. An authenticated full metadata request also stalled on BC27.1 and was excluded from the final action-focused harness; no metadata compatibility claim follows.
+
+Remaining E01 gate: investigate the BC27.1 larger-payload connection failure, without assuming an AL payload limit or server rejection from a connection failure. The probe has no mutation effects. Capture the actual internal platform, compiler version, and localization, which the operation reports above did not include. Only one company was tested; cross-company routing and wrong-credential/restricted-user behavior remain unverified. Do not treat these results as complete compatibility certification or as acceptance of the candidate production transport. E04 and later experiments remain pending.
+
+### E01 instrumented diagnosis 2026-10-15
+
+The user requested repeat measurements and a cause analysis, including the possibility of a transient failure. The development workspace binding was reverified. No AL source or installed application was changed during this diagnosis.
+
+The original HTTP adapter used `ResponseContentRead` and retained only the deepest exception. It therefore discarded headers and partial body data if the response failed to complete. Its `status: 0` did **not** establish that the server sent no HTTP status. This evidence-loss discrepancy is corrected: shared `integration/E01Http.ps1` uses `ResponseHeadersRead`, reads the body under an explicit cancellation token, and retains status, header timing, elapsed time, received byte count, framing, cancellation state, and exception chain/type/HRESULT/socket codes. It records no credentials or arbitrary exception messages. `Invoke-E01Transport.ps1` now requires both `completed: true` and the expected HTTP status. Two offline regression assertions in `Test-E01Http.ps1` passed: partial-body socket reset retains HTTP 200 and bytes already read, and partial-body timeout retains HTTP 200 while identifying client cancellation.
+
+`Measure-E01Transport.ps1 -Target 'BC27.1' -Repeats 2` appended request evidence to ignored local `.bcdevtoolset/e01-transport-measurements.jsonl`:
+
+| Request, first repetition | Headers | Completion | Evidence |
+| --- | --- | --- | --- |
+| Echo, 64-character value; 96 request bytes | 200 in 33 ms | Complete in 35 ms | 376 response bytes |
+| Fail, 65,536-character value; 65,568 request bytes | 400 in 31 ms | Complete in 33 ms | 140 bytes; expected deliberate-error response; large input accepted and AL invoked |
+| Echo, same 65,568 request bytes | **200 in 39 ms** | **Incomplete after 30,039 ms** | **82,734 body bytes received**, chunked response, `application/json; odata.metadata=minimal; odata.streaming=true`; client cancellation requested |
+| Authenticated metadata GET | No headers within 30,012 ms | Incomplete | No response bytes; client cancellation requested |
+
+The incomplete Echo's exception chain is `MethodInvocationException -> TaskCanceledException -> IOException -> SocketException`, with socket `OperationAborted`, native error **995**. This identifies a local cancelled read at the deadline, rather than a server-reported request rejection or an independently established peer reset. It does not by itself identify the underlying reason why response delivery stopped.
+
+The second repetition's small Echo, large Fail, large Echo, and metadata calls all failed before headers at approximately 30 seconds. Server Application log event **705** contemporaneously reported OData throttling/cancellation, **5 running** requests and **6-8 waiting** requests. Read-only configuration inspection showed `ODataMaxConcurrentRequestsPerUser=5`, `ODataV4MaxConcurrentRequests=5`, queue sizes 95, `ODataServicesOperationTimeout=00:08:00`, and `ODataMaxBodySize=350` MB. Thus the later small-request failures are explained by occupied request slots and queuing; they cannot be treated as independent large-payload threshold measurements. Which requests remained active, and why they failed to release their slots, are not yet proven.
+
+Read-only container diagnostics were used only where no matching Toolset diagnostic operation was exposed. Both dedicated containers use Hyper-V isolation, `mcr.microsoft.com/businesscentral:ltsc2025`, and **8 GiB** configured memory. BC27.1 reported Windows `10.0.26100.32860`. A sample showed BC27.1 CPU 0.14% and memory 4.365 GiB. A managed thread-stack snapshot showed idle thread-pool workers rather than synchronous AL execution or clear CPU/thread-pool starvation. This snapshot cannot reveal all suspended async request state and is not proof of a particular HTTP stack bug.
+
+Credential-redacted server event evidence is in `.bcdevtoolset/e01-bc271-events.json`; stack-only evidence is `.bcdevtoolset/e01-bc271-stacks.txt`. Microsoft's `dotnet-stack` 8.0.547301 was installed locally under ignored `.bcdevtoolset/diagnostic-tools` and copied only to `bcdata271`'s dedicated `my/e01-diagnostic-tools` folder. No memory dump or shared Toolset runtime replacement was made. Relevant server errors 701 included the intentional fixture errors; they are not evidence that Echo failed inside AL.
+
+A framing/60-second comparison could not pass company discovery after the request slots became occupied, so **buffered/gzip/connection-close/HTTP 1.0 outcomes have not been measured**. A container-loopback comparison is prepared in `Measure-E01Loopback.ps1` but has not run. To obtain a clean baseline, a restart of only the dedicated BC service was attempted after preserving evidence. It remained in `STOP_PENDING` beyond its 30-second wait hint; termination of the identity-verified server process did not clear that state in the next status query. A dedicated `docker restart --time 10 bcdata271` and subsequent read-only Docker status query were still pending at the last observation. No other container, Docker service, or host was restarted. Host `hcsdiag list` was denied because the session lacks Administrator/Hyper-V Administrators privileges. Elevated host compute evidence was requested from the user before deeper intervention.
+
+Current conclusion: the initial failure is a **partially delivered HTTP 200 response that does not finish before client cancellation**, followed by **server OData slot exhaustion**. It is not supported to label this an AL Text size limit or a 64 KiB upload rejection. The exact originating cause remains unconfirmed until the dedicated container can be recovered and host-versus-loopback/framing tests can run. A similar symptom is reported in [Microsoft's container issue tracker](https://github.com/microsoft/navcontainerhelper/issues/4174), but that report is not a diagnosis of this environment; the older [issue 3397](https://github.com/microsoft/navcontainerhelper/issues/3397) involved different resource/isolation changes, which were not applied here.
+
+### E01 isolated reproduction and recovery 2026-10-15
+
+This section supersedes the preceding unresolved/pending state. The user supplied elevated `hcsdiag list` output confirming the dedicated container was still Running, then performed a targeted `hcsdiag kill` of its ID. The already pending Docker restart completed, and the BC service returned to Running. No other container or host service was restarted. The container received a new IP and its hostname mapping was verified to match it.
+
+The same Echo request succeeded twice over container loopback, with exact input assertions: **131,320 response bytes in 52 ms and 29 ms**. This demonstrates that this BC27.1 instance can process and serialize the payload. Raw results: `.bcdevtoolset/e01-loopback.json`.
+
+On the clean host path, the same 65,568-byte request produced these results (all responses initially HTTP 200):
+
+| Variant | Result | Response framing / evidence |
+| --- | --- | --- |
+| Default HTTP/1.1 | Incomplete at 15,046 ms; 84,000 bytes | Chunked; cancellation requested |
+| `Accept: application/json;odata.streaming=false` | Incomplete at 14,994 ms; 84,000 bytes | Still HTTP chunked; OData streaming preference is not HTTP.sys kernel buffering |
+| Gzip accepted/decompressed by HttpClient | Complete in 61 ms; 131,320 decoded bytes | Chunked compressed response |
+| `Connection: close`, HTTP/1.1 | Incomplete at 15,006 ms; 82,715 bytes | Still chunked |
+| HTTP/1.0 | Complete in 48 ms; 131,320 bytes | No Transfer-Encoding; body terminated by connection close |
+
+An independent client comparison (`Measure-E01Curl.ps1`, credentials through stdin only) reproduced HTTP/1.1 failures twice: HTTP 200, **82,734 bytes**, curl exit 28, about 15.006/15.008 seconds. Between them, curl HTTP/1.0 completed an exact round trip in **43.5 ms**, 131,320 bytes. After five deliberately stalled requests occupied the five request slots, the last HTTP/1.0 attempt received no headers; that queued attempt is not a contradictory framing result. Evidence: `.bcdevtoolset/e01-curl-measurements.jsonl` and the framing records in `.bcdevtoolset/e01-transport-measurements.jsonl`.
+
+The container's TCP snapshot showed retransmissions and a kernel-owned port-7048 socket in CLOSE_WAIT; that snapshot alone cannot assign the fault to networking. To isolate BC and the server implementation, two independent controls were executed inside the same container, serving only synthetic bytes:
+
+1. `Start-E01HttpControl.ps1`: ordinary .NET HttpListener/HTTP.sys with fixed-length and chunked responses, plus raw TCP with valid HTTP/1.1 chunk framing. **All three delivered the full 131,320 bytes**, in 63/10/5 ms. Thus ordinary TCP transfer and ordinary HTTP.sys chunk framing can work in this environment.
+2. `HttpSysControl/HttpSysControl.csproj`: standalone ASP.NET Core 8 HTTP.sys, without BC, OData, authentication, or database access. BC's runtime configuration also targets `Microsoft.NETCore.App`/`Microsoft.AspNetCore.App` 8.0; the container's installed 8.x runtime is **8.0.15**. The control serves fixed-length, chunked single-write, async multi-write, sync multi-write, and streamed JSON responses. With `EnableKernelResponseBuffering=false`, only fixed-length completed. Chunked cases all received HTTP 200 but stalled: single-write 131,238 bytes; async/sync multi-write 7,139 bytes; JSON 131,246 bytes, each cancelled at roughly 10 seconds. With **only `EnableKernelResponseBuffering=true` changed**, all five cases completed: fixed/single/async/sync returned 131,320 bytes in **64/11/5/4 ms**, and JSON returned 131,322 bytes in **19 ms**. Both builds succeeded; the final build had no warnings. Evidence: `.bcdevtoolset/e01-http-controls.json`, `.bcdevtoolset/e01-aspnet-controls.json`, and `.bcdevtoolset/e01-aspnet-buffered-controls.json`.
+
+**Diagnosis:** a repeatable failure of the **unbuffered ASP.NET Core 8 HTTP.sys chunked-response write path on this Hyper-V/container environment**, followed by occupied BC OData request slots. It is reproducible after a clean restart, across HttpClient and curl, and independently of BC/AL. Enabling kernel response buffering removes the failure in the independent reproducer. The precise native/managed implementation defect or responsible Windows/.NET patch is not established; this evidence supports a component/mode diagnosis, not a claim that all BC27.1 installations are affected. [Microsoft documents the HTTP.sys kernel-buffering option](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/httpsys#support-for-kernel-mode-response-buffering); the controlled reproduction, rather than that documentation, establishes its effect here. No exposed BC OData/HTTP.sys buffering setting was found in the selected configuration query; `BufferedInsertEnabled` concerns database inserts and was not changed.
+
+After preserving the reproduction, a second targeted container restart was requested to remove all deliberately stalled BC requests and temporary synthetic servers. The user again performed the necessary elevated `hcsdiag kill`; the pending restart returned successfully and the BC service returned to Running. The final full E01 HTTP harness passed on BC27.1 with **both** explicit `-ResponseMode gzip` and `-ResponseMode http10`: anonymous 401, authenticated company discovery 200, exact Unicode/typed and large Echo round trips 200, and expected deliberate/malformed-JSON errors 400. The large Echo completed in **45 ms with gzip** and **32 ms with HTTP/1.0**, with 131,320 decoded bytes in each case. Exact evidence: `.bcdevtoolset/e01-http-bc271-gzip.json` and `.bcdevtoolset/e01-http-bc271-http10.json`; original default-path failure evidence is retained separately.
+
+These are demonstrated variants for this fixture, not an adopted production transport policy. Gzip success on highly compressible `x` data does not prove arbitrary large compressed responses are safe. No BC application, server buffering/concurrency configuration, shared Toolset runtime, or global MCP binding was modified. E01's default uncompressed HTTP/1.1 failure and the remaining company/identity/version/localization evidence still need resolution before closing the gate.
+
+### Read-only foundation and native transport qualification 2026-10-16
+
+Development proceeded with a bounded native Node HTTP/1.0 connection-close transport (`vscode-extension/bc-data-http10.js`), avoiding the failing chunked mode without server configuration changes or a helper process per call. It accepts fixed-length or EOF-framed identity responses, rejects transfer encodings/compression/redirects, validates TLS certificates normally, and enforces deadlines and size limits. Partial failures retain status and byte count; there is no automatic retry. HTTPS and other authentication modes remain unqualified; the current resolver accepts UserPassword only.
+
+Companion and test app **0.1.3.0** implement/test read-only contract 1: readiness, companies, table name/caption search, installed field/key/enum discovery and selected-field reads. Reads include SystemId, string rowversion, invariant decimal/BigInteger strings, enum/option ordinals, normal filters and FlowFilters, and ascending primary-key pages. Date/time and other unqualified scalar values fail explicitly; BLOB/Media are descriptors only. Relations/obsolescence details are explicitly unavailable. Limits: 100 rows, 50 selected fields, 262,144 AL response characters. Pagination is not a snapshot; rowversion does not cover FlowField dependencies. Search by numeric table ID and additional sorting remain future work.
+
+The internal client captures immutable connection context, checks contract/capabilities per call, requires explicit company for schema/record calls, and signs continuation tokens scoped to target revision, principal, tenant, company and query. Tokens expire after 30 minutes and do not survive a client session restart. A future Toolset resolver must advance its explicit connection revision after recreation/restoration or relevant app publication. No public data MCP tools or provisioning settings were added in this slice; disabled connections make no data requests. Mutations are not implemented or advertised.
+
+Install/upgrade registration refuses a `BCDData` service owned by another object. The execute permission set does not grant business-table permissions; restricted-identity behavior still needs E12. During HTTP qualification, a JSON 404 `Internal_RecordNotFound` was traced to `Serialize` looking up the empty company name during connection-level readiness, **not a missing service registration**. Version 0.1.3 allows company-free readiness/company discovery and still requires company context for reads. The client now distinguishes this record-not-found error from missing initialization. Live company bootstrap covers the correction.
+
+Final Toolset MCP runs used the verified `BCData.Development.code-workspace` Extension Development Host, with the existing package cache and assembly probing context. Build, deployment and all **17 AL tests passed on each target**:
+
+| Target | Actual application | Session | Tests / duration |
+| --- | --- | --- | --- |
+| BC23 Baseline | 23.18.32409.0 | `fbb65269-1028-49d9-a03d-580e5064b79e` | 17/17, 0.075 s |
+| BC27.1 | 27.1.41698.41776 | `1b7cdd04-15b8-4ee4-83db-2489c99e7078` | 17/17, 0.314 s |
+
+The batch includes the prior nine platform/E01 tests and eight companion tests. An initial 16/17 run exposed an incorrect post-`asserterror` expectation in the registration test: AL rolls back its temporary conflict setup. The assertion was corrected and the full batch rerun. The Microsoft Store PowerShell update interrupted an earlier operation; after the user reloaded the development host, the binding was reverified before the final runs.
+
+`integration/Verify-BCDataClient.cjs` then exercised the actual native transport/client on both deployed targets, including company bootstrap, readiness, Currency schema with installed extension fields/noncontiguous enum ordinal, existing Currency reads and distinct continuation rows. E01 echoes contained 64 KiB and 256 KiB of random bytes encoded as base64 plus Unicode, escaping and JSON types, with exact text and parsed payload equality:
+
+| Target | Random source bytes | Request bytes | Response bytes | Elapsed |
+| --- | ---: | ---: | ---: | ---: |
+| BC23 | 65,536 | 87,570 | 175,409 | 33 ms |
+| BC23 | 262,144 | 349,714 | 699,697 | 76 ms |
+| BC27.1 | 65,536 | 87,570 | 175,406 | 62 ms |
+| BC27.1 | 262,144 | 349,714 | 699,694 | 61 ms |
+
+Credential-free evidence: `.bcdevtoolset/bc-data-client-qualification.json`. The echo is a test-service payload, not evidence that the companion permits responses above its stated cap. This qualifies the selected HTTP/1.0 remedy for these targets and poorly compressible payloads; it neither repairs nor reruns the failing HTTP/1.1 path. The precise underlying Windows/.NET defect remains unidentified.
+
+Extension `npm run validate` passed: **245 tests, 244 passed, one skipped, zero failures**, including transport framing/limits/cancellation and client disabled behavior, capability checks, cursor binding/expiry, concurrent target capture, query capture and error classification. Log: `.bcdevtoolset/bc-data-npm-validation.log`. App manifests parse as JSON. No shared runtime, production installation or global MCP binding was changed.
+
+Next development stage: integrate the read-only client with Toolset target resolution and explicit provisioning/exposure scopes, then register and test the read-only MCP surface. Keep write operations gated on E04/E06/E07, finish scalar/localization and restricted-permission qualification, and test intervening BC versions before claiming the full support range.

@@ -288,3 +288,7 @@ Run **BC Dev Toolset: Configure MCP Tools** to select tools for Local, Workspace
 On a fresh installation, **Get Workspace**, **Get Operation Status**, **Answer Operation Prompt**, and **Invoke AL Tests** default to enabled. Every other tool defaults to disabled. Explicit values at Local, Workspace, or User scope override the next less granular level per tool.
 
 Local selections are stored in the top-level `mcpTools` object in `.bcdevtoolset/settings.json` (or the workspace-relative `bcDevToolset.localSettingsPath`). Local values override workspace values, then user values, per tool. In manually edited settings, omitted switches inherit the next level. Restart the MCP server/client after editing local selections.
+
+### BC Data development
+
+The repository contains an internal read-only BC Data client (`bc-data-client.js`) and bounded native HTTP/1.0 transport (`bc-data-http10.js`), with a separate companion AL app and compatibility tests. They are not yet registered as MCP tools or connected to end-user provisioning/configuration. See [BC Data design](../documentation/BCDataDesign.md) and [verification evidence](../documentation/BCDataCompatibilityExperiments.md). Development qualification uses only the dedicated targets in the Extension Development Host; it does not replace the installed runtime or global MCP binding.

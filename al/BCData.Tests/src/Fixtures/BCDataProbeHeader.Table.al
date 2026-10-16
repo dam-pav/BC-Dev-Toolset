@@ -4,6 +4,9 @@ table 50200 "BCD Probe Header"
 
     fields
     {
+        field(50203; "Probe Text"; Text[100]) { }
+        field(50204; Choice; Enum "Sales Line Type") { }
+        field(50205; "Option Choice"; Option) { OptionMembers = None,First,Second; }
         field(1; "Run ID"; Guid) { }
         field(2; "Line No."; Integer) { }
         field(3; Quantity; Decimal)

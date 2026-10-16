@@ -1,0 +1,11 @@
+codeunit 50103 "BCD Data Upgrade"
+{
+    Subtype = Upgrade;
+
+    trigger OnUpgradePerDatabase()
+    var
+        Registration: Codeunit "BCD Service Registration";
+    begin
+        Registration.RegisterService();
+    end;
+}

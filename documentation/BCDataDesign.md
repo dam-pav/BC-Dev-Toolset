@@ -1,6 +1,6 @@
 # BC Data: agreed design and verification plan
 
-Status (2026-10-15): agreed requirements and AL fixture baseline; initial six-test batch passed on BC27.1 and BC23 (BC23 success confirmed by user). Companion service and MCP data handlers are not implemented; remaining compatibility experiments are pending.
+Status (2026-10-16): the companion implements read-only contract 1 and an internal Node client implements bounded HTTP/1.0 transport, target capture and scoped pagination. Public MCP data handlers, Toolset provisioning/configuration integration and mutations are pending. See the compatibility ledger for exact runtime verification and remaining experiments.
 Decision record: 2026-10-06.
 
 ## Purpose and scope
@@ -13,7 +13,7 @@ No alternative BC UI is planned. VS Code provides configuration, initialization,
 
 ## Architecture
 
-Open `../BC-Dev-Toolset.code-workspace` for the repository's multi-root development layout: repository root, `vscode-extension`, `al/BCData` (companion app), and `al/BCData.Tests` (separate test app). The user also added an external BCQuality root for AL guidance. App manifests and an initial six-test platform experiment batch now exist. The initial fixture batch has run on dedicated BC23 and BC27.1 Test targets. Full compatibility verification, including transport and concurrency, remains pending.
+Open `../BC-Dev-Toolset.code-workspace` for the repository's multi-root development layout: repository root, `vscode-extension`, `al/BCData` (companion app), and `al/BCData.Tests` (separate test app). Use `BCData.Development.code-workspace` in an Extension Development Host for isolated MCP integration tests. The external BCQuality root supplies AL guidance. The companion and separate test app target BC23; dedicated BC23 and BC27.1 Test targets provide runtime evidence. Full compatibility verification, including intervening releases and concurrency, remains pending.
 
 Ship one VS Code extension. Reuse Toolset's environment configuration, credentials, deployment machinery, workspace routing, MCP registration, and diagnostics rather than duplicating them in another product.
 
@@ -23,7 +23,7 @@ Keep these implementation boundaries:
 2. Data client and tool handlers: direct HTTP calls, structured MCP inputs/results, target-scoped caching, errors, and retry handling. Keep these modules separate from VS Code UI and the PowerShell operation runner.
 3. Toolset integration: resolve configured targets and credentials, provision the companion app, register tools, and expose configuration/status operations.
 
-Candidate transport: a published codeunit with OData V4 unbound actions, carrying structured JSON in Text parameters. Candidate exposure: `bc_data_*` tools in the existing MCP server. These are proposed implementation choices requiring the compatibility experiments below, not additional product requirements.
+Implemented internal transport: a published codeunit with OData V4 unbound actions carrying structured JSON in Text parameters, called through bounded native Node HTTP/1.0 connection-close requests. This avoids the reproduced HTTP.sys unbuffered chunked-response failure without changing BC server settings. TLS retains normal certificate validation; live HTTPS qualification remains pending. Candidate exposure remains `bc_data_*` tools in the existing MCP server; none are registered yet.
 
 Ordinary data calls must not launch a PowerShell operation per request. Deployment and upgrades use the existing Toolset deployment mechanisms. No dependencies on the developer's project apps belong in the companion app.
 
