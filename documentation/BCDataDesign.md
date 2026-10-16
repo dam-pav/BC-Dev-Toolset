@@ -168,6 +168,8 @@ Repository inspection found existing integration points in `vscode-extension/ext
 
 Microsoft documents OData unbound codeunit actions, SystemRowVersion, and CommitBehavior, but documentation does not establish all generic behaviors or cross-version compatibility. In particular, CommitBehavior does not cover implicit commits from Codeunit.Run; it is not sufficient evidence for universal atomic receipts.
 
+E07 now has four passing single-session probes on BC23 and BC27.1. Error policy rejects explicit commits; Ignore suppresses them, changing execution behavior. Boolean Codeunit.Run can still commit a fixture mutation under Error policy before a later receipt-stage error. These tests do not qualify behavior with an already active write transaction, independent HTTP visibility, or receipt races. Mutation implementation remains gated on those experiments; silently suppressing trigger commits is not an accepted remedy.
+
 - [OData V4 unbound actions](https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/devenv-creating-and-interacting-with-odatav4-unbound-action)
 - [Table system fields](https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/devenv-table-system-fields)
 - [CommitBehavior attribute](https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/attributes/devenv-commitbehavior-attribute)
