@@ -132,6 +132,24 @@ codeunit 50214 "BCD Receipt Probe"
         exit(Output);
     end;
 
+    procedure ReceiptVisibility(inputJson: Text): Text
+    var
+        ReceiptRef: RecordRef;
+        RunField: FieldRef;
+        Response: JsonObject;
+        Output: Text;
+    begin
+        // Test-only count of permitted rows, without exposing another principal's payload.
+        ReceiptRef.Open(Database::"BCD Receipt Fixture");
+        ReceiptRef.SecurityFiltering(SecurityFilter::Filtered);
+        RunField := ReceiptRef.Field(1);
+        RunField.SetRange(ParseGuid(inputJson, 'runId'));
+        Response.Add('visibleReceipts', ReceiptRef.Count());
+        ReceiptRef.Close();
+        Response.WriteTo(Output);
+        exit(Output);
+    end;
+
     procedure Cleanup(inputJson: Text): Text
     var
         Receipt: Record "BCD Receipt Fixture";

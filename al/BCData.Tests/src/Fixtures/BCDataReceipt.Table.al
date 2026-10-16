@@ -4,7 +4,7 @@ table 50204 "BCD Receipt Fixture"
     fields
     {
         field(1; "Run ID"; Guid) { }
-        field(2; Principal; Guid) { }
+        field(2; Principal; Guid) { DataClassification = EndUserPseudonymousIdentifiers; }
         field(3; "Request ID"; Guid) { }
         field(4; Payload; Text[100]) { }
         field(5; Completed; Boolean) { }
