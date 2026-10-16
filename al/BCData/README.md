@@ -16,4 +16,6 @@ The Node client uses bounded HTTP/1.0 connection-close transport to avoid the re
 
 After building this app through Toolset MCP, `npm run prepare:runtime` from `vscode-extension` stages the validated ordinary app and compatibility manifest for bundling. This is separate from BC deployment runtime packages. Stale compiled sources, wrong app identity/version and unexpected dependencies/object ranges block packaging; the test app is not bundled.
 
+Callers need Company table read access for discovery and company identity in responses, Table Metadata read access for table checks, read access to the selected table, and read access to a selected FlowField's source tables. The execution permission set does not grant these rights. Selecting only stored fields does not calculate unselected FlowFields. The permission tests use session-local mocks; real-user HTTP and security-filter qualification remain separate requirements.
+
 The separately located `../BCData.Tests` app contains verification fixtures and regression tests and is not part of the production companion app.
