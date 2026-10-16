@@ -1,6 +1,22 @@
 codeunit 50211 "BCD Permission Probe"
 {
     // Dedicated-container HTTP fixture only. No Permissions property; caller rights apply.
+    procedure Context(inputJson: Text): Text
+    var
+        Response: JsonObject;
+        Instant: DateTime;
+        Output: Text;
+    begin
+        Evaluate(Instant, '2026-01-15T12:34:56.123Z', 9);
+        Response.Add('languageId', GlobalLanguage());
+        Response.Add('decimalDisplay', Format(1234.56));
+        Response.Add('dateDisplay', Format(20260203D));
+        Response.Add('localTime', Format(DT2Time(Instant), 0, 9));
+        Response.Add('utcInstant', Format(Instant, 0, 9));
+        Response.WriteTo(Output);
+        exit(Output);
+    end;
+
     procedure ReadError(inputJson: Text): Text
     var
         Response: JsonObject;
@@ -176,9 +192,11 @@ codeunit 50211 "BCD Permission Probe"
                 Evaluate(Header."Probe DateTime", '2026-10-25T01:30:00.123Z', 9);
                 Evaluate(Header."Probe BigInteger", '9223372036854775807', 9);
                 Header."Probe Code" := '  mixed Code  ';
+                Header.Quantity := 123456789012345.67;
             end else begin
                 Header."Probe Date" := ClosingDate(20261231D);
                 Header."Probe Time" := 000000T;
+                Evaluate(Header.Quantity, '-0.000000000000000001', 9);
             end;
             Header.Insert();
             Entry.Init();

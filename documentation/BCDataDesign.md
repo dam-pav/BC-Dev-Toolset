@@ -126,6 +126,8 @@ Zero dates, times, and datetimes use `""`, distinguished by schema type. Closing
 
 Read encodings describe the values persisted by BC. SQL storage can round Time/DateTime fractions, so eventual mutation responses must reread and report persisted values instead of echoing inputs. E11 observed a Time input of 23:59:59.999 persisting as defined midnight; precision-preserving text transport cannot undo storage normalization. Arbitrary-millisecond write round trips remain unqualified.
 
+Decimal reads use invariant JSON serialization of the native Decimal, then return its canonical text as a string. Standard XML Format rounded a persisted 0.00000000000000000001 to zero on BC23; the regression now requires exact positive and negative strings. Native parsing and SQL storage impose separate limits: E11 distinguishes parsing normalization of wider significant-digit inputs from storage rounding at 21 fractional places. This qualifies the tested persisted values, not arbitrary Decimal write precision. Actual HTTP Accept-Language requests qualify invariant read scalars under en-US, de-DE and sl-SI; service-time-zone permutations remain pending.
+
 BLOB, Media, and MediaSet reads return content descriptors. Dedicated content retrieval/mutation tools are deferred; ordinary RIMD must explicitly reject unsupported content changes rather than silently drop them.
 
 ## Errors, outcomes, and retries

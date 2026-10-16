@@ -11,7 +11,7 @@ codeunit 50100 "BCD Data Service"
         Capabilities.Add('schema');
         Capabilities.Add('read-primary-key');
         Response.Add('contractVersion', 1);
-        Response.Add('appVersion', '0.1.6.0');
+        Response.Add('appVersion', '0.1.7.0');
         Response.Add('capabilities', Capabilities);
         Response.Add('mutationsEnabled', false);
         Response.Add('maxPageSize', 100);
@@ -360,7 +360,7 @@ codeunit 50100 "BCD Data Service"
             FieldType::Decimal:
                 begin
                     DecimalValue := ValueField.Value;
-                    Values.Add(PropertyName, Format(DecimalValue, 0, 9));
+                    Values.Add(PropertyName, DecimalText(DecimalValue));
                 end;
             FieldType::Boolean:
                 begin
@@ -421,6 +421,34 @@ codeunit 50100 "BCD Data Service"
             else
                 Error('BCD_UNSUPPORTED_TYPE: scalar encoding is not yet qualified for field %1.', ValueField.Number());
         end;
+    end;
+
+    local procedure DecimalText(Value: Decimal): Text
+    var
+        JsonNumber: JsonValue;
+        NumberText: Text;
+    begin
+        // Format(..., 9) rounds stored values below 18 fractional places on BC23.
+        // JSON numeric serialization is invariant and retains the Decimal value;
+        // the outer value remains a string so JavaScript never parses its precision.
+        JsonNumber.SetValue(Value);
+        JsonNumber.WriteTo(NumberText);
+        // Some runtimes represent Decimal JSON values as precision-preserving strings.
+        if CopyStr(NumberText, 1, 1) = '"' then
+            NumberText := JsonNumber.AsText();
+        if (StrPos(NumberText, 'e') > 0) or (StrPos(NumberText, 'E') > 0) then
+            Error('BCD_UNSUPPORTED_TYPE: unexpected Decimal exponent encoding.');
+        if DelChr(NumberText, '=', '-0123456789.') <> '' then
+            Error('BCD_UNSUPPORTED_TYPE: unexpected invariant Decimal encoding.');
+        if StrPos(NumberText, '.') > 0 then begin
+            while CopyStr(NumberText, StrLen(NumberText), 1) = '0' do
+                NumberText := CopyStr(NumberText, 1, StrLen(NumberText) - 1);
+            if CopyStr(NumberText, StrLen(NumberText), 1) = '.' then
+                NumberText := CopyStr(NumberText, 1, StrLen(NumberText) - 1);
+        end;
+        if NumberText = '-0' then
+            NumberText := '0';
+        exit(NumberText);
     end;
 
     local procedure MillisecondTime(XmlTime: Text): Text

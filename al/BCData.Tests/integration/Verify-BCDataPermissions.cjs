@@ -11,7 +11,8 @@ async function main(input) {
   const connection = user => ({ id: user.username, baseUrl: `http://${input.container}:7048/BC/ODataV4`,
     authentication: 'UserPassword', dataToolsEnabled: true, revision: input.runId,
     username: user.username, password: user.password });
-  const clientFor = user => createDataClient({ resolveConnection: () => connection(user) });
+  const clientFor = (user, acceptLanguage) => createDataClient({ resolveConnection: () => connection(user),
+    transport: options => requestHttp10({ ...options, acceptLanguage }) });
   const admin = connection(input.admin);
   const adminClient = clientFor(input.admin);
   const companies = await adminClient.listCompanies(admin.id);
@@ -51,6 +52,7 @@ async function main(input) {
     return { cleaned: true };
   }
   const results = [];
+  const contexts = [];
   async function check(name, run) {
     try { results.push({ name, passed: true, ...await run() }); }
     catch (error) {
@@ -130,16 +132,37 @@ async function main(input) {
     const result = await read('filtered', { fieldIds: [11] });
     assert.equal(result.records[0].values['11'], '10');
   });
+  const scalarFields = [3, 20, 21, 22, 23, 24, 25, 26];
+  const scalarRows = [{ '3': '123456789012345.67', '20': '2024-02-29', '21': '12:34:56.010',
+    '22': '2026-10-25T01:30:00.123Z', '23': '', '24': '', '25': '9223372036854775807', '26': 'MIXED CODE' },
+  { '3': '-0.000000000000000001', '20': { date: '2026-12-31', closing: true },
+    '21': '00:00:00.000', '22': '', '23': '', '24': '', '25': '0', '26': '' }];
   await check('date/time, closing, zero and precision values preserve their wire types', async () => {
-    const result = await read('related', { fieldIds: [20, 21, 22, 23, 24, 25, 26], pageSize: 10 });
+    const result = await read('related', { fieldIds: scalarFields, pageSize: 10 });
     assert.equal(result.records.length, 2);
-    assert.deepEqual(result.records[0].values, { '20': '2024-02-29', '21': '12:34:56.010',
-      '22': '2026-10-25T01:30:00.123Z', '23': '', '24': '', '25': '9223372036854775807', '26': 'MIXED CODE' });
-    assert.deepEqual(result.records[1].values, { '20': { date: '2026-12-31', closing: true },
-      '21': '00:00:00.000', '22': '', '23': '', '24': '', '25': '0', '26': '' });
+    assert.deepEqual(result.records.map(record => record.values), scalarRows);
+  });
+  await check('request locales change regional display without changing wire scalars', async () => {
+    const user = users.related;
+    const url = new URL(`${admin.baseUrl}/BCDCompatibilityE12_Context`);
+    url.searchParams.set('company', companyId);
+    url.searchParams.set('tenant', 'default');
+    for (const [acceptLanguage, languageId] of [['en-US', 1033], ['de-DE', 1031], ['sl-SI', 1060]]) {
+      const response = await requestHttp10({ url: url.href, username: user.username, password: user.password,
+        body: { inputJson: '{}' }, acceptLanguage });
+      assert.equal(response.status, 200);
+      const context = JSON.parse(JSON.parse(response.body.toString('utf8')).value);
+      contexts.push({ requestedLocale: acceptLanguage, ...context });
+      assert.equal(context.languageId, languageId);
+      const result = await clientFor(user, acceptLanguage).readRecords({ ...query,
+        connectionId: user.username, fieldIds: scalarFields, pageSize: 10 });
+      assert.deepEqual(result.records.map(record => record.values), scalarRows);
+      assert.equal(context.utcInstant, '2026-01-15T12:34:56.123Z');
+    }
+    assert.notEqual(contexts[0].decimalDisplay, contexts[1].decimalDisplay, 'Effective regional formats must actually differ.');
   });
   const readiness = await adminClient.readiness(admin.id, companyId);
-  return { companyId, appVersion: readiness.appVersion, results, passed: results.every(result => result.passed) };
+  return { companyId, appVersion: readiness.appVersion, contexts, results, passed: results.every(result => result.passed) };
 }
 
 let raw = '';

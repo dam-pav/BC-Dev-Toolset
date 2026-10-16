@@ -121,6 +121,7 @@ codeunit 50204 "BCD Scalar Tests"
         CreateHeader(Header);
         Header."Probe Date" := ClosingDate(20261231D);
         Header."Probe Time" := 010203.010T;
+        Header.Quantity := 1234567.89;
         Evaluate(Header."Probe DateTime", '2026-10-25T01:30:00.123Z', 9);
         Header.Modify();
         PreviousLanguage := GlobalLanguage();
@@ -176,6 +177,75 @@ codeunit 50204 "BCD Scalar Tests"
         Assert.ExpectedError('Probe Date');
     end;
 
+    [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
+    procedure DecimalReadsPreserveSignedRangeAndSmallFractions()
+    var
+        Header: Record "BCD Probe Header";
+        Inputs: List of [Text];
+        Input: Text;
+        Expected: Decimal;
+    begin
+        // [SCENARIO] Decimal wire strings must preserve persisted precision without JS Number conversion.
+        CreateHeader(Header);
+        Inputs.Add('0');
+        Inputs.Add('1.23');
+        Inputs.Add('-1.23');
+        Inputs.Add('0.000000000000000001');
+        Inputs.Add('-0.000000000000000001');
+        Inputs.Add('0.00000000000000000001');
+        Inputs.Add('-0.00000000000000000001');
+        Inputs.Add('123456789012345.67');
+        Inputs.Add('999999999999999.99');
+        Inputs.Add('-999999999999999.99');
+        foreach Input in Inputs do begin
+            Evaluate(Expected, Input, 9);
+            Header.Quantity := Expected;
+            Header.Modify();
+            Header.Get(Header."Run ID", Header."Line No.");
+            Assert.AreEqual(Expected, Header.Quantity, 'Typed persisted Decimal must match the qualified input.');
+            Assert.AreEqual(Input, Value(ReadValues(Header), '3').AsText(), 'Decimal wire value and type.');
+        end;
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
+    procedure SubStorageDecimalScaleReturnsPersistedValue()
+    var
+        Header: Record "BCD Probe Header";
+        Input: Decimal;
+    begin
+        // [SCENARIO] Read the stored value after sub-scale rounding instead of echoing an input.
+        CreateHeader(Header);
+        Evaluate(Input, '0.000000000000000000001', 9);
+        Header.Quantity := Input;
+        Assert.IsTrue(Header.Quantity > 0, 'Input must exist in the field before persistence.');
+        Header.Modify();
+        Header.Get(Header."Run ID", Header."Line No.");
+        Assert.AreEqual(0, Header.Quantity, 'Sub-storage-scale value normalizes during persistence.');
+        Assert.AreEqual('0', Value(ReadValues(Header), '3').AsText(), 'Read reports persisted zero.');
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
+    procedure DecimalParseNormalizationIsDistinguishedFromWirePrecision()
+    var
+        Header: Record "BCD Probe Header";
+        Input: Decimal;
+        Normalized: Decimal;
+    begin
+        // [SCENARIO] Measure native parsing before attributing excess significant digits to the serializer.
+        CreateHeader(Header);
+        Evaluate(Input, '1.23456789012345678901', 9);
+        Evaluate(Normalized, '1.23456789012345678', 9);
+        Assert.IsTrue(Input = Normalized, 'Native XML parsing normalizes this input before persistence.');
+        Header.Quantity := Input;
+        Header.Modify();
+        Header.Get(Header."Run ID", Header."Line No.");
+        Assert.IsTrue(Header.Quantity = Normalized, 'Persisted typed value.');
+        Assert.AreEqual('1.23456789012345678', Value(ReadValues(Header), '3').AsText(), 'Wire matches the native value.');
+    end;
+
     local procedure CreateHeader(var Header: Record "BCD Probe Header")
     begin
         Header.Init();
@@ -197,7 +267,7 @@ codeunit 50204 "BCD Scalar Tests"
         Token: JsonToken;
         Input: Text;
     begin
-        Fields.ReadFrom('[20,21,22,25,26]');
+        Fields.ReadFrom('[3,20,21,22,25,26]');
         Filter.Add('fieldId', 1);
         Filter.Add('expression', Format(Header."Run ID", 0, 4));
         Filters.Add(Filter);

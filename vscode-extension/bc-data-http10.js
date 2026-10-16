@@ -18,13 +18,15 @@ class DataTransportError extends Error {
 // compression, connection reuse, retries, or private Node HTTP API overrides.
 // Restricting response framing avoids the qualified HTTP.sys chunked-write defect.
 function requestHttp10({ url, username, password, body, method = 'POST', timeoutMs = 30000,
-  maxResponseBytes = 4 * 1024 * 1024, signal }) {
+  maxResponseBytes = 4 * 1024 * 1024, signal, acceptLanguage }) {
   let target;
   try { target = new URL(url); }
   catch { throw new Error('Invalid BC Data HTTP configuration.'); }
   if (!['http:', 'https:'].includes(target.protocol) || target.username || target.password || target.hash ||
       !['GET', 'POST'].includes(method) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 ||
-      !Number.isSafeInteger(maxResponseBytes) || maxResponseBytes < 1 || maxResponseBytes > 16 * 1024 * 1024) {
+      !Number.isSafeInteger(maxResponseBytes) || maxResponseBytes < 1 || maxResponseBytes > 16 * 1024 * 1024 ||
+      (acceptLanguage !== undefined && (typeof acceptLanguage !== 'string' || acceptLanguage.length > 35 ||
+        !/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,3}$/.test(acceptLanguage)))) {
     throw new Error('Invalid BC Data HTTP configuration.');
   }
   if (typeof username !== 'string' || typeof password !== 'string' || !username || !password || username.includes(':')) {
@@ -36,6 +38,7 @@ function requestHttp10({ url, username, password, body, method = 'POST', timeout
   const header = Buffer.from(`${method} ${target.pathname}${target.search} HTTP/1.0\r\n` +
     `Host: ${target.host}\r\nAuthorization: Basic ${authorization}\r\n` +
     'Accept: application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n' +
+    (acceptLanguage === undefined ? '' : `Accept-Language: ${acceptLanguage}\r\n`) +
     `Content-Type: application/json; charset=utf-8\r\nContent-Length: ${bytes.length}\r\n\r\n`, 'ascii');
 
   return new Promise((resolve, reject) => {
