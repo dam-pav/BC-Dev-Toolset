@@ -1,6 +1,6 @@
 # BC Data compatibility experiments
 
-Latest update (2026-10-16): companion 0.1.5.0 remains read-only, applies security filters in Filtered mode and normalizes measured record/FlowField read denials across BC23/BC27.1. E12 real-user HTTP qualification passed nine assertions on BC23 and BC27.1; the AL suite passed 22/22 on each. Detailed results and limits are recorded at the end of this ledger. Earlier status and matrix entries below describe their respective historical batches.
+Latest update (2026-10-16): companion 0.1.5.0 remains read-only, applies security filters in Filtered mode and normalizes measured record/FlowField read denials across BC23/BC27.1. E12 real-user HTTP qualification passed nine assertions on BC23 and BC27.1, followed by restricted-identity MCP verification; the AL suite passed 22/22 on each. Detailed results and limits are recorded at the end of this ledger. Earlier status and matrix entries below describe their respective historical batches.
 
 Status (2026-10-15): the expanded nine-test AL batch built, deployed, and passed on BC23 and BC27.1 through the verified Development Host. E01's larger-payload failure was reproduced and isolated to ASP.NET Core 8 HTTP.sys unbuffered chunked-response writing in this container environment, with an independent server reproduction. BC27.1's full E01 HTTP assertions subsequently passed using gzip and HTTP/1.0. The default failing path is not fixed or certified; E01 remains open. The dedicated container was recovered after diagnosis. Older entries below are historical.
 Related requirements: [BC Data design](BCDataDesign.md).
@@ -373,3 +373,27 @@ Both final HTTP runs independently measured DB:ClientReadDenied; the normalized 
 Both AL operations used runner 130450, Codeunit isolation, filter 50200|50201|50202|50203 and the previously documented explicit test arguments after preflight. No direct compiler/deployment fallback was used. Final extension validation: **278 tests, 277 passed, one skipped, zero failures**, log `.bcdevtoolset/bc-data-permission-errors-validation.log`. Edited JSON/XML, Node syntax and git diff --check passed. Runtime preparation staged the Toolset-built companion 0.1.5.0 and excluded the test app. Runtime revision advances to **35**; MCP schemas and contract version 1 are unchanged.
 
 The Development Host must reload to use the edited Node client in its already loaded extension module. Direct HTTP qualification above used the actual updated client source. Updated-client MCP routing/denial behavior has not yet been qualified, and no development VSIX or global binding change was made. Restricted MCP identities, broader permissions, scalars and mutation/receipt/concurrency gates remain open; mutations stay disabled.
+
+
+### Updated-client MCP verification after reload 2026-10-16
+
+The user reloaded the Development Host. `bc_dev_toolset_get_workspace` verified BCData.Development.code-workspace and the original three connections were discovered. No companion or extension source changed in this stage; both targets retain companion **0.1.5.0**.
+
+The E12 harness now has an optional `-Mcp` mode. After its ordinary nine HTTP assertions pass, it adds four temporary, run-specific local aliases for the existing no-read, parent-only, related-read and filtered identities. This mode uses generated disposable plaintext credentials in ignored local settings so that actual MCP calls resolve through the normal workspace configuration path. Credentials never appear in MCP arguments/results or state. Original configurations/native stored credentials are retained. A fixed fixture mutex serializes its settings read/modify/write cycles. The process waits for a run-specific, credential-free release signal or a 15-minute deadline, then removes aliases and verifies the normal identity/role/row cleanup. Recovery uses the existing metadata-only CleanupOnly state. Pure configuration checks cover original/unrelated preservation, collision rejection, changed ownership and idempotent cleanup.
+
+Live MCP runs used BC23 fixture **2bddad5f-0f32-4f20-9ff1-294d15225065** and BC27.1 fixture **dc7d3889-c0bc-4ea9-bbb9-2c9c6c7dde7b**, with provisioning disabled on every temporary alias. Actual tools were called through this session's MCP server, not a mock or direct-client substitute.
+
+| MCP observation | BC23 | BC27.1 |
+| --- | --- | --- |
+| Missing parent table read | permission_denied/not_applied, Header table context and correlation ID | same |
+| Missing selected FlowField source read | permission_denied/not_applied, Sum Entry table context and correlation ID | same |
+| Parent-only stored-field pagination | Header 1 then 2; final hasMore false | same |
+| Parent/source read-only access | Child total 30 | same |
+| Filtered identity | Header 1 only; child total 10; no continuation | same |
+| Explicit inaccessible header 2 | Empty page | same |
+| Caller filter 1\|2 | Header 1 only | same |
+| Header reader's cursor used by filtered identity | invalid_cursor/not_applied | same |
+
+A BC23 cursor used against the BC27.1 filtered alias also returned invalid_cursor/not_applied. Successful operations remained on the explicitly requested company/target. Denials preserved their original table context and exposed no credentials. Both fixtures cleaned up successfully, and MCP discovery returned only the original three configurations afterward. No state/release files remained. The final alias-update implementation also received a dedicated BC23 setup/release/cleanup smoke check after introducing the mutex.
+
+This closes the updated-client MCP-routing and restricted-identity read subset left open in the preceding entry. Existing **22/22 AL tests per platform** and **277 passed/one skipped/zero failures** extension validation still apply because AL/extension sources did not change. PowerShell syntax, the pure configuration checks and git diff --check passed. Separate I/M/D, rename, related-write effects and receipt identity boundaries remain open; mutations stay disabled.

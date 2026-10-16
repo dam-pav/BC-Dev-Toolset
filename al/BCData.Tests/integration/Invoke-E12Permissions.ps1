@@ -1,15 +1,18 @@
 param(
     [ValidateSet('BC23 Baseline','BC27.1')][string] $Target = 'BC23 Baseline',
-    [switch] $CleanupOnly
+    [switch] $CleanupOnly,
+    [switch] $Mcp
 )
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
 $containers = @{'BC23 Baseline'='bcdata23test';'BC27.1'='bcdata271'}
 $container = $containers[$Target]
 $statePath = Join-Path $root ".bcdevtoolset/e12-$container-state.json"
+$releasePath = Join-Path $root ".bcdevtoolset/e12-$container-release.json"
 $evidencePath = Join-Path $root ".bcdevtoolset/e12-$container-evidence.json"
 $nodeScript = Join-Path $PSScriptRoot 'Verify-BCDataPermissions.cjs'
 . (Join-Path $root 'common/CredentialMgt.ps1')
+. (Join-Path $PSScriptRoot 'E12McpConfiguration.ps1')
 $settings = Get-Content -LiteralPath (Join-Path $root '.bcdevtoolset/settings.json') -Raw | ConvertFrom-Json
 $matches = @($settings.configurations | Where-Object name -CEQ $Target)
 if ($matches.Count -ne 1 -or $matches[0].container -cne $container -or $matches[0].serverType -ne 'Container' -or
@@ -50,8 +53,33 @@ function Get-FixtureIdentities([string] $RunId) {
     }
 }
 
+function Update-McpSettings($State, $AddUsers = $null) {
+    # One explicit fixture mutex serializes the two targets' read/modify/write cycles.
+    # It is not derived from a filesystem path or file metadata.
+    $mutex = [Threading.Mutex]::new($false, 'Local\BcDevToolset.E12McpSettings')
+    $owned = $false
+    try {
+        try { $owned = $mutex.WaitOne(10000) } catch [Threading.AbandonedMutexException] { $owned = $true }
+        if (-not $owned) { throw 'E12 MCP settings update is busy.' }
+        $settingsPath = Join-Path $root '.bcdevtoolset/settings.json'
+        $current = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+        if ($null -ne $AddUsers) {
+            Add-E12McpAliases $current $container $State.runId $AddUsers
+        } else {
+            Remove-E12McpAliases $current $container $State.runId
+        }
+        $current | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $settingsPath -Encoding utf8
+    } finally {
+        if ($owned) { $mutex.ReleaseMutex() }
+        $mutex.Dispose()
+    }
+}
+
 function Remove-Fixture($State) {
     if ($State.container -cne $container -or $State.target -cne $Target) { throw 'E12 state target mismatch.' }
+    if ($State.mcp -eq $true) {
+        Update-McpSettings $State
+    }
     $identities = @(Get-FixtureIdentities $State.runId)
     $marker = "BCD E12 $($State.runId)"
     Invoke-ScriptInBcContainer -containerName $container -scriptblock {
@@ -71,6 +99,8 @@ function Remove-Fixture($State) {
     } -argumentList $identities, $marker | Out-Null
     $cleaned = Invoke-NodePhase 'cleanup' $State
     if ($cleaned.cleaned -ne $true) { throw 'E12 rows remain after cleanup.' }
+    if ((Test-Path -LiteralPath $releasePath -PathType Leaf) -and
+        (Get-Content -LiteralPath $releasePath -Raw).Trim() -ceq $State.runId) { Remove-Item -LiteralPath $releasePath }
     Remove-Item -LiteralPath $statePath
 }
 
@@ -81,7 +111,8 @@ if ($CleanupOnly) {
     return
 }
 if (Test-Path -LiteralPath $statePath) { throw 'An E12 run needs cleanup first; use -CleanupOnly.' }
-$state = [pscustomobject]@{target=$Target;container=$container;runId=[guid]::NewGuid().ToString('D');companyId=$null}
+if (Test-Path -LiteralPath $releasePath) { throw 'A stale E12 release signal exists; remove it before setup.' }
+$state = [pscustomobject]@{target=$Target;container=$container;runId=[guid]::NewGuid().ToString('D');companyId=$null;mcp=$Mcp.IsPresent}
 $identities = @(Get-FixtureIdentities $state.runId)
 $password = 'E12!' + [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
 $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
@@ -111,6 +142,18 @@ try {
     $result | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $evidencePath -Encoding utf8
     $result | ConvertTo-Json -Depth 12
     if (-not $result.passed) { throw 'E12 assertions failed; see credential-free evidence.' }
+    if ($Mcp) {
+        Update-McpSettings $state $users
+        @{status='mcp_ready';runId=$state.runId;companyId=$state.companyId;aliases=@(Get-E12McpAliases $container $state.runId | Select-Object kind,name)} | ConvertTo-Json -Depth 5
+        # The fixed, credential-free release signal must contain this run ID.
+        # An interrupted run retains metadata-only CleanupOnly state; normal waits expire after 15 minutes.
+        $deadline = [DateTime]::UtcNow.AddMinutes(15)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            if ((Test-Path -LiteralPath $releasePath -PathType Leaf) -and
+                (Get-Content -LiteralPath $releasePath -Raw).Trim() -ceq $state.runId) { break }
+            Start-Sleep -Milliseconds 250
+        }
+    }
 } finally {
     try {
         Remove-Fixture $state
