@@ -2,7 +2,7 @@
   "id": "0f2cdb66-8275-41a6-a145-f07d77d0f825",
   "name": "BC Dev Toolset Data Tests",
   "publisher": "dam-pav",
-  "version": "0.1.9.0",
+  "version": "0.1.10.0",
   "brief": "BC Data compatibility experiments and regression tests",
   "platform": "23.0.0.0",
   "application": "23.0.0.0",
