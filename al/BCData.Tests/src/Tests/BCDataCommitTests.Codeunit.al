@@ -57,6 +57,70 @@ codeunit 50205 "BCD Commit Tests"
         CheckAndClean(Header, true, false);
     end;
 
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure ReceiptFirstBooleanRunUnderErrorPolicyRollsBack()
+    var
+        Header: Record "BCD Probe Header";
+    begin
+        // [SCENARIO] Boolean Run after a real receipt write stops the transaction without partial rows.
+        Initialize(Header, 'implicit');
+        asserterror ErrorGuardedReceiptFirst(Header, true, false);
+        CheckStoppedTransactionAndClean(Header);
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure ReceiptFirstBooleanRunWithoutCommitGuardRollsBack()
+    var
+        Header: Record "BCD Probe Header";
+    begin
+        // [SCENARIO] The native active-write restriction, rather than Error policy, blocks Boolean Run.
+        Initialize(Header, 'implicit');
+        asserterror UnguardedReceiptFirstBooleanRun(Header);
+        CheckStoppedTransactionAndClean(Header);
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure ReceiptFirstRejectsExplicitCommitUnderErrorPolicy()
+    var
+        Header: Record "BCD Probe Header";
+    begin
+        // [SCENARIO] The receipt anchor does not replace the explicit-commit guard.
+        Initialize(Header, 'explicit');
+        asserterror ErrorGuardedReceiptFirst(Header, false, false);
+        Assert.IsTrue(StrPos(LowerCase(GetLastErrorText()), 'commit') > 0,
+            'Explicit commit must be rejected while both fixture rows are pending.');
+        CheckAndClean(Header, false, false);
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure ReceiptFirstAllowsOrdinaryMutationAndReceiptTogether()
+    var
+        Header: Record "BCD Probe Header";
+    begin
+        // [SCENARIO] Non-committing code runs normally and both rows reach the outer commit.
+        Initialize(Header, 'implicit');
+        ErrorGuardedReceiptFirst(Header, false, false);
+        Commit();
+        CheckAndClean(Header, true, true);
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure ReceiptFirstRollsBackOrdinaryMutationOnLaterError()
+    var
+        Header: Record "BCD Probe Header";
+    begin
+        // [SCENARIO] A later error rolls back both the earlier receipt and the ordinary mutation.
+        Initialize(Header, 'implicit');
+        asserterror ErrorGuardedReceiptFirst(Header, false, true);
+        Assert.ExpectedError('BCD_E07_AFTER_MUTATION');
+        CheckAndClean(Header, false, false);
+    end;
+
     local procedure Initialize(var Header: Record "BCD Probe Header"; Mode: Text)
     begin
         Header.Init();
@@ -97,7 +161,52 @@ codeunit 50205 "BCD Commit Tests"
         InsertReceiptAndFail(Header);
     end;
 
+    [CommitBehavior(CommitBehavior::Error)]
+    local procedure ErrorGuardedReceiptFirst(var Header: Record "BCD Probe Header"; UseBooleanRun: Boolean; FailAfterMutation: Boolean)
+    var
+        Probe: Codeunit "BCD Commit Probe";
+    begin
+        InsertReceipt(Header);
+        if UseBooleanRun then begin
+            if not Probe.Run(Header) then
+                Error(GetLastErrorText());
+        end else
+            Probe.Run(Header);
+        if FailAfterMutation then
+            Error('BCD_E07_AFTER_MUTATION');
+    end;
+
+    local procedure UnguardedReceiptFirstBooleanRun(var Header: Record "BCD Probe Header")
+    var
+        Probe: Codeunit "BCD Commit Probe";
+    begin
+        InsertReceipt(Header);
+        if not Probe.Run(Header) then
+            Error(GetLastErrorText());
+        Error('BCD_E07_UNEXPECTED_BOOLEAN_RUN_SUCCESS');
+    end;
+
+    local procedure CheckStoppedTransactionAndClean(Header: Record "BCD Probe Header")
+    var
+        NativeMessage: Text;
+        NativeCode: Text;
+    begin
+        NativeMessage := GetLastErrorText();
+        NativeCode := GetLastErrorCode();
+        CheckAndClean(Header, false, false);
+        Assert.AreEqual('DB:Ok', NativeCode, 'Observed native transaction-stop identifier; not a public error classification.');
+        Assert.IsTrue(StrPos(LowerCase(NativeMessage), 'transaction is stopped') > 0,
+            StrSubstNo('Boolean Run after the receipt write must stop the transaction. Native code: %1; native message: %2',
+                NativeCode, NativeMessage));
+    end;
+
     local procedure InsertReceiptAndFail(Header: Record "BCD Probe Header")
+    begin
+        InsertReceipt(Header);
+        Error('BCD_E07_AFTER_MUTATION');
+    end;
+
+    local procedure InsertReceipt(Header: Record "BCD Probe Header")
     var
         Receipt: Record "BCD Probe Header";
     begin
@@ -106,7 +215,6 @@ codeunit 50205 "BCD Commit Tests"
         Receipt."Run ID" := Header."Run ID";
         Receipt."Line No." := 2;
         Receipt.Insert();
-        Error('BCD_E07_AFTER_MUTATION');
     end;
 
     local procedure CheckAndClean(Header: Record "BCD Probe Header"; ExpectedMutation: Boolean; ExpectedReceipt: Boolean)
