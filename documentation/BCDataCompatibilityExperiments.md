@@ -1,6 +1,6 @@
 # BC Data compatibility experiments
 
-Latest update (2026-10-16): the companion remains read-only at 0.1.3.0. The latest work adds four E12 session-local permission tests; their results and limits are recorded at the end of this ledger. Earlier status and matrix entries below describe their respective historical batches.
+Latest update (2026-10-16): companion 0.1.4.0 remains read-only and now applies security filters in Filtered mode. E12 real-user HTTP qualification passed nine assertions on BC23 and BC27.1; the AL suite passed 22/22 on each. Detailed results and limits are recorded at the end of this ledger. Earlier status and matrix entries below describe their respective historical batches.
 
 Status (2026-10-15): the expanded nine-test AL batch built, deployed, and passed on BC23 and BC27.1 through the verified Development Host. E01's larger-payload failure was reproduced and isolated to ASP.NET Core 8 HTTP.sys unbuffered chunked-response writing in this container environment, with an independent server reproduction. BC27.1's full E01 HTTP assertions subsequently passed using gzip and HTTP/1.0. The default failing path is not fixed or certified; E01 remains open. The dedicated container was recovered after diagnosis. Older entries below are historical.
 Related requirements: [BC Data design](BCDataDesign.md).
@@ -316,3 +316,38 @@ The first BC23 run (`85065e22-ee1b-492e-baa9-7626322dd0f6`) built and deployed s
 The corrected BC23 run (`9fa9e698-9903-4d83-95e0-5baa8f3dfa5f`) built, deployed and passed **21/21**, zero failures/skips, 0.105 seconds, application **23.18.32409.0**, runner 130450, Codeunit isolation and filter `50200|50201|50202|50203`. The BC27.1 run (`51e1e87b-44e1-4955-839a-3f10b71dde94`) also built, deployed and passed **21/21**, zero failures/skips, 0.727 seconds, application **27.1.41698.41776**, with the same runner/isolation/filter. Both operations used `executeTestsInContainer: true`, `clearTranslationFiles: false`, `clearAppFiles: false` and `pullFullArtifact: false` after preflight. App manifest JSON validation and `git diff --check` passed; no extension JavaScript or package metadata changed in this stage.
 
 These are session-local permission mocks, not separately authenticated HTTP users. Microsoft explicitly states that [permission tests do not test security filters](https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/developer/devenv-testing-with-permission-sets). E12 therefore remains open for real-user HTTP routing/error envelopes, security filters, distinct I/M/D and rename behavior, related-table write effects, and receipt replay across identities. No support-range or safe-mutation claim follows from these read tests.
+
+
+### E12 real-user HTTP and security-filter qualification 2026-10-16
+
+Workspace verification again returned `BCData.Development.code-workspace`, active companion `al/BCData`, and `./.netpackages` assembly probing. Prior commit `564d2b0` was already pushed. Builds, deployment and AL tests used Toolset MCP in the Development Host and the existing two dedicated Test containers. No development VSIX, shared runtime replacement or global MCP change was used.
+
+The test app now registers `BCDCompatibilityE12` (codeunit 50211). Its fixture actions seed/clean only headers and Sum entries for a nonempty random run ID, and create/clean four fixed tenant roles derived from that ID. It has no Permissions property; the configured administrator supplies the required rights. Tenant permission fields default to Yes, so the fixture explicitly clears all five rights before granting selected reads or execution. It grants no insert/modify/delete rights. Role creation refuses collisions; cleanup checks its role marker and requires users to be removed first. An added AutoRollback test verifies that row cleanup preserves another run and rejects an empty run ID.
+
+`integration/Invoke-E12Permissions.ps1` accepts only the exact BC23 Baseline/bcdata23test and BC27.1/bcdata271 UserPassword Test configurations. It creates four random users with only their corresponding tenant roles, runs the actual Node HTTP/1.0 transport/client, then verifies cleanup of users, roles and both fixture tables. Passwords stay in memory/private process input; the recovery state file contains only target, run ID and company ID. `-CleanupOnly` recovers interrupted runs and preserves changed user ownership. No exposed Toolset operation manages these identities; the fixture uses BC administration APIs only for user creation, tenant-role assignment and removal. Supported build/deploy/test operations still use MCP.
+
+The initial legacy New-NAVServerPermissionSet attempt failed because the system Permission Set table is read-only, and cleanup succeeded. Tenant roles were therefore implemented using the tenant tables, following the TableFilter encoding in Microsoft's BC23 Table Filter page source (`Evaluate` with Table: Field=Filter), not by changing the server's permission-set configuration. One intermediate publication rejected a method on a Text literal in the fixture on BC23; using a Text variable corrected it. No AL test success is claimed for that failed publication.
+
+The first real-user HTTP run on companion 0.1.3.0 passed five checks but failed all four security-filter browsing assertions. RecordRef's default Validated mode threw when traversal/look-ahead encountered a hidden row, so a permitted first row could not be returned. This was a usability failure without observed row leakage. Credential-free evidence is retained locally at `.bcdevtoolset/e12-bcdata23test-before-filtered.json`.
+
+Companion **0.1.4.0** explicitly sets `RecordRef.SecurityFiltering(SecurityFilter::Filtered)` after opening ordinary tables. This keeps user filters intersected with the security filter and applies the mode to pagination look-ahead and FlowField calculation. No elevation or retry with weaker rights is introduced. Microsoft's [security-filter behavior](https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/security/security-filters) describes the difference between Validated and Filtered. The same HTTP assertions that failed before the change pass afterward.
+
+| HTTP assertion | BC23, 23.18.32409.0 | BC27.1, 27.1.41698.41776 |
+| --- | --- | --- |
+| Administrator sees two headers and child total 30 | Passed | Passed |
+| Missing parent read is denied for expected table | HTTP 400, Internal_ServerError, bc_error | HTTP 403, Internal_ServerError, permission_denied |
+| Parent-only read follows stored-field pages without child read | Passed | Passed |
+| Missing selected FlowField source read is denied | HTTP 400, Internal_ServerError, bc_error | HTTP 403, Internal_ServerError, permission_denied |
+| Read-only parent and source permit total 30 | Passed | Passed |
+| Filtered identity sees header 1 only, no extra continuation | Passed | Passed |
+| Caller filter 1\|2 cannot widen security filter | Passed | Passed |
+| Explicit inaccessible header 2 returns no rows | Passed | Passed |
+| FlowField source filter returns 10 instead of 30 | Passed | Passed |
+
+All **9/9 HTTP assertions passed on each target** after the fix, app 0.1.4.0. Evidence: `.bcdevtoolset/e12-bcdata23test-evidence.json` (2026-10-16T10:02:17Z) and `e12-bcdata271-evidence.json` (10:04:42Z). Both runs removed and verified temporary users, tenant roles and fixture records; no recovery state files remain. Original configured identities and credentials were preserved.
+
+Final AL operations separately built, deployed and passed **22/22**, zero failures/skips, runner 130450 and Codeunit isolation, filter `50200|50201|50202|50203`: BC23 session `476f3b19-bad9-4a2a-9d72-2be1d3492bed`, 0.184 seconds; BC27.1 session `11400394-e438-4574-b90d-9a3c406fc6ed`, 0.509 seconds. Both used `executeTestsInContainer: true`, `clearTranslationFiles: false`, `clearAppFiles: false`, `pullFullArtifact: false` after preflight. The added test covers fixture cleanup; security-filter evidence comes from actual separately authenticated HTTP calls, not permission mocks.
+
+The companion/test manifests and reviewed bundling specification advance to 0.1.4.0; contract stays 1. Runtime synchronization revision advances to 34. Runtime staging succeeded with the Toolset-built companion, including checksum/source checks and excluding the test app. Extension validation: **275 tests, 274 passed, one skipped, zero failures**, log `.bcdevtoolset/bc-data-permissions-validation.log`; Node/PowerShell syntax, edited JSON/XML validation and git diff --check also passed. No E12 recovery state remains. Subsequent actual MCP readiness calls on both original configurations reported companion 0.1.4.0 and mutationsEnabled false.
+
+Remaining E12 limits: BC23 permission failures preserve the original useful denial message and not_applied outcome but still use generic bc_error; do not infer permission_denied from every Internal_ServerError or an English message. Restricted identities through the MCP configuration bridge, separate I/M/D/rename effects, related-table writes and receipt replay across identities remain unqualified. This is a bounded read subset on two versions, not a completed E12 or complete support-range claim. Mutations remain disabled.

@@ -231,6 +231,36 @@ codeunit 50202 "BCD Data Service Tests"
         Assert.ExpectedError('BCD_UNSUPPORTED_TABLE');
     end;
 
+    [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
+    procedure PermissionFixtureCleanupIsScopedToItsRun()
+    var
+        Header: Record "BCD Probe Header";
+        Entry: Record "BCD Probe Sum Entry";
+        Probe: Codeunit "BCD Permission Probe";
+        Assert: Codeunit "Library Assert";
+        FirstInput: Text;
+        SecondRunId: Guid;
+    begin
+        // [SCENARIO] HTTP fixture cleanup must preserve another run's records.
+        FirstInput := '{"runId":"' + Format(CreateGuid(), 0, 4) + '"}';
+        SecondRunId := CreateGuid();
+        Probe.Prepare(FirstInput);
+        Probe.Prepare('{"runId":"' + Format(SecondRunId, 0, 4) + '"}');
+
+        Probe.Cleanup(FirstInput);
+
+        Header.SetRange("Run ID", SecondRunId);
+        Entry.SetRange("Run ID", SecondRunId);
+        Assert.AreEqual(2, Header.Count(), 'Other headers must survive cleanup.');
+        Assert.AreEqual(2, Entry.Count(), 'Other entries must survive cleanup.');
+        Probe.Cleanup('{"runId":"' + Format(SecondRunId, 0, 4) + '"}');
+        Assert.IsTrue(Header.IsEmpty(), 'This run has no headers after cleanup.');
+        Assert.IsTrue(Entry.IsEmpty(), 'This run has no entries after cleanup.');
+        asserterror Probe.Cleanup('{"runId":"00000000-0000-0000-0000-000000000000"}');
+        Assert.ExpectedError('BCD_E12_NONEMPTY_RUN_ID_REQUIRED');
+    end;
+
     local procedure CreateHeader(var Header: Record "BCD Probe Header"; RunId: Guid; LineNo: Integer)
     begin
         Header.Init();

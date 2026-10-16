@@ -2,7 +2,7 @@
   "id": "0f92aea5-4cc0-459b-ae98-ca9e5c2b0304",
   "name": "BC Dev Toolset Data",
   "publisher": "dam-pav",
-  "version": "0.1.3.0",
+  "version": "0.1.4.0",
   "brief": "Agent data access for BC Dev Toolset",
   "platform": "23.0.0.0",
   "application": "23.0.0.0",

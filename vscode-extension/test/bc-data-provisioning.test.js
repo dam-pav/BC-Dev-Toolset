@@ -115,7 +115,7 @@ test('runtime preparation accepts current embedded sources and blocks stale same
       @{id=$expected.appId;name=$expected.name;publisher=$expected.publisher;version=$expected.version;runtime=$expected.runtime;application=$expected.application}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $folder 'al/BCData/app.json')
       $al='codeunit 50100 Dummy {}'
       [IO.File]::WriteAllText((Join-Path $folder 'al/BCData/src/Dummy.Codeunit.al'),$al)
-      $xml='<Package><App Id="0f92aea5-4cc0-459b-ae98-ca9e5c2b0304" Name="BC Dev Toolset Data" Publisher="dam-pav" Version="0.1.3.0" Runtime="12.0" Application="23.0.0.0" Target="OnPrem"/><Dependencies/><IdRanges><IdRange MinObjectId="50100" MaxObjectId="50149"/></IdRanges></Package>'
+      $xml='<Package><App Id="0f92aea5-4cc0-459b-ae98-ca9e5c2b0304" Name="BC Dev Toolset Data" Publisher="dam-pav" Version="0.1.4.0" Runtime="12.0" Application="23.0.0.0" Target="OnPrem"/><Dependencies/><IdRanges><IdRange MinObjectId="50100" MaxObjectId="50149"/></IdRanges></Package>'
       Add-Type -AssemblyName System.IO.Compression
       $stream=[IO.MemoryStream]::new()
       $zip=[IO.Compression.ZipArchive]::new($stream,[IO.Compression.ZipArchiveMode]::Create,$true)
@@ -124,7 +124,7 @@ test('runtime preparation accepts current embedded sources and blocks stale same
       }
       $zip.Dispose()
       $header=[byte[]]::new(40);[Text.Encoding]::ASCII.GetBytes('NAVX').CopyTo($header,0);[BitConverter]::GetBytes([int]40).CopyTo($header,4);[Text.Encoding]::ASCII.GetBytes('NAVX').CopyTo($header,36)
-      [IO.File]::WriteAllBytes((Join-Path $folder 'al/BCData/dam-pav_BC Dev Toolset Data_0.1.3.0.app'),[byte[]]($header+$stream.ToArray()));$stream.Dispose()
+      [IO.File]::WriteAllBytes((Join-Path $folder 'al/BCData/dam-pav_BC Dev Toolset Data_0.1.4.0.app'),[byte[]]($header+$stream.ToArray()));$stream.Dispose()
       & (Join-Path $folder 'vscode-extension/build/prepare-bc-data-package.ps1') 6>$null
       $validated=Get-ValidatedBcDataPackage -ToolsetRoot $folder
       [IO.File]::WriteAllText((Join-Path $folder 'al/BCData/src/Dummy.Codeunit.al'),'changed after compilation')
@@ -132,7 +132,7 @@ test('runtime preparation accepts current embedded sources and blocks stale same
       @{version=$validated.Manifest.version;stale=$stale;testAppBundled=(Test-Path -LiteralPath (Join-Path $folder 'bc-data/BCData.Tests.app'))}|ConvertTo-Json -Compress
     }finally{Remove-Item -LiteralPath $folder -Recurse -Force}
   `);
-  assert.equal(result.version, '0.1.3.0');
+  assert.equal(result.version, '0.1.4.0');
   assert.match(result.stale, /sources are stale/);
   assert.equal(result.testAppBundled, false);
 });

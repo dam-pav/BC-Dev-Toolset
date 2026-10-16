@@ -11,7 +11,7 @@ codeunit 50100 "BCD Data Service"
         Capabilities.Add('schema');
         Capabilities.Add('read-primary-key');
         Response.Add('contractVersion', 1);
-        Response.Add('appVersion', '0.1.3.0');
+        Response.Add('appVersion', '0.1.4.0');
         Response.Add('capabilities', Capabilities);
         Response.Add('mutationsEnabled', false);
         Response.Add('maxPageSize', 100);
@@ -252,6 +252,9 @@ codeunit 50100 "BCD Data Service"
         if Metadata.TableType <> Metadata.TableType::Normal then
             Error('BCD_UNSUPPORTED_TABLE: physical Normal tables only.');
         TableRef.Open(TableId, false, CompanyName());
+        // Apply security filters to the query, including look-ahead and FlowFields.
+        // Validated (the default) fails when traversal encounters an inaccessible row.
+        TableRef.SecurityFiltering(SecurityFilter::Filtered);
     end;
 
     local procedure ApplyFilters(Request: JsonObject; PropertyName: Text; IsFlowFilter: Boolean; var TableRef: RecordRef)
