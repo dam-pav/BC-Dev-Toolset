@@ -1,6 +1,46 @@
 codeunit 50211 "BCD Permission Probe"
 {
     // Dedicated-container HTTP fixture only. No Permissions property; caller rights apply.
+    procedure ReadError(inputJson: Text): Text
+    var
+        Response: JsonObject;
+        Output: Text;
+    begin
+        ClearLastError();
+        if TryRead(inputJson) then
+            Error('BCD_E12_EXPECTED_READ_DENIAL');
+        Response.Add('errorCode', GetLastErrorCode());
+        Response.WriteTo(Output);
+        exit(Output);
+    end;
+
+    [TryFunction]
+    local procedure TryRead(Input: Text)
+    var
+        Header: Record "BCD Probe Header";
+        Request: JsonObject;
+        Filter: JsonObject;
+        Token: JsonToken;
+        Filters: JsonArray;
+        FieldIds: JsonArray;
+        RunId: Guid;
+    begin
+        // Measure the platform classification independently of the service's normalization.
+        Request.ReadFrom(Input);
+        Request.Get('filters', Token);
+        Filters := Token.AsArray();
+        Filters.Get(0, Token);
+        Filter := Token.AsObject();
+        Filter.Get('expression', Token);
+        Evaluate(RunId, Token.AsValue().AsText());
+        Header.Get(RunId, 1);
+        Request.Get('fieldIds', Token);
+        FieldIds := Token.AsArray();
+        FieldIds.Get(0, Token);
+        if Token.AsValue().AsInteger() = 11 then
+            Header.CalcFields("Entry Total");
+    end;
+
     procedure PrepareRoles(inputJson: Text): Text
     var
         PermissionSet: Record "Tenant Permission Set";
@@ -31,6 +71,8 @@ codeunit 50211 "BCD Permission Probe"
             AddPermission(Role, 0, Database::Company, '');
             AddPermission(Role, 0, Database::"Table Metadata", '');
             AddPermission(Role, 5, Codeunit::"BCD Data Service", '');
+            // Inspect the platform's untranslated read error classification, without elevation.
+            AddPermission(Role, 5, Codeunit::"BCD Permission Probe", '');
             AddPermission(Role, 1, Database::"BCD Probe Header", '');
             AddPermission(Role, 1, Database::"BCD Probe Sum Entry", '');
             if Kind = 'filtered' then begin

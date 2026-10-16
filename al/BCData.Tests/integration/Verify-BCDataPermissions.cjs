@@ -69,13 +69,22 @@ async function main(input) {
     const envelope = JSON.parse(raw.body.toString('utf8'));
     assert.notEqual(raw.status, 200);
     assert.ok(envelope.error.message.includes(expectedTable), 'Denial must name the expected table.');
+    const diagnosticUrl = new URL(url);
+    diagnosticUrl.pathname = diagnosticUrl.pathname.replace('BCDData_ReadRecords', 'BCDCompatibilityE12_ReadError');
+    const diagnostic = await requestHttp10({ url: diagnosticUrl.href, username: target.username, password: target.password,
+      body: { inputJson: JSON.stringify({ tableId: 50200, fieldIds, filters, pageSize: 1 }) } });
+    assert.equal(diagnostic.status, 200);
+    const errorCode = JSON.parse(JSON.parse(diagnostic.body.toString('utf8')).value).errorCode;
+    assert.equal(errorCode, 'DB:ClientReadDenied', 'Native classification must be measured independently.');
     let failure;
     try { await clientFor(user).readRecords({ ...query, connectionId: user.username, fieldIds }); }
     catch (error) { failure = error; }
     assert.equal(failure?.outcome, 'not_applied');
+    assert.equal(failure?.category, 'permission_denied');
+    assert.ok(failure.message.includes(expectedTable), 'Client denial preserves table context.');
     assert.ok(!failure.message.includes(user.password));
     assert.ok(!failure.message.includes(Buffer.from(`${user.username}:${user.password}`).toString('base64')));
-    return { httpStatus: raw.status, bcCode: envelope.error.code, category: failure.category };
+    return { httpStatus: raw.status, bcCode: envelope.error.code, alErrorCode: errorCode, category: failure.category };
   }
   const users = Object.fromEntries(input.users.map(user => [user.kind, user]));
   const read = (kind, extra = {}) => clientFor(users[kind]).readRecords({ ...query,

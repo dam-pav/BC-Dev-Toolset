@@ -95,6 +95,42 @@ test('compatible newer companion capabilities do not enable client mutation APIs
   assert.equal(result.appVersion, '0.9.0.0');
   assert.equal(client.insertRecord, undefined);
 });
+
+test('BC23 read denial markers classify independently of localized text and retain redacted table context', async () => {
+  for (const status of [400, 403]) {
+    const { client } = fixture({ transport: async () => ({ status, body: Buffer.from(JSON.stringify({
+      error: { code: 'Internal_ServerError', message: 'BCD_PERMISSION_DENIED: Zugriff verweigert: BCD Probe Header secret Zml4dHVyZTpzZWNyZXQ=' }
+    })) }) });
+    await assert.rejects(client.readiness('a', company), error => {
+      assert.equal(error.category, 'permission_denied');
+      assert.equal(error.outcome, 'not_applied');
+      assert.match(error.message, /BCD Probe Header/);
+      assert.ok(!error.message.includes('secret'));
+      assert.ok(!error.message.includes('Zml4dHVyZTpzZWNyZXQ='));
+      return true;
+    });
+  }
+});
+
+test('generic BC23 server errors and permission words are not guessed to be authorization failures', async () => {
+  for (const message of ['An unrelated server failure.', 'Permission denied in caller text.', 'prefix BCD_PERMISSION_DENIED: not a service marker']) {
+    const { client } = fixture({ transport: async () => ({ status: 400, body: Buffer.from(JSON.stringify({
+      error: { code: 'Internal_ServerError', message }
+    })) }) });
+    await assert.rejects(client.readiness('a', company), { category: 'bc_error', message });
+  }
+});
+
+test('JSON authorization errors retain BC context and malformed authorization bodies stay actionable', async () => {
+  for (const body of ['{}', 'null', '[]', '{"error":{"message":4}}']) {
+    const { client } = fixture({ transport: async () => ({ status: 403, body: Buffer.from(body) }) });
+    await assert.rejects(client.readiness('a', company), { category: 'permission_denied' });
+  }
+  const { client } = fixture({ transport: async () => ({ status: 403, body: Buffer.from(JSON.stringify({
+    error: { code: 'Internal_ServerError', message: 'BCD Probe Sum Entry read rejected.' }
+  })) }) });
+  await assert.rejects(client.readiness('a', company), { category: 'permission_denied', message: 'BCD Probe Sum Entry read rejected.' });
+});
 test('a BC record-not-found HTTP 404 is not mislabeled as a missing companion', async () => {
   const { client } = fixture({ transport: async () => ({ status: 404, body: Buffer.from(JSON.stringify({
     error: { code: 'Internal_RecordNotFound', message: 'The Company does not exist.' }

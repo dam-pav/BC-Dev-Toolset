@@ -52,23 +52,23 @@ function createDataClient({ resolveConnection, transport = requestHttp10, now = 
     if (companyId) url.searchParams.set('company', companyId);
     const response = await transport({ url: url.href, username: connection.username, password: connection.password,
       body: { inputJson: JSON.stringify(input) } });
-    if ([401, 403].includes(response.status)) {
-      throw new DataClientError('permission_denied', 'BC Data authentication or authorization was rejected.');
-    }
+    const authorizationRejected = [401, 403].includes(response.status);
     let envelope;
     try { envelope = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(response.body)); }
     catch {
+      if (authorizationRejected) throw new DataClientError('permission_denied', 'BC Data authentication or authorization was rejected.');
       if (response.status === 404) throw new DataClientError('initialization_required', 'BC Data is not initialized. Deploy the compatible companion app and register BCDData on this target.');
       throw new DataClientError('invalid_response', 'BC Data returned an invalid JSON envelope.');
     }
     if (response.status !== 200) {
       const original = typeof envelope?.error?.message === 'string' ? envelope.error.message : '';
-      const category = envelope?.error?.code === 'Internal_RecordNotFound' ? 'record_not_found' :
+      const category = authorizationRejected || original.startsWith('BCD_PERMISSION_DENIED:') ? 'permission_denied' :
+        envelope?.error?.code === 'Internal_RecordNotFound' ? 'record_not_found' :
         original.includes('BCD_INVALID_INPUT') ? 'invalid_input' : original.includes('BCD_UNSUPPORTED') ? 'unsupported_operation' :
         original.includes('BCD_RESPONSE_TOO_LARGE') ? 'response_too_large' : response.status === 404 ? 'initialization_required' : 'bc_error';
       const message = original
         ? original.split(connection.password).join('[redacted]').split(Buffer.from(`${connection.username}:${connection.password}`).toString('base64')).join('[redacted]').slice(0, 2048)
-        : 'BC Data request was rejected.';
+        : authorizationRejected ? 'BC Data authentication or authorization was rejected.' : 'BC Data request was rejected.';
       throw new DataClientError(category, category === 'initialization_required'
         ? 'BC Data is not initialized. Deploy the compatible companion app and register BCDData on this target.' : message);
     }

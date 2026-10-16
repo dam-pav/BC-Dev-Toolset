@@ -40,6 +40,7 @@ codeunit 50203 "BCD Data Permission Tests"
         asserterror Service.ReadRecords(Request(Header."Run ID", '[2]'));
 
         Assert.ExpectedError('BCD Probe Header');
+        Assert.ExpectedError('BCD_PERMISSION_DENIED:');
         PermissionsMock.Stop();
     end;
 
@@ -59,6 +60,7 @@ codeunit 50203 "BCD Data Permission Tests"
         asserterror Service.ReadRecords(Request(Header."Run ID", '[11]'));
 
         Assert.ExpectedError('BCD Probe Sum Entry');
+        Assert.ExpectedError('BCD_PERMISSION_DENIED:');
         PermissionsMock.Stop();
     end;
 

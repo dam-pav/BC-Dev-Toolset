@@ -2,7 +2,7 @@
   "appId": "0f92aea5-4cc0-459b-ae98-ca9e5c2b0304",
   "name": "BC Dev Toolset Data",
   "publisher": "dam-pav",
-  "version": "0.1.4.0",
+  "version": "0.1.5.0",
   "contractVersion": 1,
   "runtime": "12.0",
   "application": "23.0.0.0",

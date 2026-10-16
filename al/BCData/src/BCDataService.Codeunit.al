@@ -11,7 +11,7 @@ codeunit 50100 "BCD Data Service"
         Capabilities.Add('schema');
         Capabilities.Add('read-primary-key');
         Response.Add('contractVersion', 1);
-        Response.Add('appVersion', '0.1.4.0');
+        Response.Add('appVersion', '0.1.5.0');
         Response.Add('capabilities', Capabilities);
         Response.Add('mutationsEnabled', false);
         Response.Add('maxPageSize', 100);
@@ -205,9 +205,9 @@ codeunit 50100 "BCD Data Service"
         Position := GetText(Request, 'position');
         if Position <> '' then begin
             TableRef.SetPosition(Position);
-            Found := TableRef.Find('>');
+            Found := FindReadRecord(TableRef, true);
         end else
-            Found := TableRef.FindFirst();
+            Found := FindReadRecord(TableRef, false);
         while Found and (Items.Count() < Limit) do begin
             Clear(Item);
             Clear(FieldValues);
@@ -222,7 +222,7 @@ codeunit 50100 "BCD Data Service"
             foreach Id in SelectedIds do begin
                 ValueField := TableRef.Field(Id);
                 if (ValueField.Class = FieldClass::FlowField) and (ValueField.Type <> FieldType::Blob) then
-                    ValueField.CalcField();
+                    CalculateReadField(ValueField);
                 AddValue(FieldValues, Format(Id, 0, 9), ValueField);
             end;
             Item.Add('values', FieldValues);
@@ -240,6 +240,52 @@ codeunit 50100 "BCD Data Service"
         Response.Add('flowFieldConcurrencyProtected', false);
         TableRef.Close();
         exit(Serialize(Response));
+    end;
+
+    local procedure FindReadRecord(var TableRef: RecordRef; AfterPosition: Boolean): Boolean
+    var
+        Found: Boolean;
+    begin
+        ClearLastError();
+        if not TryFindReadRecord(TableRef, AfterPosition, Found) then
+            RaiseReadError();
+        exit(Found);
+    end;
+
+    [TryFunction]
+    local procedure TryFindReadRecord(var TableRef: RecordRef; AfterPosition: Boolean; var Found: Boolean)
+    begin
+        if AfterPosition then
+            Found := TableRef.Find('>')
+        else
+            Found := TableRef.FindFirst();
+    end;
+
+    local procedure CalculateReadField(var ValueField: FieldRef)
+    begin
+        ClearLastError();
+        if not TryCalculateReadField(ValueField) then
+            RaiseReadError();
+    end;
+
+    [TryFunction]
+    local procedure TryCalculateReadField(var ValueField: FieldRef)
+    begin
+        ValueField.CalcField();
+    end;
+
+    local procedure RaiseReadError()
+    var
+        ErrorCode: Text;
+        ErrorText: Text;
+    begin
+        ErrorCode := GetLastErrorCode();
+        ErrorText := GetLastErrorText();
+        // Measured on BC23/BC27.1. Match the untranslated identifier, not localized text.
+        // These TryFunctions perform reads only and never retry with different rights.
+        if ErrorCode = 'DB:ClientReadDenied' then
+            Error('BCD_PERMISSION_DENIED: %1', ErrorText);
+        Error('%1', ErrorText);
     end;
 
     local procedure OpenOrdinaryTable(TableId: Integer; var TableRef: RecordRef)
