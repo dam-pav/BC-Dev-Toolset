@@ -95,7 +95,66 @@ codeunit 50218 "BCD Versioned Replay Tests"
         CheckAndClean(RunId);
     end;
 
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure RenameReadRevocationBlocksHistoryUntilRestored()
+    var
+        RunId: Guid;
+        Input: Text;
+        Result: Text;
+    begin
+        InitializeOperation(RunId, Input, Result, 'rename');
+        PermissionsMock.Set('BCD EV NO TARGET R');
+        asserterror Probe.Execute(Input);
+        Assert.ExpectedError('BCD Conflict Fixture');
+        Assert.IsTrue(StrPos(LowerCase(GetLastErrorText()), 'read') > 0, 'Rename replay requires current target Read.');
+        PermissionsMock.Set('BCD EV SETUP');
+        Assert.AreEqual(Result, Probe.Execute(Input), 'Restored Read recovers exact rename history.');
+        CheckAndClean(RunId);
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure RenameReplayNeedsReadButFreshRenameNeedsModify()
+    var
+        RunId: Guid;
+        Input: Text;
+        Result: Text;
+        Request: JsonObject;
+        Target: Record "BCD Conflict Fixture";
+        Ref: RecordRef;
+        VersionField: FieldRef;
+        Version: BigInteger;
+    begin
+        InitializeOperation(RunId, Input, Result, 'rename');
+        PermissionsMock.Set('BCD EV TARGET R');
+        Assert.AreEqual(Result, Probe.Execute(Input), 'Read-only permits completed rename replay.');
+        PermissionsMock.Set('BCD EV SETUP');
+        // Ensure the fresh rename changes the key rather than performing a no-op.
+        Target.Get(RunId, 'RENAMED');
+        Target.Rename(RunId, 'ORIGINAL');
+        Commit();
+        Target.Get(RunId, 'ORIGINAL');
+        Ref.GetTable(Target);
+        VersionField := Ref.Field(0);
+        Version := VersionField.Value;
+        Request.ReadFrom(Input);
+        Request.Replace('requestId', Format(CreateGuid(), 0, 4));
+        Request.Replace('expectedVersion', Format(Version, 0, 9));
+        Request.WriteTo(Input);
+        PermissionsMock.Set('BCD EV TARGET R');
+        asserterror Probe.Execute(Input);
+        Assert.ExpectedError('BCD Conflict Fixture');
+        Assert.IsTrue(StrPos(LowerCase(GetLastErrorText()), 'modify') > 0, 'Fresh rename requires native Modify.');
+        CheckAndClean(RunId);
+    end;
+
     local procedure Initialize(var RunId: Guid; var Input: Text; var Result: Text)
+    begin
+        InitializeOperation(RunId, Input, Result, 'modify');
+    end;
+
+    local procedure InitializeOperation(var RunId: Guid; var Input: Text; var Result: Text; Operation: Text)
     var
         Row: JsonObject;
         Request: JsonObject;
@@ -113,8 +172,9 @@ codeunit 50218 "BCD Versioned Replay Tests"
         Request.Add('systemId', Token.AsValue().AsText());
         Row.Get('version', Token);
         Request.Add('expectedVersion', Token.AsValue().AsText());
-        Request.Add('operation', 'modify');
-        Request.Add('amount', 4);
+        Request.Add('operation', Operation);
+        if Operation = 'modify' then
+            Request.Add('amount', 4);
         Request.WriteTo(Input);
         Result := Probe.Execute(Input);
         Commit();

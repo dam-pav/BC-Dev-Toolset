@@ -14,6 +14,9 @@ async function main(input) {
   assert.match(s.namespaceId, guid); assert.match(s.requestId, guid);
   assert.deepEqual(s.runs.map(r => r.kind).sort(), ['f','x']);
   for (const run of s.runs) assert.match(run.runId, guid);
+  const operation = s.operation || 'modify';
+  assert.ok(['modify','rename'].includes(operation));
+  const rename = operation === 'rename';
   const admin = input.admin;
   const users = Object.fromEntries((input.users || []).map(user => [user.kind, user]));
   const baseUrl = `http://${s.container}:7048/BC/ODataV4`;
@@ -32,7 +35,7 @@ async function main(input) {
     return safe.slice(0, 2048);
   }
   const runId = kind => s.runs.find(run => run.kind === kind).runId;
-  const payload = { namespaceId: s.namespaceId, runs: s.runs };
+  const payload = { namespaceId: s.namespaceId, runs: s.runs, renamePolicy: rename };
   async function call(user, service, action, request) {
     const url = new URL(`${baseUrl}/${service}_${action}`);
     url.searchParams.set('company', companyId); url.searchParams.set('tenant', 'default');
@@ -89,11 +92,20 @@ async function main(input) {
   if (ownerHistory) { assert.match(ownerHistory.request.systemId, guid); assert.match(ownerHistory.request.expectedVersion, /^[1-9][0-9]*$/); }
   const replay = () => receipt('f','Execute',ownerHistory.request);
   if (input.phase === 'initial') {
-    await check('restricted owner modifies and replays exactly', async () => {
-      const prepared = success(await receipt('f','Prepare'));
+    await check(`restricted owner ${operation} applies and replays exactly`, async () => {
+      let prepared = success(await receipt('f','Prepare'));
+      if (rename) {
+        await administration('SetTargetAmount', { runId: runId('f'), amount: 4 });
+        const inspected = success(await receipt('f','Inspect'));
+        prepared = { value: inspected.value.row };
+      }
       const request = { runId: runId('f'), requestId: s.requestId, systemId: prepared.value.systemId,
-        expectedVersion: prepared.value.version, operation: 'modify', amount: 4 };
+        expectedVersion: prepared.value.version, operation, ...(rename ? {} : { amount: 4 }) };
       const applied = success(await receipt('f','Execute',request));
+      if (rename) {
+        assert.equal(applied.value.row.name, 'RENAMED');
+        assert.equal(applied.value.row.systemId, prepared.value.systemId);
+      }
       ownerHistory = { request, text: applied.text };
       assert.equal(success(await replay()).text, ownerHistory.text);
       return { observed: await stateFor('f',4) };
@@ -102,9 +114,9 @@ async function main(input) {
     await check('another principal uses the same request ID in its own run', async () => {
       const prepared = success(await receipt('x','Prepare'));
       const applied = success(await receipt('x','Execute',{ requestId: s.requestId, systemId: prepared.value.systemId,
-        expectedVersion: prepared.value.version, operation: 'modify', amount: 4 }));
+        expectedVersion: prepared.value.version, operation, ...(rename ? {} : { amount: 4 }) }));
       assert.notEqual(applied.text, ownerHistory.text);
-      return { observed: await stateFor('x',4) };
+      return { observed: await stateFor('x',rename ? 0 : 4) };
     });
     for (const action of ['Execute','Inspect','ObservePending','Cleanup','CleanState']) {
       await check(`another principal cannot ${action} the owner run`, async () => {
@@ -128,10 +140,20 @@ async function main(input) {
       assert.equal(success(await replay()).text, ownerHistory.text);
       return { observed: await stateFor('f',4) };
     });
-    await check('same principal without Modify cannot apply a fresh request', async () => {
-      const state = await stateFor('f',4);
-      const denied = nativeDenied(await receipt('f','Execute',{ ...ownerHistory.request, requestId: crypto.randomUUID(), expectedVersion: state.version }), 'modify');
-      return { ...denied, observed: await stateFor('f',4) };
+    await check(`same principal without Modify cannot apply a fresh ${operation}`, async () => {
+      // A same-key Rename may be a no-op. Restore ORIGINAL administratively so
+      // the denied fresh rename must actually change the key; retain old receipt.
+      if (rename) await administration('SetTargetName', { runId: runId('f'), name: 'ORIGINAL' });
+      try {
+        const state = await stateFor('f',4);
+        const denied = nativeDenied(await receipt('f','Execute',{ ...ownerHistory.request, requestId: crypto.randomUUID(), expectedVersion: state.version }), 'modify');
+        const observed = await stateFor('f',4);
+        assert.equal(observed.version, state.version);
+        assert.equal(observed.systemId, state.systemId);
+        return { ...denied, observed };
+      } finally {
+        if (rename) await administration('SetTargetName', { runId: runId('f'), name: 'RENAMED' });
+      }
     });
   } else if (input.phase === 'n') {
     for (const action of ['Execute','Inspect']) {
@@ -141,20 +163,20 @@ async function main(input) {
       });
     }
   } else if (input.phase === 'v') {
-    await check('target inside the Amount security filter permits exact replay', async () => {
+    await check(`target inside the ${rename ? 'Name' : 'Amount'} security filter permits exact replay`, async () => {
       assert.equal(success(await replay()).text, ownerHistory.text);
       return { observed: await stateFor('f',4) };
     });
     await check('target moved outside the security filter cannot disclose history', async () => {
-      await administration('SetTargetAmount',{ runId: runId('f'), amount: 9 });
+      await administration(rename ? 'SetTargetName' : 'SetTargetAmount', { runId: runId('f'), ...(rename ? { name: 'ORIGINAL' } : { amount: 9 }) });
       const denied = await replay();
       assert.equal(denied.status, 400);
       assert.ok(denied.message.includes('BCD_EV_REPLAY_TARGET_UNAVAILABLE'));
       assert.equal(denied.text, undefined);
-      return { status: denied.status, code: denied.code, observed: await stateFor('f',9) };
+      return { status: denied.status, code: denied.code, observed: await stateFor('f',rename ? 4 : 9) };
     });
     await check('target restored inside the filter returns the original historical result', async () => {
-      await administration('SetTargetAmount',{ runId: runId('f'), amount: 4 });
+      await administration(rename ? 'SetTargetName' : 'SetTargetAmount', { runId: runId('f'), ...(rename ? { name: 'RENAMED' } : { amount: 4 }) });
       assert.equal(success(await replay()).text, ownerHistory.text);
       return { observed: await stateFor('f',4) };
     });

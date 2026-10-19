@@ -13,7 +13,13 @@ codeunit 50219 "BCD Replay Identity Probe"
         Profile: Text;
         Profiles: List of [Text];
         NullGuid: Guid;
+        Request: JsonObject;
+        Token: JsonToken;
+        RenamePolicy: Boolean;
     begin
+        Request.ReadFrom(inputJson);
+        if Request.Get('renamePolicy', Token) then
+            RenamePolicy := Token.AsValue().AsBoolean();
         NamespaceId := GetGuid(inputJson, 'namespaceId');
         Profiles := ProfileList();
         foreach Profile in Profiles do
@@ -54,7 +60,11 @@ codeunit 50219 "BCD Replay Identity Probe"
                     Target.TableName() + ': Principal=' + Format(Principal, 0, 4));
                 'n': AddPermission(Role."Role ID", 0, Database::"BCD Conflict Fixture", 'IMD',
                     Target.TableName() + ': Principal=' + Format(Principal, 0, 4));
-                'v': AddPermission(Role."Role ID", 0, Database::"BCD Conflict Fixture", 'R', Target.TableName() + ': Amount=4');
+                'v':
+                    if RenamePolicy then
+                        AddPermission(Role."Role ID", 0, Database::"BCD Conflict Fixture", 'R', Target.TableName() + ': Name=RENAMED')
+                    else
+                        AddPermission(Role."Role ID", 0, Database::"BCD Conflict Fixture", 'R', Target.TableName() + ': Amount=4');
                 else AddPermission(Role."Role ID", 0, Database::"BCD Conflict Fixture", 'RIMD',
                     Target.TableName() + ': Principal=' + Format(Principal, 0, 4));
             end;
@@ -186,6 +196,7 @@ codeunit 50219 "BCD Replay Identity Probe"
                 Row.Add('version', Format(Version, 0, 9));
                 Row.Add('systemId', Format(Target.SystemId, 0, 4));
                 Row.Add('amount', Target.Amount);
+                Row.Add('name', Target.Name);
             end;
             Rows.Add(Row);
         end;
@@ -253,6 +264,37 @@ codeunit 50219 "BCD Replay Identity Probe"
         Target.FindFirst();
         Target.Amount := Amount;
         Target.Modify();
+        exit('{"changed":true}');
+    end;
+
+    procedure SetTargetName(inputJson: Text): Text
+    var
+        Run: Record "BCD Receipt Run";
+        Target: Record "BCD Conflict Fixture";
+        Request: JsonObject;
+        Token: JsonToken;
+        NamespaceId: Guid;
+        RunId: Guid;
+        Principal: Guid;
+        Name: Text;
+    begin
+        // Fixed-key test administration only; never changes a receipt.
+        NamespaceId := GetGuid(inputJson, 'namespaceId');
+        RunId := GetGuid(inputJson, 'runId');
+        Principal := ProfilePrincipal(NamespaceId, 'f', true);
+        Run.Get(RunId);
+        if Run.Principal <> Principal then
+            Error('BCD_EVP_DATA_OWNER_CHANGED');
+        Request.ReadFrom(inputJson);
+        Request.Get('name', Token);
+        Name := Token.AsValue().AsText();
+        if not (Name in ['ORIGINAL', 'RENAMED']) then
+            Error('BCD_EVP_INVALID_NAME');
+        Target.LockTable();
+        Target.SetRange("Run ID", RunId);
+        Target.SetRange(Principal, Principal);
+        Target.FindFirst();
+        Target.Rename(RunId, Name);
         exit('{"changed":true}');
     end;
 
