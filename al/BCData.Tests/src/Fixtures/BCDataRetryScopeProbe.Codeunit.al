@@ -2,6 +2,17 @@ codeunit 50220 "BCD Retry Scope Probe"
 {
     // E08 fixture only; native owner/table rights, no elevated Permissions.
     procedure Prepare(inputJson: Text): Text
+    begin
+        exit(PrepareWithWindow(inputJson, 60000));
+    end;
+
+    procedure PrepareRestoreForTest(inputJson: Text): Text
+    begin
+        // Fixed 24-hour laboratory window, never a production retention setting.
+        exit(PrepareWithWindow(inputJson, 86400000));
+    end;
+
+    local procedure PrepareWithWindow(inputJson: Text; WindowMs: Integer): Text
     var
         Run: Record "BCD Receipt Run";
         Response: JsonObject;
@@ -11,10 +22,24 @@ codeunit 50220 "BCD Retry Scope Probe"
         Run.Principal := UserSecurityId();
         Run."Request Epoch" := CreateGuid();
         // Fixed test window; neither caller timestamps nor caller epochs are accepted.
-        Run."Retry Until" := CurrentDateTime() + 60000;
+        Run."Retry Until" := CurrentDateTime() + WindowMs;
         Run.Insert();
         Response.Add('scopeEpoch', Format(Run."Request Epoch", 0, 4));
         Response.Add('retryUntil', Format(Run."Retry Until", 0, 9));
+        Response.WriteTo(Output);
+        exit(Output);
+    end;
+
+    procedure InspectScopeForTest(inputJson: Text): Text
+    var
+        Run: Record "BCD Receipt Run";
+        Response: JsonObject;
+        Output: Text;
+    begin
+        GetOwned(Run, inputJson, false);
+        Response.Add('scopeEpoch', Format(Run."Request Epoch", 0, 4));
+        Response.Add('retryUntil', Format(Run."Retry Until", 0, 9));
+        Response.Add('principal', Format(Run.Principal, 0, 4));
         Response.WriteTo(Output);
         exit(Output);
     end;

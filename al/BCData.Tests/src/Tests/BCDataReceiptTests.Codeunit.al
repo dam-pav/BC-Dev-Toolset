@@ -235,6 +235,46 @@ codeunit 50206 "BCD Receipt Tests"
         Cleanup(RunId);
     end;
 
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure RestoreWindowIsFixedByServerAndRetainsNormalScopeGuards()
+    var
+        Run: Record "BCD Receipt Run";
+        RunId: Guid;
+        BeforePrepare: DateTime;
+        Input: Text;
+        Prepared: JsonObject;
+        Observed: JsonObject;
+        Token: JsonToken;
+        Epoch: Text;
+    begin
+        RunId := CreateGuid();
+        BeforePrepare := CurrentDateTime();
+        // Caller-supplied lifetime/epoch cannot replace the server's values.
+        Input := '{"runId":"' + Format(RunId, 0, 4) + '","retryUntil":"2000-01-01T00:00:00Z","scopeEpoch":"00000000-0000-0000-0000-000000000000"}';
+        Prepared.ReadFrom(Scope.PrepareRestoreForTest(Input));
+        Run.Get(RunId);
+        Assert.IsFalse(IsNullGuid(Run."Request Epoch"), 'Server creates the epoch.');
+        // SQL DateTime persistence may round fractional milliseconds.
+        Assert.IsTrue(Run."Retry Until" >= BeforePrepare + 86399000, 'Restore window is 24 hours within storage precision.');
+        Assert.IsTrue(Run."Retry Until" <= CurrentDateTime() + 86401000, 'Caller cannot extend the fixed server lifetime.');
+        Observed.ReadFrom(Scope.InspectScopeForTest(RunRequest(RunId)));
+        Observed.Get('retryUntil', Token);
+        Assert.AreEqual(Format(Run."Retry Until", 0, 9), Token.AsValue().AsText(), 'Inspection preserves exact deadline.');
+        Prepared.Get('scopeEpoch', Token);
+        Epoch := Token.AsValue().AsText();
+        Input := ScopedRequest(RunId, Epoch);
+        Scope.Execute(Input);
+        Commit();
+        asserterror Scope.PurgeExpired(Input);
+        Assert.ExpectedError('BCD_E08_SCOPE_ACTIVE');
+        Scope.ExpireForTest(Input);
+        Commit();
+        asserterror Scope.Execute(Input);
+        Assert.ExpectedError('BCD_E08_SCOPE_EXPIRED');
+        Cleanup(RunId);
+    end;
+
     local procedure PrepareScope(var RunId: Guid; var Epoch: Text)
     var
         Prepared: JsonObject;
