@@ -1,6 +1,6 @@
 # BC Data restore qualification: protocol and results
 
-Status (2026-10-19): actual SQL rollback negative controls completed on BC23 and BC27.1, with both owned scope sets cleaned and service readiness verified. BC23 restored through Toolset MCP; BC27.1 needed separately approved native SQL recovery after repeated administration assembly failures. Both restored active scopes admitted the identical request as a new execution; already-expired scopes rejected old/new IDs. This establishes the hazard, not restore-safe retries. Production writes remain disabled.
+Status (2026-10-19): actual SQL rollback controls completed on BC23 and BC27.1, with both owned scope sets cleaned and service readiness verified. BC23 restored through Toolset MCP; BC27.1 needed separately approved native SQL recovery after repeated administration assembly failures. Both restored active scopes admitted the identical request as a new execution; already-expired scopes rejected old/new IDs. The original mutation and receipt were both rolled back: repetition changed counter0 to4, not8. Automatic retry continuity across external restoration is outside the initial RIMD contract and is not an implementation gate. Production writes remain disabled pending operation-specific implementation and verification.
 
 ## Execution boundary
 
