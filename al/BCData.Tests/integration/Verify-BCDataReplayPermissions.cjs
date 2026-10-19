@@ -15,8 +15,9 @@ async function main(input) {
   assert.deepEqual(s.runs.map(r => r.kind).sort(), ['f','x']);
   for (const run of s.runs) assert.match(run.runId, guid);
   const operation = s.operation || 'modify';
-  assert.ok(['modify','rename'].includes(operation));
+  assert.ok(['modify','rename','insert'].includes(operation));
   const rename = operation === 'rename';
+  const insert = operation === 'insert';
   const admin = input.admin;
   const users = Object.fromEntries((input.users || []).map(user => [user.kind, user]));
   const baseUrl = `http://${s.container}:7048/BC/ODataV4`;
@@ -89,22 +90,27 @@ async function main(input) {
     catch (error) { results.push({ name, passed: false, failure: error.name === 'AssertionError' ? redact(error.message) : 'Qualification request failed.' }); }
   }
   let ownerHistory = input.expectedHistory;
-  if (ownerHistory) { assert.match(ownerHistory.request.systemId, guid); assert.match(ownerHistory.request.expectedVersion, /^[1-9][0-9]*$/); }
+  if (ownerHistory) {
+    assert.match(ownerHistory.request.systemId, guid);
+    if (insert) assert.equal(ownerHistory.request.expectedVersion, undefined);
+    else assert.match(ownerHistory.request.expectedVersion, /^[1-9][0-9]*$/);
+  }
   const replay = () => receipt('f','Execute',ownerHistory.request);
   if (input.phase === 'initial') {
     await check(`restricted owner ${operation} applies and replays exactly`, async () => {
-      let prepared = success(await receipt('f','Prepare'));
+      let prepared = success(await receipt('f', insert ? 'PrepareEmpty' : 'Prepare'));
+      if (insert) prepared = { value: { systemId: crypto.randomUUID() } };
       if (rename) {
         await administration('SetTargetAmount', { runId: runId('f'), amount: 4 });
         const inspected = success(await receipt('f','Inspect'));
         prepared = { value: inspected.value.row };
       }
       const request = { runId: runId('f'), requestId: s.requestId, systemId: prepared.value.systemId,
-        expectedVersion: prepared.value.version, operation, ...(rename ? {} : { amount: 4 }) };
+        ...(insert ? {} : { expectedVersion: prepared.value.version }), operation, ...(rename ? {} : { amount: 4 }) };
       const applied = success(await receipt('f','Execute',request));
-      if (rename) {
-        assert.equal(applied.value.row.name, 'RENAMED');
-        assert.equal(applied.value.row.systemId, prepared.value.systemId);
+      if (rename || insert) {
+        assert.equal(applied.value.row.name, rename ? 'RENAMED' : 'ORIGINAL');
+        assert.equal(applied.value.row.systemId.toLowerCase(), prepared.value.systemId.toLowerCase());
       }
       ownerHistory = { request, text: applied.text };
       assert.equal(success(await replay()).text, ownerHistory.text);
@@ -112,9 +118,10 @@ async function main(input) {
     });
     if (!ownerHistory) return { results };
     await check('another principal uses the same request ID in its own run', async () => {
-      const prepared = success(await receipt('x','Prepare'));
+      let prepared = success(await receipt('x', insert ? 'PrepareEmpty' : 'Prepare'));
+      if (insert) prepared = { value: { systemId: crypto.randomUUID() } };
       const applied = success(await receipt('x','Execute',{ requestId: s.requestId, systemId: prepared.value.systemId,
-        expectedVersion: prepared.value.version, operation, ...(rename ? {} : { amount: 4 }) }));
+        ...(insert ? {} : { expectedVersion: prepared.value.version }), operation, ...(rename ? {} : { amount: 4 }) }));
       assert.notEqual(applied.text, ownerHistory.text);
       return { observed: await stateFor('x',rename ? 0 : 4) };
     });
@@ -136,23 +143,25 @@ async function main(input) {
       return { status: denied.status, code: denied.code };
     });
   } else if (input.phase === 'r') {
-    await check('same principal replays with target Read and no Modify', async () => {
+    await check(`same principal replays with target Read and no ${insert ? 'Insert' : 'Modify'}`, async () => {
       assert.equal(success(await replay()).text, ownerHistory.text);
       return { observed: await stateFor('f',4) };
     });
-    await check(`same principal without Modify cannot apply a fresh ${operation}`, async () => {
-      // A same-key Rename may be a no-op. Restore ORIGINAL administratively so
-      // the denied fresh rename must actually change the key; retain old receipt.
-      if (rename) await administration('SetTargetName', { runId: runId('f'), name: 'ORIGINAL' });
+    await check(`same principal without ${insert ? 'Insert' : 'Modify'} cannot apply a fresh ${operation}`, async () => {
+      // Keep the old SystemId/history. Rename must change its key; insert must
+      // have a free ORIGINAL key so a conflict cannot mask a native denial.
+      if (rename || insert) await administration('SetTargetName', { runId: runId('f'), name: insert ? 'RENAMED' : 'ORIGINAL' });
       try {
         const state = await stateFor('f',4);
-        const denied = nativeDenied(await receipt('f','Execute',{ ...ownerHistory.request, requestId: crypto.randomUUID(), expectedVersion: state.version }), 'modify');
+        const request = { ...ownerHistory.request, requestId: crypto.randomUUID(),
+          ...(insert ? { systemId: crypto.randomUUID() } : { expectedVersion: state.version }) };
+        const denied = nativeDenied(await receipt('f','Execute',request), insert ? 'insert' : 'modify');
         const observed = await stateFor('f',4);
         assert.equal(observed.version, state.version);
         assert.equal(observed.systemId, state.systemId);
         return { ...denied, observed };
       } finally {
-        if (rename) await administration('SetTargetName', { runId: runId('f'), name: 'RENAMED' });
+        if (rename || insert) await administration('SetTargetName', { runId: runId('f'), name: insert ? 'ORIGINAL' : 'RENAMED' });
       }
     });
   } else if (input.phase === 'n') {

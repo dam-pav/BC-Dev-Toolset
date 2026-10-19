@@ -1,12 +1,12 @@
 param(
     [ValidateSet('BC23 Baseline','BC27.1')][string] $Target = 'BC23 Baseline',
-    [ValidateSet('modify','rename')][string] $Operation = 'modify',
+    [ValidateSet('modify','rename','insert')][string] $Operation = 'modify',
     [switch] $CleanupOnly
 )
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
 $container = @{'BC23 Baseline'='bcdata23test';'BC27.1'='bcdata271'}[$Target]
-$prefix = if ($Operation -eq 'rename') { 'evpr' } else { 'evp' }
+$prefix = switch ($Operation) { 'rename' { 'evpr' } 'insert' { 'evpi' } default { 'evp' } }
 $statePath = Join-Path $root ".bcdevtoolset/$prefix-$container-state.json"
 $evidencePath = Join-Path $root ".bcdevtoolset/$prefix-$container-evidence.json"
 . (Join-Path $root 'common/CredentialMgt.ps1')

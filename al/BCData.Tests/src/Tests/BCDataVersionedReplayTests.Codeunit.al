@@ -149,6 +149,53 @@ codeunit 50218 "BCD Versioned Replay Tests"
         CheckAndClean(RunId);
     end;
 
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure InsertReadRevocationBlocksHistoryUntilRestored()
+    var
+        RunId: Guid;
+        Input: Text;
+        Result: Text;
+    begin
+        InitializeOperation(RunId, Input, Result, 'insert');
+        PermissionsMock.Set('BCD EV NO TARGET R');
+        asserterror Probe.Execute(Input);
+        Assert.ExpectedError('BCD Conflict Fixture');
+        Assert.IsTrue(StrPos(LowerCase(GetLastErrorText()), 'read') > 0, 'Insert replay requires current target Read.');
+        PermissionsMock.Set('BCD EV SETUP');
+        Assert.AreEqual(Result, Probe.Execute(Input), 'Restored Read recovers exact insert history.');
+        CheckAndClean(RunId);
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure InsertReplayNeedsReadButFreshInsertNeedsInsert()
+    var
+        RunId: Guid;
+        Input: Text;
+        Result: Text;
+        Request: JsonObject;
+        Target: Record "BCD Conflict Fixture";
+    begin
+        InitializeOperation(RunId, Input, Result, 'insert');
+        PermissionsMock.Set('BCD EV TARGET R');
+        Assert.AreEqual(Result, Probe.Execute(Input), 'Read-only permits insert replay without target Insert.');
+        PermissionsMock.Set('BCD EV SETUP');
+        // Free the insertion key while preserving the original identity/history.
+        Target.Get(RunId, 'ORIGINAL');
+        Target.Rename(RunId, 'RENAMED');
+        Commit();
+        Request.ReadFrom(Input);
+        Request.Replace('requestId', Format(CreateGuid(), 0, 4));
+        Request.Replace('systemId', Format(CreateGuid(), 0, 4));
+        Request.WriteTo(Input);
+        PermissionsMock.Set('BCD EV TARGET R');
+        asserterror Probe.Execute(Input);
+        Assert.ExpectedError('BCD Conflict Fixture');
+        Assert.IsTrue(StrPos(LowerCase(GetLastErrorText()), 'insert') > 0, 'Fresh insert requires native target Insert.');
+        CheckAndClean(RunId);
+    end;
+
     local procedure Initialize(var RunId: Guid; var Input: Text; var Result: Text)
     begin
         InitializeOperation(RunId, Input, Result, 'modify');
@@ -165,15 +212,22 @@ codeunit 50218 "BCD Versioned Replay Tests"
         PermissionsMock.Start();
         PermissionsMock.Set('BCD EV SETUP');
         RunId := CreateGuid();
-        Row.ReadFrom(Probe.Prepare(RunRequest(RunId)));
+        if Operation = 'insert' then
+            Probe.PrepareEmpty(RunRequest(RunId))
+        else
+            Row.ReadFrom(Probe.Prepare(RunRequest(RunId)));
         Request.Add('runId', Format(RunId, 0, 4));
         Request.Add('requestId', Format(CreateGuid(), 0, 4));
-        Row.Get('systemId', Token);
-        Request.Add('systemId', Token.AsValue().AsText());
-        Row.Get('version', Token);
-        Request.Add('expectedVersion', Token.AsValue().AsText());
+        if Operation = 'insert' then
+            Request.Add('systemId', Format(CreateGuid(), 0, 4))
+        else begin
+            Row.Get('systemId', Token);
+            Request.Add('systemId', Token.AsValue().AsText());
+            Row.Get('version', Token);
+            Request.Add('expectedVersion', Token.AsValue().AsText());
+        end;
         Request.Add('operation', Operation);
-        if Operation = 'modify' then
+        if Operation in ['insert', 'modify'] then
             Request.Add('amount', 4);
         Request.WriteTo(Input);
         Result := Probe.Execute(Input);
