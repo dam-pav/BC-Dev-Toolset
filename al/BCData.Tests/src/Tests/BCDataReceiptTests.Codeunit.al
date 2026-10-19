@@ -89,6 +89,39 @@ codeunit 50206 "BCD Receipt Tests"
         CheckState(SecondRunId, 6, 1, 1);
     end;
 
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure RemovingReceiptAllowsIdenticalRequestToApplyAgain()
+    var
+        Receipt: Record "BCD Receipt Fixture";
+        RunId: Guid;
+        Input: Text;
+        FirstResult: Text;
+        SecondResult: Text;
+    begin
+        // E08 negative control: deliberately forget only this completed receipt.
+        // This demonstrates the missing lifetime guard; it is not a purge policy.
+        RunId := PrepareRun();
+        Commit();
+        Input := MutationRequest(RunId, CreateGuid(), 4, false);
+        FirstResult := Probe.Execute(Input);
+        Commit();
+        CheckState(RunId, 4, 1, 1);
+        Receipt.SetRange("Run ID", RunId);
+        Receipt.SetRange(Principal, UserSecurityId());
+        Assert.AreEqual(1, Receipt.Count(), 'Only the owned fixture receipt is selected.');
+        Receipt.FindFirst();
+        Assert.IsTrue(Receipt.Completed, 'The forgotten receipt was completed.');
+        Receipt.Delete();
+        Commit();
+        CheckState(RunId, 4, 1, 0);
+        SecondResult := Probe.Execute(Input);
+        Commit();
+        Assert.AreNotEqual(FirstResult, SecondResult, 'Identical ID/payload is executed again after history is forgotten.');
+        CheckState(RunId, 8, 2, 1);
+        Cleanup(RunId);
+    end;
+
     local procedure PrepareRun(): Guid
     var
         RunId: Guid;
