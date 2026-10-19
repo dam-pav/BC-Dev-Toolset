@@ -16,6 +16,8 @@ codeunit 50214 "BCD Receipt Probe"
     var
         Receipt: Record "BCD Receipt Fixture";
         Run: Record "BCD Receipt Run";
+        Scope: Codeunit "BCD Retry Scope Probe";
+        HasScope: Boolean;
         Request: JsonObject;
         Token: JsonToken;
         ResultObject: JsonObject;
@@ -31,6 +33,10 @@ codeunit 50214 "BCD Receipt Probe"
         RequestId := ParseGuid(inputJson, 'requestId');
         CheckOwner(RunId);
         Request.ReadFrom(inputJson);
+        Run.Get(RunId);
+        HasScope := not IsNullGuid(Run."Request Epoch") or Request.Get('scopeEpoch', Token);
+        if HasScope then
+            Scope.Validate(inputJson);
         Request.Get('amount', Token);
         Amount := Token.AsValue().AsInteger();
         if (Amount < -1000000) or (Amount > 1000000) then
@@ -64,6 +70,8 @@ codeunit 50214 "BCD Receipt Probe"
             Sleep(DelayMs);
         Run.LockTable();
         Run.Get(RunId);
+        if HasScope then
+            Scope.Validate(inputJson);
         Run.Total += Amount;
         Run."Apply Count" += 1;
         Run.Modify();

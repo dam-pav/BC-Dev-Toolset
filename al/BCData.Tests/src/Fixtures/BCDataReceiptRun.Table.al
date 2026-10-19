@@ -7,6 +7,8 @@ table 50205 "BCD Receipt Run"
         field(2; Principal; Guid) { DataClassification = EndUserPseudonymousIdentifiers; }
         field(3; Total; Integer) { }
         field(4; "Apply Count"; Integer) { }
+        field(5; "Request Epoch"; Guid) { }
+        field(6; "Retry Until"; DateTime) { }
     }
     keys
     {

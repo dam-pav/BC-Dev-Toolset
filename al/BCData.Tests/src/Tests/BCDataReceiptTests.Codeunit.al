@@ -122,6 +122,142 @@ codeunit 50206 "BCD Receipt Tests"
         Cleanup(RunId);
     end;
 
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure ActiveScopeReplaysAndRejectsPrematurePurge()
+    var
+        RunId: Guid;
+        Epoch: Text;
+        Input: Text;
+        Result: Text;
+    begin
+        PrepareScope(RunId, Epoch);
+        Input := ScopedRequest(RunId, Epoch);
+        Result := Scope.Execute(Input);
+        Commit();
+        Assert.AreEqual(Result, Scope.Execute(Input), 'Active scope returns exact completed history.');
+        asserterror Scope.PurgeExpired(Input);
+        Assert.ExpectedError('BCD_E08_SCOPE_ACTIVE');
+        CheckState(RunId, 4, 1, 1);
+        Cleanup(RunId);
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure ExpiredScopeRejectsIdenticalAndNewIdsAfterReceiptPurge()
+    var
+        RunId: Guid;
+        Epoch: Text;
+        Input: Text;
+    begin
+        PrepareScope(RunId, Epoch);
+        Input := ScopedRequest(RunId, Epoch);
+        Scope.Execute(Input);
+        Commit();
+        Scope.ExpireForTest(Input);
+        Commit();
+        asserterror Scope.Execute(Input);
+        Assert.ExpectedError('BCD_E08_SCOPE_EXPIRED');
+        Scope.PurgeExpired(Input);
+        Commit();
+        CheckState(RunId, 4, 1, 0);
+        asserterror Scope.Execute(Input);
+        Assert.ExpectedError('BCD_E08_SCOPE_EXPIRED');
+        asserterror Scope.Execute(ScopedRequest(RunId, Epoch));
+        Assert.ExpectedError('BCD_E08_SCOPE_EXPIRED');
+        CheckState(RunId, 4, 1, 0);
+        Cleanup(RunId);
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure MissingOrRetiredEpochCannotReopenRecreatedScope()
+    var
+        RunId: Guid;
+        Epoch: Text;
+        OldInput: Text;
+        MissingEpoch: JsonObject;
+        Prepared: JsonObject;
+        Token: JsonToken;
+        Input: Text;
+    begin
+        PrepareScope(RunId, Epoch);
+        OldInput := ScopedRequest(RunId, Epoch);
+        MissingEpoch.ReadFrom(OldInput);
+        MissingEpoch.Remove('scopeEpoch');
+        MissingEpoch.WriteTo(Input);
+        asserterror Scope.Execute(Input);
+        Assert.ExpectedError('BCD_E08_SCOPE_REQUIRED');
+        Scope.Execute(OldInput);
+        Commit();
+        Cleanup(RunId);
+        Commit();
+        Probe.Prepare(RunRequest(RunId));
+        Commit();
+        asserterror Scope.Execute(Input);
+        Assert.ExpectedError('BCD_E08_SCOPE_RETIRED');
+        CheckState(RunId, 0, 0, 0);
+        Cleanup(RunId);
+        Commit();
+        Prepared.ReadFrom(Scope.Prepare(RunRequest(RunId)));
+        Prepared.Get('scopeEpoch', Token);
+        Assert.AreNotEqual(Epoch, Token.AsValue().AsText(), 'Recreated run has a new server generation.');
+        Epoch := Token.AsValue().AsText();
+        Commit();
+        asserterror Scope.Execute(OldInput);
+        Assert.ExpectedError('BCD_E08_SCOPE_RETIRED');
+        CheckState(RunId, 0, 0, 0);
+        Scope.Execute(ScopedRequest(RunId, Epoch));
+        Commit();
+        CheckState(RunId, 4, 1, 1);
+        Cleanup(RunId);
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure DeadlineCrossingDuringMutationRollsBackReservation()
+    var
+        RunId: Guid;
+        Epoch: Text;
+        Request: JsonObject;
+        Input: Text;
+    begin
+        PrepareScope(RunId, Epoch);
+        Input := ScopedRequest(RunId, Epoch);
+        Scope.NearDeadlineForTest(Input);
+        Commit();
+        Request.ReadFrom(Input);
+        Request.Add('delayMs', 3000);
+        Request.WriteTo(Input);
+        asserterror Scope.Execute(Input);
+        Assert.ExpectedError('BCD_E08_SCOPE_EXPIRED');
+        CheckState(RunId, 0, 0, 0);
+        Cleanup(RunId);
+    end;
+
+    local procedure PrepareScope(var RunId: Guid; var Epoch: Text)
+    var
+        Prepared: JsonObject;
+        Token: JsonToken;
+    begin
+        RunId := CreateGuid();
+        Prepared.ReadFrom(Scope.Prepare(RunRequest(RunId)));
+        Prepared.Get('scopeEpoch', Token);
+        Epoch := Token.AsValue().AsText();
+        Commit();
+    end;
+
+    local procedure ScopedRequest(RunId: Guid; Epoch: Text): Text
+    var
+        Request: JsonObject;
+        Output: Text;
+    begin
+        Request.ReadFrom(MutationRequest(RunId, CreateGuid(), 4, false));
+        Request.Add('scopeEpoch', Epoch);
+        Request.WriteTo(Output);
+        exit(Output);
+    end;
+
     local procedure PrepareRun(): Guid
     var
         RunId: Guid;
@@ -180,5 +316,6 @@ codeunit 50206 "BCD Receipt Tests"
 
     var
         Probe: Codeunit "BCD Receipt Probe";
+        Scope: Codeunit "BCD Retry Scope Probe";
         Assert: Codeunit "Library Assert";
 }

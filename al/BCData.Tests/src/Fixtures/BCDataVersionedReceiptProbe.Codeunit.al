@@ -35,12 +35,17 @@ codeunit 50217 "BCD Versioned Receipt Probe"
         ResultText: Text;
         Amount: Integer;
         FailAfterMutation: Boolean;
+        Scope: Codeunit "BCD Retry Scope Probe";
+        HasScope: Boolean;
     begin
         RunId := ReadGuid(inputJson, 'runId');
         RequestId := ReadGuid(inputJson, 'requestId');
         TargetId := ReadGuid(inputJson, 'systemId');
         CheckOwner(Run, RunId);
         Request.ReadFrom(inputJson);
+        HasScope := not IsNullGuid(Run."Request Epoch") or Request.Get('scopeEpoch', Token);
+        if HasScope then
+            Scope.Validate(inputJson);
         Request.Get('operation', Token);
         Operation := Token.AsValue().AsText();
         if not (Operation in ['insert', 'modify', 'delete', 'rename']) then
@@ -103,6 +108,8 @@ codeunit 50217 "BCD Versioned Receipt Probe"
             RowState.ReadFrom(Conflict.Execute(inputJson));
         Run.LockTable();
         Run.Get(RunId);
+        if HasScope then
+            Scope.Validate(inputJson);
         Run."Apply Count" += 1;
         Run.Modify();
         if FailAfterMutation then
