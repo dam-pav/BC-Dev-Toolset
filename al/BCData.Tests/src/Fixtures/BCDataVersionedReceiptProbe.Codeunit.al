@@ -61,6 +61,7 @@ codeunit 50217 "BCD Versioned Receipt Probe"
                 Error('BCD_EV_REQUEST_ID_REUSED');
             if not Receipt.Completed then
                 Error('BCD_EV_INCOMPLETE_RECEIPT');
+            RequireReplayTarget(RunId, TargetId);
             exit(Receipt.Result);
         end;
         // Existing E04 path locks, rereads and compares before modifying.
@@ -82,6 +83,26 @@ codeunit 50217 "BCD Versioned Receipt Probe"
         Receipt.Completed := true;
         Receipt.Modify();
         exit(ResultText);
+    end;
+
+    procedure PrepareReplacement(inputJson: Text): Text
+    var
+        Run: Record "BCD Receipt Run";
+        Row: Record "BCD Conflict Fixture";
+        RunId: Guid;
+    begin
+        // Test-only replacement of a previously deleted fixture row. Never edits receipts.
+        RunId := ReadGuid(inputJson, 'runId');
+        CheckOwner(Run, RunId);
+        Row.SetRange("Run ID", RunId);
+        if not Row.IsEmpty() then
+            Error('BCD_EV_TARGET_STILL_EXISTS');
+        Row.Init();
+        Row."Run ID" := RunId;
+        Row.Name := 'ORIGINAL';
+        Row.Principal := UserSecurityId();
+        Row.Insert();
+        exit(Conflict.Inspect(inputJson));
     end;
 
     procedure Inspect(inputJson: Text): Text
@@ -153,6 +174,29 @@ codeunit 50217 "BCD Versioned Receipt Probe"
         Run.Get(RunId);
         if Run.Principal <> UserSecurityId() then
             Error('BCD_EV_OWNER_MISMATCH');
+    end;
+
+    local procedure RequireReplayTarget(RunId: Guid; TargetId: Guid)
+    var
+        Target: RecordRef;
+        Field: FieldRef;
+        Found: Boolean;
+    begin
+        // Modify-receipt policy: current native table/row Read and visibility are
+        // required for result disclosure. Do not compare the historical version.
+        Target.Open(Database::"BCD Conflict Fixture");
+        Target.SecurityFiltering(SecurityFilter::Filtered);
+        Target.ReadIsolation := IsolationLevel::ReadCommitted;
+        Field := Target.Field(Target.SystemIdNo());
+        Field.SetRange(TargetId);
+        Field := Target.Field(1);
+        Field.SetRange(RunId);
+        Field := Target.Field(3);
+        Field.SetRange(UserSecurityId());
+        Found := Target.FindFirst();
+        Target.Close();
+        if not Found then
+            Error('BCD_EV_REPLAY_TARGET_UNAVAILABLE');
     end;
 
     local procedure ReadGuid(Input: Text; Name: Text): Guid

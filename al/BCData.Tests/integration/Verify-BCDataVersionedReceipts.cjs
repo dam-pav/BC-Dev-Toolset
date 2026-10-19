@@ -27,7 +27,7 @@ async function main(input) {
     .split(Buffer.from(`${connection.username}:${connection.password}`).toString('base64')).join('[redacted]').slice(0, 2048);
   async function call(action, payload, rowOnly = false) {
     assert.match(payload.runId, guidPattern);
-    assert.ok(!rowOnly || action === 'Inspect');
+    assert.ok(!rowOnly || ['Inspect', 'Execute'].includes(action));
     const url = new URL(`${connection.baseUrl}/${rowOnly ? 'BCDCompatibilityE04' : 'BCDCompatibilityEV'}_${action}`);
     url.searchParams.set('company', companyId);
     url.searchParams.set('tenant', 'default');
@@ -37,18 +37,22 @@ async function main(input) {
     return { status: response.status, ...(response.status === 200 ? { text: envelope.value, value: JSON.parse(envelope.value) } :
       { code: redact(envelope.error?.code), message: redact(envelope.error?.message) }) };
   }
-  async function stateFor(runId, amount, count) {
+  async function receiptState(runId, count) {
     const response = await call('Inspect', { runId });
     assert.equal(response.status, 200);
-    assert.equal(response.value.row.exists, true);
-    assert.equal(response.value.row.amount, amount);
     assert.equal(response.value.applyCount, count);
     assert.equal(response.value.receiptCount, count);
     assert.equal(response.value.pendingCount, 0);
     return response.value;
   }
+  async function stateFor(runId, amount, count) {
+    const state = await receiptState(runId, count);
+    assert.equal(state.row.exists, true);
+    assert.equal(state.row.amount, amount);
+    return state;
+  }
   async function cleanup(runIds) {
-    assert.ok(Array.isArray(runIds) && runIds.length <= 7);
+    assert.ok(Array.isArray(runIds) && runIds.length <= 10);
     for (const runId of runIds) assert.match(runId, guidPattern);
     for (const runId of runIds) {
       assert.equal((await call('Cleanup', { runId })).status, 200);
@@ -66,7 +70,7 @@ async function main(input) {
     return { target: input.target, cleaned: true };
   }
   assert.ok(!fs.existsSync(statePath), 'Run -CleanupOnly for interrupted EV qualification.');
-  const runIds = Array.from({ length: 7 }, () => crypto.randomUUID());
+  const runIds = Array.from({ length: 10 }, () => crypto.randomUUID());
   fs.writeFileSync(statePath, JSON.stringify({ target: input.target, companyId, runIds }), { flag: 'wx' });
   const results = [];
   const pendingCalls = [];
@@ -191,6 +195,50 @@ async function main(input) {
       (runId, row, diagnostics) => race(runId, row, 'mismatch', diagnostics));
     await check('different IDs compete on one version; loser rolls back receipt and can retry', 6,
       (runId, row, diagnostics) => race(runId, row, 'distinct', diagnostics));
+    await check('deleted target blocks historical disclosure and new writes without changing receipts', 7, async (runId, row) => {
+      const request = mutation(runId, row);
+      const first = await call('Execute', request);
+      assert.equal(first.status, 200);
+      assert.equal((await call('Execute', { ...mutation(runId, first.value.row), operation: 'delete' }, true)).status, 200);
+      const replay = await call('Execute', request);
+      rejected(replay, 'BCD_EV_REPLAY_TARGET_UNAVAILABLE');
+      assert.equal(replay.text, undefined);
+      rejected(await call('Execute', mutation(runId, first.value.row)), 'BCD_E04_NOT_FOUND');
+      const state = await receiptState(runId, 1);
+      assert.equal(state.row.exists, false);
+      return { replayStatus: replay.status, observed: state };
+    });
+    await check('same-key replacement cannot authorize the old SystemId result', 8, async (runId, row) => {
+      const request = mutation(runId, row);
+      const first = await call('Execute', request);
+      assert.equal(first.status, 200);
+      assert.equal((await call('Execute', { ...mutation(runId, first.value.row), operation: 'delete' }, true)).status, 200);
+      const replacement = await call('PrepareReplacement', { runId });
+      assert.equal(replacement.status, 200);
+      assert.equal(replacement.value.name, row.name);
+      assert.notEqual(replacement.value.systemId, row.systemId);
+      const replay = await call('Execute', request);
+      rejected(replay, 'BCD_EV_REPLAY_TARGET_UNAVAILABLE');
+      assert.equal(replay.text, undefined);
+      const state = await stateFor(runId, 0, 1);
+      assert.equal(state.row.systemId, replacement.value.systemId);
+      return { originalSystemId: row.systemId, replacementSystemId: state.row.systemId, observed: state };
+    });
+    await check('rename retains readable identity and exact historical replay', 9, async (runId, row) => {
+      const request = mutation(runId, row);
+      const first = await call('Execute', request);
+      assert.equal(first.status, 200);
+      const renamed = await call('Execute', { ...mutation(runId, first.value.row), operation: 'rename' }, true);
+      assert.equal(renamed.status, 200);
+      assert.equal(renamed.value.systemId, row.systemId);
+      assert.equal(renamed.value.name, 'RENAMED');
+      assert.notEqual(renamed.value.version, first.value.row.version);
+      assert.equal((await call('Execute', request)).text, first.text);
+      const state = await stateFor(runId, 4, 1);
+      assert.equal(state.row.name, 'RENAMED');
+      assert.equal(state.row.version, renamed.value.version);
+      return { historicalName: first.value.row.name, currentName: state.row.name, observed: state };
+    });
   } finally {
     await Promise.allSettled(pendingCalls);
     await cleanup(runIds);
@@ -199,7 +247,7 @@ async function main(input) {
   }
   const evidence = { target: input.target, companyId, checkedAt: new Date().toISOString(),
     appVersion: readiness.appVersion, transport: 'native-node-http10', results, cleaned,
-    passed: results.length === 7 && results.every(result => result.passed) };
+    passed: results.length === 10 && results.every(result => result.passed) };
   fs.writeFileSync(evidencePath, JSON.stringify(evidence, null, 2));
   return evidence;
 }
