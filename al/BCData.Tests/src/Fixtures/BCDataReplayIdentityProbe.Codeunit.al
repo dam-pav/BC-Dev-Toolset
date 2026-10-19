@@ -194,6 +194,37 @@ codeunit 50219 "BCD Replay Identity Probe"
         exit(Output);
     end;
 
+    procedure RemoveCompanyExecution(inputJson: Text): Text
+    var
+        AccessControl: Record "Access Control";
+        Company: Record Company;
+        NamespaceId: Guid;
+        CompanionAppId: Guid;
+        Principal: Guid;
+    begin
+        // Test-only exact-key removal: the measured native cmdlet cannot select
+        // System scope together with this nonzero application ID on BC23.
+        NamespaceId := GetGuid(inputJson, 'namespaceId');
+        Principal := ProfilePrincipal(NamespaceId, 'f', true);
+        Company.SetRange(Id, GetGuid(inputJson, 'companyId'));
+        Company.FindFirst();
+        if (Company.Name <> 'CRONUS International Ltd.') and (Company.Name <> 'BCD_CT_' + Tag(NamespaceId)) then
+            Error('BCD_EVP_COMPANY_OUTSIDE_SCOPE');
+        Evaluate(CompanionAppId, '0f92aea5-4cc0-459b-ae98-ca9e5c2b0304');
+        AccessControl.SetRange("User Security ID", Principal);
+        AccessControl.SetRange("Role ID", 'BCD DATA EXECUTE');
+        AccessControl.SetRange("Company Name", Company.Name);
+        AccessControl.SetRange(Scope, AccessControl.Scope::System);
+        AccessControl.SetRange("App ID", CompanionAppId);
+        if AccessControl.Count() <> 1 then
+            Error('BCD_EVP_EXECUTION_ASSIGNMENT_CHANGED');
+        AccessControl.FindFirst();
+        AccessControl.Delete(true);
+        if not AccessControl.IsEmpty() then
+            Error('BCD_EVP_EXECUTION_ASSIGNMENT_REMAINS');
+        exit('{"removed":true}');
+    end;
+
     procedure SetTargetAmount(inputJson: Text): Text
     var
         Run: Record "BCD Receipt Run";
