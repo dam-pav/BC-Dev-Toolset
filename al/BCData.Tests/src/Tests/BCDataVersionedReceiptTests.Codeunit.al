@@ -90,6 +90,91 @@ codeunit 50209 "BCD Versioned Receipt Tests"
         Probe.Cleanup(RunRequest(RunId));
     end;
 
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure RenameReceiptPreservesIdentityAndHistoricalResult()
+    var
+        RunId: Guid;
+        Original: JsonObject;
+        Current: JsonObject;
+        Request: Text;
+        FirstResult: Text;
+    begin
+        Prepare(RunId, Original);
+        Request := RenameRequest(RunId, CreateGuid(), Original, false);
+        FirstResult := Probe.Execute(Request);
+        Commit();
+        Current := State(RunId);
+        Assert.AreEqual('RENAMED', Value(Row(Current), 'name'), 'Renamed key persisted.');
+        Assert.AreEqual(Value(Original, 'systemId'), Value(Row(Current), 'systemId'), 'Rename preserves identity.');
+        Assert.AreNotEqual(Value(Original, 'version'), Value(Row(Current), 'version'), 'Rename advances version.');
+        Probe.Execute(Mutation(RunId, CreateGuid(), Row(Current), 9, false));
+        Commit();
+        Assert.AreEqual(FirstResult, Probe.Execute(Request), 'Rename replay returns exact original result after later write.');
+        CheckState(RunId, 9, 2, 2);
+        Probe.Cleanup(RunRequest(RunId));
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure RenameFailureRollsBackKeyVersionAndReceipt()
+    var
+        RunId: Guid;
+        RequestId: Guid;
+        Original: JsonObject;
+        Current: JsonObject;
+    begin
+        Prepare(RunId, Original);
+        RequestId := CreateGuid();
+        asserterror Probe.Execute(RenameRequest(RunId, RequestId, Original, true));
+        Assert.ExpectedError('BCD_EV_AFTER_MUTATION');
+        Current := State(RunId);
+        Assert.AreEqual('ORIGINAL', Value(Row(Current), 'name'), 'Failed rename restores original key.');
+        Assert.AreEqual(Value(Original, 'version'), Value(Row(Current), 'version'), 'Failed rename restores version.');
+        CheckState(RunId, 0, 0, 0);
+        Probe.Execute(RenameRequest(RunId, RequestId, Original, false));
+        Commit();
+        CheckState(RunId, 0, 1, 1);
+        Probe.Cleanup(RunRequest(RunId));
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure RenameBindsOperationAndStaleRequestDoesNotConsumeId()
+    var
+        RunId: Guid;
+        RequestId: Guid;
+        Original: JsonObject;
+        Current: JsonObject;
+    begin
+        Prepare(RunId, Original);
+        Probe.Execute(Mutation(RunId, CreateGuid(), Original, 4, false));
+        Commit();
+        RequestId := CreateGuid();
+        asserterror Probe.Execute(RenameRequest(RunId, RequestId, Original, false));
+        Assert.ExpectedError('BCD_E04_CONFLICT');
+        CheckState(RunId, 4, 1, 1);
+        Current := State(RunId);
+        Probe.Execute(RenameRequest(RunId, RequestId, Row(Current), false));
+        Commit();
+        asserterror Probe.Execute(Mutation(RunId, RequestId, Row(Current), 4, false));
+        Assert.ExpectedError('BCD_EV_REQUEST_ID_REUSED');
+        CheckState(RunId, 4, 2, 2);
+        Probe.Cleanup(RunRequest(RunId));
+    end;
+
+    local procedure RenameRequest(RunId: Guid; RequestId: Guid; Target: JsonObject; Fail: Boolean): Text
+    var
+        Request: JsonObject;
+        Output: Text;
+    begin
+        Request.ReadFrom(Mutation(RunId, RequestId, Target, 0, Fail));
+        Request.Replace('operation', 'rename');
+        Request.Remove('amount');
+        Request.WriteTo(Output);
+        exit(Output);
+    end;
+
     local procedure Prepare(var RunId: Guid; var Original: JsonObject)
     begin
         RunId := CreateGuid();

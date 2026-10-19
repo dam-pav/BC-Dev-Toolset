@@ -52,7 +52,7 @@ async function main(input) {
     return state;
   }
   async function cleanup(runIds) {
-    assert.ok(Array.isArray(runIds) && runIds.length <= 10);
+    assert.ok(Array.isArray(runIds) && runIds.length <= 14);
     for (const runId of runIds) assert.match(runId, guidPattern);
     for (const runId of runIds) {
       assert.equal((await call('Cleanup', { runId })).status, 200);
@@ -70,7 +70,7 @@ async function main(input) {
     return { target: input.target, cleaned: true };
   }
   assert.ok(!fs.existsSync(statePath), 'Run -CleanupOnly for interrupted EV qualification.');
-  const runIds = Array.from({ length: 10 }, () => crypto.randomUUID());
+  const runIds = Array.from({ length: 14 }, () => crypto.randomUUID());
   fs.writeFileSync(statePath, JSON.stringify({ target: input.target, companyId, runIds }), { flag: 'wx' });
   const results = [];
   const pendingCalls = [];
@@ -95,8 +95,8 @@ async function main(input) {
       result.failure = error.name === 'AssertionError' ? redact(error.message) : 'Qualification request failed.';
     }
   }
-  async function race(runId, row, kind, diagnostics) {
-    const request = mutation(runId, row);
+  async function race(runId, row, kind, diagnostics, operation = 'modify') {
+    const request = { ...mutation(runId, row), operation };
     let finished = false;
     const owner = call('Execute', { ...request, delayMs: 3000 })
       .then(response => { diagnostics.owner = response; return response; }).finally(() => { finished = true; });
@@ -143,7 +143,7 @@ async function main(input) {
     assert.equal(first.status, 200);
     if (kind === 'mismatch') rejected(second, 'BCD_EV_REQUEST_ID_REUSED');
     else { assert.equal(second.status, 200); assert.equal(second.text, first.text); }
-    return { barrier, observed: await stateFor(runId, 4, 1) };
+    return { barrier, observed: await stateFor(runId, operation === 'rename' ? 0 : 4, 1) };
   }
   try {
     await check('historical replay precedes stale-version checks after later mutation', 0, async (runId, row) => {
@@ -239,6 +239,46 @@ async function main(input) {
       assert.equal(state.row.version, renamed.value.version);
       return { historicalName: first.value.row.name, currentName: state.row.name, observed: state };
     });
+    await check('rename receipt preserves identity and exact history after later modify', 10, async (runId, row) => {
+      const request = { ...mutation(runId, row), operation: 'rename' };
+      delete request.amount;
+      const first = await call('Execute', request);
+      assert.equal(first.status, 200);
+      assert.equal(first.value.row.systemId, row.systemId);
+      assert.equal(first.value.row.name, 'RENAMED');
+      assert.notEqual(first.value.row.version, row.version);
+      assert.equal((await call('Execute', request)).text, first.text);
+      rejected(await call('Execute', { ...request, operation: 'modify', amount: 4 }), 'BCD_EV_REQUEST_ID_REUSED');
+      assert.equal((await call('Execute', mutation(runId, first.value.row, 9))).status, 200);
+      assert.equal((await call('Execute', request)).text, first.text);
+      return { observed: await stateFor(runId, 9, 2), historicalName: first.value.row.name };
+    });
+    await check('rename failure restores key, identity, version and reservation', 11, async (runId, row) => {
+      const request = { ...mutation(runId, row), operation: 'rename' };
+      rejected(await call('Execute', { ...request, failAfterMutation: true }), 'BCD_EV_AFTER_MUTATION');
+      const rolledBack = await stateFor(runId, 0, 0);
+      assert.equal(rolledBack.row.name, row.name);
+      assert.equal(rolledBack.row.systemId, row.systemId);
+      assert.equal(rolledBack.row.version, row.version);
+      const first = await call('Execute', request);
+      assert.equal(first.status, 200);
+      assert.equal((await call('Execute', request)).text, first.text);
+      return { observed: await stateFor(runId, 0, 1) };
+    });
+    await check('stale rename reserves no ID and fresh same-ID retry succeeds', 12, async (runId, row) => {
+      const modified = await call('Execute', mutation(runId, row));
+      assert.equal(modified.status, 200);
+      const request = { ...mutation(runId, row), operation: 'rename' };
+      rejected(await call('Execute', request), 'BCD_E04_CONFLICT');
+      await stateFor(runId, 4, 1);
+      const fresh = { ...request, expectedVersion: modified.value.row.version };
+      const renamed = await call('Execute', fresh);
+      assert.equal(renamed.status, 200);
+      assert.equal((await call('Execute', fresh)).text, renamed.text);
+      return { observed: await stateFor(runId, 4, 2) };
+    });
+    await check('overlapping identical rename IDs apply once and replay exact result', 13,
+      (runId, row, diagnostics) => race(runId, row, 'identical', diagnostics, 'rename'));
   } finally {
     await Promise.allSettled(pendingCalls);
     await cleanup(runIds);
@@ -247,7 +287,7 @@ async function main(input) {
   }
   const evidence = { target: input.target, companyId, checkedAt: new Date().toISOString(),
     appVersion: readiness.appVersion, transport: 'native-node-http10', results, cleaned,
-    passed: results.length === 10 && results.every(result => result.passed) };
+    passed: results.length === 14 && results.every(result => result.passed) };
   fs.writeFileSync(evidencePath, JSON.stringify(evidence, null, 2));
   return evidence;
 }

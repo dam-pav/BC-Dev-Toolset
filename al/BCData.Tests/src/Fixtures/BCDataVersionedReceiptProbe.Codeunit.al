@@ -1,6 +1,6 @@
 codeunit 50217 "BCD Versioned Receipt Probe"
 {
-    // E04/E06 composition fixture: modify only, no elevated permissions.
+    // E04/E06 composition fixture: modify and fixed-destination rename, no elevated permissions.
     procedure Prepare(inputJson: Text): Text
     begin
         exit(Conflict.Prepare(inputJson));
@@ -20,6 +20,7 @@ codeunit 50217 "BCD Versioned Receipt Probe"
         TargetId: Guid;
         Version: BigInteger;
         VersionText: Text;
+        Operation: Text;
         Payload: Text;
         ResultText: Text;
         Amount: Integer;
@@ -31,7 +32,8 @@ codeunit 50217 "BCD Versioned Receipt Probe"
         CheckOwner(Run, RunId);
         Request.ReadFrom(inputJson);
         Request.Get('operation', Token);
-        if Token.AsValue().AsText() <> 'modify' then
+        Operation := Token.AsValue().AsText();
+        if not (Operation in ['modify', 'rename']) then
             Error('BCD_EV_INVALID_OPERATION');
         Request.Get('expectedVersion', Token);
         VersionText := Token.AsValue().AsText();
@@ -39,13 +41,20 @@ codeunit 50217 "BCD Versioned Receipt Probe"
             Error('BCD_EV_INVALID_VERSION');
         if (Version <= 0) or (Format(Version, 0, 9) <> VersionText) then
             Error('BCD_EV_INVALID_VERSION');
-        Request.Get('amount', Token);
-        Amount := Token.AsValue().AsInteger();
-        if (Amount < -1000000) or (Amount > 1000000) then
-            Error('BCD_EV_AMOUNT_RANGE');
+        if Operation = 'modify' then begin
+            Request.Get('amount', Token);
+            Amount := Token.AsValue().AsInteger();
+            if (Amount < -1000000) or (Amount > 1000000) then
+                Error('BCD_EV_AMOUNT_RANGE');
+        end;
         if Request.Get('failAfterMutation', Token) then
             FailAfterMutation := Token.AsValue().AsBoolean();
-        Payload := 'modify|' + Format(TargetId, 0, 4) + '|' + VersionText + '|' + Format(Amount, 0, 9);
+        Payload := Operation + '|' + Format(TargetId, 0, 4) + '|' + VersionText + '|';
+        if Operation = 'modify' then
+            Payload += Format(Amount, 0, 9)
+        else
+            // The E04 fixture has exactly one rename destination; no generic key API.
+            Payload += 'RENAMED';
         if StrLen(Payload) > MaxStrLen(Receipt.Payload) then
             Error('BCD_EV_PAYLOAD_TOO_LONG');
         Receipt."Run ID" := RunId;
@@ -64,7 +73,7 @@ codeunit 50217 "BCD Versioned Receipt Probe"
             RequireReplayTarget(RunId, TargetId);
             exit(Receipt.Result);
         end;
-        // Existing E04 path locks, rereads and compares before modifying.
+        // Existing E04 path locks, rereads and compares before mutation.
         RowState.ReadFrom(Conflict.Execute(inputJson));
         Run.LockTable();
         Run.Get(RunId);
@@ -182,7 +191,7 @@ codeunit 50217 "BCD Versioned Receipt Probe"
         Field: FieldRef;
         Found: Boolean;
     begin
-        // Modify-receipt policy: current native table/row Read and visibility are
+        // Modify/rename receipt policy: current native table/row Read and visibility are
         // required for result disclosure. Do not compare the historical version.
         Target.Open(Database::"BCD Conflict Fixture");
         Target.SecurityFiltering(SecurityFilter::Filtered);
