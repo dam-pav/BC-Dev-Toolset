@@ -24,7 +24,8 @@ function Ensure-ConfiguredContainers {
         $SettingsJSON,
         [ValidateRange(0, 600)] [int] $TimeoutSeconds = 120,
         [switch] $SkipMissing,
-        [switch] $SkipBcDataProvisioning
+        [switch] $SkipBcDataProvisioning,
+        [switch] $RequireRunningOnly
     )
 
     # Validate every target before issuing Docker commands. Reject option-like values.
@@ -65,7 +66,7 @@ function Ensure-ConfiguredContainers {
             if ($state.Status -in @('created', 'exited')) {
                 $action = 'Start'
                 $null = Invoke-ConfiguredContainerDocker -DockerArguments @('container', 'start', '--', $name)
-            } elseif ($state.Status -eq 'running' -and $state.Health.Status -eq 'unhealthy') {
+            } elseif (-not $RequireRunningOnly -and $state.Status -eq 'running' -and $state.Health.Status -eq 'unhealthy') {
                 $action = 'Restart'
                 $null = Invoke-ConfiguredContainerDocker -DockerArguments @('container', 'restart', '--', $name)
             } elseif ($state.Status -notin @('running', 'restarting')) {
@@ -76,8 +77,14 @@ function Ensure-ConfiguredContainers {
             do {
                 $state = Get-ConfiguredContainerState -ContainerName $name
                 $health = [string]$state.Health.Status
-                if ($state.Status -eq 'running' -and ($health -eq '' -or $health -eq 'healthy')) {
+                if ($state.Status -eq 'running' -and ($RequireRunningOnly -or $health -eq '' -or $health -eq 'healthy')) {
                     Write-Host "Container '$name': before=$before; action=$action; after=$($state.Status)/$health; ready."
+                    if ($RequireRunningOnly) {
+                        # SQL restore may be repairing an absent database/stopped BC service.
+                        # This confirms container availability only, never BC/application readiness.
+                        Write-Host "Container '$name': running for database recovery; BC health and app provisioning deferred."
+                        break
+                    }
                     foreach ($configuration in @($SettingsJSON.configurations | Where-Object { $_.serverType -eq 'Container' -and $_.container -eq $name })) {
                         if (-not $SkipBcDataProvisioning -and $null -ne $configuration.bcData) {
                             . (Join-Path $PSScriptRoot 'BcDataMgt.ps1')

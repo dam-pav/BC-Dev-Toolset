@@ -15,7 +15,10 @@ Initialize-Context `
     -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
 
-Ensure-ConfiguredContainers -SettingsJSON $settingsJSON -SkipMissing
+# A failed restore can leave BC unhealthy with its database absent. Require the
+# container to run so SQL recovery can proceed; do not require BC to be healthy
+# or provision apps before restoring the database it depends on.
+Ensure-ConfiguredContainers -SettingsJSON $settingsJSON -SkipMissing -RequireRunningOnly
 
 Restore-BcContainerSqlBackupSet `
     -scriptPath $scriptRoot `
