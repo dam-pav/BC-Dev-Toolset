@@ -140,7 +140,7 @@
     "category": "Backup",
     "promptInputs": [
       { "promptId": "selectIndex.Select.container.for.SQL.backup.restore.", "inputName": "containerSelection", "type": "choice", "question": "Select a container configuration for SQL backup restore. Runtime choices are displayed by the operation.", "conditional": true },
-      { "promptId": "backup.restoreBackupSet", "type": "confirm", "question": "Confirm restoration of the selected backup set. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+      { "promptId": "backup.restoreBackupSet", "type": "confirm", "question": "Confirm restoration of the selected backup set. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
     ],
     "requiresConfirmation": true
   },
@@ -224,7 +224,7 @@
     "promptInputs": [
       { "promptId": "publishApps2Docker.publishAsNormalApps", "inputName": "publishAsNormalApps", "type": "confirm", "question": "Do you want to publish apps as normal apps (not Dev)?" },
       { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
     ]
   },
   {
@@ -234,7 +234,7 @@
     "category": "Publish",
     "promptInputs": [
       { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
     ],
     "requiresConfirmation": true
   },
@@ -246,7 +246,7 @@
     "promptInputs": [
       { "promptId": "publishApps2Test.publishAsNormalApps", "inputName": "publishAsNormalApps", "type": "confirm", "question": "Do you want to publish apps as normal apps (not Dev)?" },
       { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
     ]
   },
   {
@@ -262,7 +262,7 @@
     "category": "Runtime",
     "promptInputs": [
       { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
     ]
   },
   {
@@ -272,7 +272,7 @@
     "category": "Runtime",
     "promptInputs": [
       { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
     ],
     "requiresConfirmation": true
   },
@@ -283,7 +283,7 @@
     "category": "Runtime",
     "promptInputs": [
       { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
     ]
   },
   {

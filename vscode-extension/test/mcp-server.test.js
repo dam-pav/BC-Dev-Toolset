@@ -89,6 +89,26 @@ test('rejects empty prompt answers', () => {
   assert.throws(() => mcpServer.normalizePromptToolAnswer(undefined), /answer is required/);
 });
 
+test('non-sensitive user-only MCP decisions are relayed from chat rather than terminal keyboard input', () => {
+  const instructions = mcpServer.formatOperationStatus({ status: 'waiting_for_input', sessionId: 'pending',
+    prompt: { id: 'backup.restoreBackupSet', type: 'confirm', agentAllowed: false, sensitive: false } });
+  assert.match(instructions, /explicit user decision in chat/);
+  assert.match(instructions, /bc_dev_toolset_answer_operation_prompt/);
+  assert.match(instructions, /Terminal keyboard entry is not used/);
+  assert.doesNotMatch(instructions, /type their answer directly/);
+  const sensitive = mcpServer.formatOperationStatus({ status: 'waiting_for_input', sessionId: 'pending',
+    prompt: { id: 'secret', type: 'text', agentAllowed: false, sensitive: true } });
+  assert.match(sensitive, /type their answer directly in the VS Code terminal/);
+  assert.doesNotMatch(sensitive, /relay that non-sensitive answer/);
+  assert.match(mcpServer.getServerInstructions(), /Agent-disallowed non-sensitive prompts require an explicit user decision in chat/);
+  const metadata = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'operations', 'operations.json'), 'utf8'));
+  const restore = metadata.find(operation => operation.id === 'restoreBcContainerDatabases').promptInputs
+    .find(prompt => prompt.promptId === 'backup.restoreBackupSet');
+  assert.equal(restore.agentAllowed, false);
+  assert.match(restore.question, /explicit user answer/);
+  assert.doesNotMatch(restore.question, /in the terminal/);
+});
+
 test('lists prompt answer tool before operation tools', () => {
   const toolNames = mcpServer.getTools().map((tool) => tool.name);
 

@@ -265,7 +265,7 @@ function getServerInstructions() {
     'Before answering questions about the active VS Code workspace, workspace file, workspace folders, AL project path, app.json location, .code-workspace settings, local .bcdevtoolset settings path, or AL settings such as assembly probing paths, call bc_dev_toolset_get_workspace or read bcdevtoolset://workspace/current. Do not infer the workspace by scanning parent folders unless this tool/resource is unavailable.',
     'PowerShell-backed operations require the VS Code terminal bridge and run visibly in the BC Dev Toolset terminal. If the bridge is unavailable, report that the BC Dev Toolset VS Code extension must be active instead of falling back to manual PowerShell.',
     'Use bc_dev_toolset_show_active_licenses for requests about the current container license. Use bc_dev_toolset_new_docker_container for creating or recreating containers.',
-    'Operations with declared inputs use two phases: call the operation tool without execute:true to receive relevant questions, including conditional questions, without starting it, then call the same tool with execute:true and the named answers. If an unexpected conditional prompt still returns waiting_for_input and the dedicated answer tool is unavailable, call the same operation tool with promptAnswers; the existing session resumes and retains answers for later prompts. Use bc_dev_toolset_answer_operation_prompt when it is available. Sensitive or agent-disallowed prompts must be answered by the user in the terminal.'
+    'Operations with declared inputs use two phases: call the operation tool without execute:true to receive relevant questions, including conditional questions, without starting it, then call the same tool with execute:true and the named answers. If an unexpected conditional prompt still returns waiting_for_input and the dedicated answer tool is unavailable, call the same operation tool with promptAnswers; the existing session resumes and retains answers for later prompts. Use bc_dev_toolset_answer_operation_prompt when it is available. Sensitive prompts must be answered by the user in the terminal. Agent-disallowed non-sensitive prompts require an explicit user decision in chat, which may then be relayed through bc_dev_toolset_answer_operation_prompt; never decide them autonomously.'
   ].join('\n');
 }
 
@@ -1322,6 +1322,9 @@ function formatPendingPromptInstruction(bridgeResult) {
   if (prompt.sensitive) {
     lines.push('Next: Ask the user to type their answer directly in the VS Code terminal. Do not call answer_operation_prompt for sensitive prompts.');
   } else {
+    if (prompt.agentAllowed === false) {
+      lines.push('Next: Ask for the explicit user decision in chat, then relay that non-sensitive answer through the prompt answer tool. Terminal keyboard entry is not used for this MCP prompt.');
+    }
     lines.push(`Next: Call bc_dev_toolset_answer_operation_prompt with sessionId '${bridgeResult.sessionId}' and ${answerHint}.`);
   }
 
@@ -1905,6 +1908,7 @@ module.exports = {
     readResource,
     readHelpContent,
     getOperationPromptAnswers,
+    getServerInstructions,
     getPreflightPromptInputs,
     compileAlRunnerTestReport,
     compileInvokeTestsReport,
