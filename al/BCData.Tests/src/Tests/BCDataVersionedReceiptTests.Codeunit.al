@@ -163,6 +163,99 @@ codeunit 50209 "BCD Versioned Receipt Tests"
         Probe.Cleanup(RunRequest(RunId));
     end;
 
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure InsertReplaysExactHistoryAfterLaterModify()
+    var
+        RunId: Guid;
+        TargetId: Guid;
+        Input: Text;
+        Result: Text;
+        Current: JsonObject;
+    begin
+        PrepareInsert(RunId, TargetId);
+        Input := InsertRequest(RunId, CreateGuid(), TargetId, 4, false);
+        Result := Probe.Execute(Input);
+        Commit();
+        Current := State(RunId);
+        Assert.AreEqual(Format(TargetId, 0, 4), Value(Row(Current), 'systemId'), 'Caller identity persisted.');
+        Probe.Execute(Mutation(RunId, CreateGuid(), Row(Current), 9, false));
+        Commit();
+        Assert.AreEqual(Result, Probe.Execute(Input), 'Insert replay returns original result after later modify.');
+        CheckState(RunId, 9, 2, 2);
+        Probe.Cleanup(RunRequest(RunId));
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure InsertFailureRollsBackTargetAndReservation()
+    var
+        RunId: Guid;
+        TargetId: Guid;
+        RequestId: Guid;
+        Current: JsonObject;
+    begin
+        PrepareInsert(RunId, TargetId);
+        RequestId := CreateGuid();
+        asserterror Probe.Execute(InsertRequest(RunId, RequestId, TargetId, 4, true));
+        Assert.ExpectedError('BCD_EV_AFTER_MUTATION');
+        Current := State(RunId);
+        Assert.AreEqual('false', LowerCase(Value(Row(Current), 'exists')), 'Failed insertion leaves no row.');
+        Assert.AreEqual('0', Value(Current, 'receiptCount'), 'Failed insertion leaves no receipt.');
+        Assert.AreEqual('0', Value(Current, 'applyCount'), 'Failed insertion leaves no apply.');
+        Probe.Execute(InsertRequest(RunId, RequestId, TargetId, 4, false));
+        Commit();
+        CheckState(RunId, 4, 1, 1);
+        Probe.Cleanup(RunRequest(RunId));
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure InsertConflictAndPayloadMismatchDoNotApplyAgain()
+    var
+        RunId: Guid;
+        TargetId: Guid;
+        RequestId: Guid;
+    begin
+        PrepareInsert(RunId, TargetId);
+        RequestId := CreateGuid();
+        Probe.Execute(InsertRequest(RunId, RequestId, TargetId, 4, false));
+        Commit();
+        asserterror Probe.Execute(InsertRequest(RunId, RequestId, TargetId, 9, false));
+        Assert.ExpectedError('BCD_EV_REQUEST_ID_REUSED');
+        asserterror Probe.Execute(InsertRequest(RunId, RequestId, CreateGuid(), 4, false));
+        Assert.ExpectedError('BCD_EV_REQUEST_ID_REUSED');
+        asserterror Probe.Execute(InsertRequest(RunId, CreateGuid(), TargetId, 4, false));
+        Assert.ExpectedError('BCD_EV_INSERT_CONFLICT');
+        asserterror Probe.Execute(InsertRequest(RunId, CreateGuid(), CreateGuid(), 4, false));
+        Assert.ExpectedError('BCD_EV_INSERT_CONFLICT');
+        CheckState(RunId, 4, 1, 1);
+        Probe.Cleanup(RunRequest(RunId));
+    end;
+
+    local procedure PrepareInsert(var RunId: Guid; var TargetId: Guid)
+    begin
+        RunId := CreateGuid();
+        TargetId := CreateGuid();
+        Probe.PrepareEmpty(RunRequest(RunId));
+        Commit();
+    end;
+
+    local procedure InsertRequest(RunId: Guid; RequestId: Guid; TargetId: Guid; Amount: Integer; Fail: Boolean): Text
+    var
+        Request: JsonObject;
+        Output: Text;
+    begin
+        Request.Add('runId', Format(RunId, 0, 4));
+        Request.Add('requestId', Format(RequestId, 0, 4));
+        Request.Add('systemId', Format(TargetId, 0, 4));
+        Request.Add('operation', 'insert');
+        Request.Add('amount', Amount);
+        Request.Add('failAfterMutation', Fail);
+        Request.WriteTo(Output);
+        exit(Output);
+    end;
+
     local procedure RenameRequest(RunId: Guid; RequestId: Guid; Target: JsonObject; Fail: Boolean): Text
     var
         Request: JsonObject;

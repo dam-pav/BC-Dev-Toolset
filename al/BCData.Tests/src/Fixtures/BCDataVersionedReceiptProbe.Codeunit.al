@@ -1,9 +1,19 @@
 codeunit 50217 "BCD Versioned Receipt Probe"
 {
-    // E04/E06 composition fixture: modify and fixed-destination rename, no elevated permissions.
+    // E04/E06 composition fixture: fixed insert/modify/rename, no elevated permissions.
     procedure Prepare(inputJson: Text): Text
     begin
         exit(Conflict.Prepare(inputJson));
+    end;
+
+    procedure PrepareEmpty(inputJson: Text): Text
+    var
+        Run: Record "BCD Receipt Run";
+    begin
+        Run."Run ID" := ReadGuid(inputJson, 'runId');
+        Run.Principal := UserSecurityId();
+        Run.Insert();
+        exit(Conflict.Inspect(inputJson));
     end;
 
     [CommitBehavior(CommitBehavior::Error)]
@@ -33,15 +43,22 @@ codeunit 50217 "BCD Versioned Receipt Probe"
         Request.ReadFrom(inputJson);
         Request.Get('operation', Token);
         Operation := Token.AsValue().AsText();
-        if not (Operation in ['modify', 'rename']) then
+        if not (Operation in ['insert', 'modify', 'rename']) then
             Error('BCD_EV_INVALID_OPERATION');
-        Request.Get('expectedVersion', Token);
-        VersionText := Token.AsValue().AsText();
-        if not Evaluate(Version, VersionText, 9) then
-            Error('BCD_EV_INVALID_VERSION');
-        if (Version <= 0) or (Format(Version, 0, 9) <> VersionText) then
-            Error('BCD_EV_INVALID_VERSION');
-        if Operation = 'modify' then begin
+        if Operation = 'insert' then begin
+            if Request.Get('expectedVersion', Token) then
+                Error('BCD_EV_INVALID_VERSION');
+            // Fixed insertion key, not a version token for a nonexistent row.
+            VersionText := 'ORIGINAL';
+        end else begin
+            Request.Get('expectedVersion', Token);
+            VersionText := Token.AsValue().AsText();
+            if not Evaluate(Version, VersionText, 9) then
+                Error('BCD_EV_INVALID_VERSION');
+            if (Version <= 0) or (Format(Version, 0, 9) <> VersionText) then
+                Error('BCD_EV_INVALID_VERSION');
+        end;
+        if Operation in ['insert', 'modify'] then begin
             Request.Get('amount', Token);
             Amount := Token.AsValue().AsInteger();
             if (Amount < -1000000) or (Amount > 1000000) then
@@ -50,7 +67,7 @@ codeunit 50217 "BCD Versioned Receipt Probe"
         if Request.Get('failAfterMutation', Token) then
             FailAfterMutation := Token.AsValue().AsBoolean();
         Payload := Operation + '|' + Format(TargetId, 0, 4) + '|' + VersionText + '|';
-        if Operation = 'modify' then
+        if Operation in ['insert', 'modify'] then
             Payload += Format(Amount, 0, 9)
         else
             // The E04 fixture has exactly one rename destination; no generic key API.
@@ -74,7 +91,11 @@ codeunit 50217 "BCD Versioned Receipt Probe"
             exit(Receipt.Result);
         end;
         // Existing E04 path locks, rereads and compares before mutation.
-        RowState.ReadFrom(Conflict.Execute(inputJson));
+        if Operation = 'insert' then begin
+            InsertTarget(inputJson, RunId, TargetId, Amount);
+            RowState.ReadFrom(Conflict.Inspect(inputJson));
+        end else
+            RowState.ReadFrom(Conflict.Execute(inputJson));
         Run.LockTable();
         Run.Get(RunId);
         Run."Apply Count" += 1;
@@ -92,6 +113,32 @@ codeunit 50217 "BCD Versioned Receipt Probe"
         Receipt.Completed := true;
         Receipt.Modify();
         exit(ResultText);
+    end;
+
+    local procedure InsertTarget(Input: Text; RunId: Guid; TargetId: Guid; Amount: Integer)
+    var
+        Target: Record "BCD Conflict Fixture";
+        Request: JsonObject;
+        Token: JsonToken;
+        DelayMs: Integer;
+    begin
+        Request.ReadFrom(Input);
+        if Request.Get('delayMs', Token) then
+            DelayMs := Token.AsValue().AsInteger();
+        if (DelayMs < 0) or (DelayMs > 5000) then
+            Error('BCD_EV_INVALID_DELAY');
+        if DelayMs > 0 then
+            Sleep(DelayMs);
+        if Target.GetBySystemId(TargetId) then
+            Error('BCD_EV_INSERT_CONFLICT');
+        Clear(Target);
+        Target."Run ID" := RunId;
+        Target.Name := 'ORIGINAL';
+        Target.Principal := UserSecurityId();
+        Target.Amount := Amount;
+        Target.SystemId := TargetId;
+        if not Target.Insert(true, true) then
+            Error('BCD_EV_INSERT_CONFLICT');
     end;
 
     procedure PrepareReplacement(inputJson: Text): Text
@@ -191,7 +238,7 @@ codeunit 50217 "BCD Versioned Receipt Probe"
         Field: FieldRef;
         Found: Boolean;
     begin
-        // Modify/rename receipt policy: current native table/row Read and visibility are
+        // Insert/modify/rename receipt policy: current native table/row Read and visibility are
         // required for result disclosure. Do not compare the historical version.
         Target.Open(Database::"BCD Conflict Fixture");
         Target.SecurityFiltering(SecurityFilter::Filtered);

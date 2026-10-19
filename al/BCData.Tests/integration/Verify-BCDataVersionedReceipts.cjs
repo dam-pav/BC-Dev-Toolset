@@ -52,7 +52,7 @@ async function main(input) {
     return state;
   }
   async function cleanup(runIds) {
-    assert.ok(Array.isArray(runIds) && runIds.length <= 14);
+    assert.ok(Array.isArray(runIds) && runIds.length <= 19);
     for (const runId of runIds) assert.match(runId, guidPattern);
     for (const runId of runIds) {
       assert.equal((await call('Cleanup', { runId })).status, 200);
@@ -70,7 +70,7 @@ async function main(input) {
     return { target: input.target, cleaned: true };
   }
   assert.ok(!fs.existsSync(statePath), 'Run -CleanupOnly for interrupted EV qualification.');
-  const runIds = Array.from({ length: 14 }, () => crypto.randomUUID());
+  const runIds = Array.from({ length: 19 }, () => crypto.randomUUID());
   fs.writeFileSync(statePath, JSON.stringify({ target: input.target, companyId, runIds }), { flag: 'wx' });
   const results = [];
   const pendingCalls = [];
@@ -78,6 +78,9 @@ async function main(input) {
   function mutation(runId, row, amount = 4, requestId = crypto.randomUUID()) {
     assert.match(row.version, /^[1-9][0-9]*$/);
     return { runId, requestId, systemId: row.systemId, expectedVersion: row.version, operation: 'modify', amount };
+  }
+  function insertion(runId, systemId = crypto.randomUUID(), requestId = crypto.randomUUID(), amount = 4) {
+    return { runId, systemId, requestId, operation: 'insert', amount };
   }
   function rejected(response, code) {
     assert.equal(response.status, 400);
@@ -87,7 +90,7 @@ async function main(input) {
     const result = { name, passed: false };
     results.push(result);
     try {
-      const prepared = await call('Prepare', { runId: runIds[index] });
+      const prepared = await call(index >= 14 ? 'PrepareEmpty' : 'Prepare', { runId: runIds[index] });
       assert.equal(prepared.status, 200);
       Object.assign(result, await test(runIds[index], prepared.value, result));
       result.passed = true;
@@ -96,7 +99,7 @@ async function main(input) {
     }
   }
   async function race(runId, row, kind, diagnostics, operation = 'modify') {
-    const request = { ...mutation(runId, row), operation };
+    const request = operation === 'insert' ? insertion(runId) : { ...mutation(runId, row), operation };
     let finished = false;
     const owner = call('Execute', { ...request, delayMs: 3000 })
       .then(response => { diagnostics.owner = response; return response; }).finally(() => { finished = true; });
@@ -279,6 +282,54 @@ async function main(input) {
     });
     await check('overlapping identical rename IDs apply once and replay exact result', 13,
       (runId, row, diagnostics) => race(runId, row, 'identical', diagnostics, 'rename'));
+    await check('insert binds caller identity and amount; replay survives later modify', 14, async (runId) => {
+      const request = insertion(runId);
+      const first = await call('Execute', request);
+      assert.equal(first.status, 200);
+      assert.equal(first.value.row.systemId.toLowerCase(), request.systemId.toLowerCase());
+      assert.equal(first.value.row.name, 'ORIGINAL');
+      assert.match(first.value.row.version, /^[1-9][0-9]*$/);
+      assert.equal((await call('Execute', request)).text, first.text);
+      for (const changed of [{ amount: 9 }, { systemId: crypto.randomUUID() }]) {
+        rejected(await call('Execute', { ...request, ...changed }), 'BCD_EV_REQUEST_ID_REUSED');
+      }
+      const changed = await call('Execute', mutation(runId, first.value.row, 9));
+      assert.equal(changed.status, 200);
+      assert.equal((await call('Execute', request)).text, first.text);
+      return { observed: await stateFor(runId, 9, 2) };
+    });
+    await check('failed insert rolls back target and reservation; same-ID retry applies once', 15, async (runId) => {
+      const request = insertion(runId);
+      rejected(await call('Execute', { ...request, failAfterMutation: true }), 'BCD_EV_AFTER_MUTATION');
+      const rolledBack = await receiptState(runId, 0);
+      assert.equal(rolledBack.row.exists, false);
+      const first = await call('Execute', request);
+      assert.equal(first.status, 200);
+      assert.equal((await call('Execute', request)).text, first.text);
+      return { observed: await stateFor(runId, 4, 1) };
+    });
+    await check('identity/key conflicts leave no receipt; replacement cannot disclose old insert history', 16, async (runId) => {
+      const original = insertion(runId);
+      const first = await call('Execute', original);
+      assert.equal(first.status, 200);
+      rejected(await call('Execute', { ...original, requestId: crypto.randomUUID() }), 'BCD_EV_INSERT_CONFLICT');
+      const conflict = insertion(runId);
+      rejected(await call('Execute', conflict), 'BCD_EV_INSERT_CONFLICT');
+      await stateFor(runId, 4, 1);
+      const deleted = await call('Execute', { ...mutation(runId, first.value.row), operation: 'delete' }, true);
+      assert.equal(deleted.status, 200);
+      rejected(await call('Execute', original), 'BCD_EV_REPLAY_TARGET_UNAVAILABLE');
+      const replacement = await call('Execute', conflict);
+      assert.equal(replacement.status, 200);
+      assert.notEqual(replacement.value.row.systemId, first.value.row.systemId);
+      assert.equal((await call('Execute', conflict)).text, replacement.text);
+      rejected(await call('Execute', original), 'BCD_EV_REPLAY_TARGET_UNAVAILABLE');
+      return { observed: await stateFor(runId, 4, 2), failedRequestIdReusable: true };
+    });
+    await check('overlapping identical insert IDs apply once with exact replay', 17,
+      (runId, row, diagnostics) => race(runId, row, 'identical', diagnostics, 'insert'));
+    await check('overlapping insert same-ID different payload is rejected', 18,
+      (runId, row, diagnostics) => race(runId, row, 'mismatch', diagnostics, 'insert'));
   } finally {
     await Promise.allSettled(pendingCalls);
     await cleanup(runIds);
@@ -287,7 +338,7 @@ async function main(input) {
   }
   const evidence = { target: input.target, companyId, checkedAt: new Date().toISOString(),
     appVersion: readiness.appVersion, transport: 'native-node-http10', results, cleaned,
-    passed: results.length === 14 && results.every(result => result.passed) };
+    passed: results.length === 19 && results.every(result => result.passed) };
   fs.writeFileSync(evidencePath, JSON.stringify(evidence, null, 2));
   return evidence;
 }
