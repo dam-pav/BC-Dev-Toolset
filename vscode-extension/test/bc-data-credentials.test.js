@@ -104,21 +104,25 @@ test('invalid container names and excessive concurrency cannot bypass the bounde
   f.provider.dispose();
   assert.ok((await results).every(result => result.status === 'rejected'));
 });
-test('native helper reuses Toolset credential identity, supports Unicode/rotation and never falls back', { skip: process.platform !== 'win32', timeout: 30000 }, async () => {
+test('native helper reuses Toolset credential identity, supports Unicode/rotation and never falls back', { skip: process.platform !== 'win32', timeout: 180000 }, async () => {
   const container = 'fixture-' + crypto.randomUUID();
   const manager = path.join(root, 'common', 'CredentialMgt.ps1').replaceAll("'", "''");
   const identity = `$configuration=[pscustomobject]@{name='synthetic';serverType='Container';container='${container}';bcCredential=$true}; $target=Get-ConfigurationCredentialTarget -configuration $configuration -kind bc`;
   function store(action, password) {
-    const source = `$ErrorActionPreference='Stop'; . '${manager}'; Initialize-WindowsCredentialStore; ${identity}; ` + (action === 'delete'
+    const source = `$ErrorActionPreference='Stop'; [Console]::Error.WriteLine('BCDFIXTURE_STAGE:started'); . '${manager}'; [Console]::Error.WriteLine('BCDFIXTURE_STAGE:imported'); Initialize-WindowsCredentialStore; [Console]::Error.WriteLine('BCDFIXTURE_STAGE:initialized'); ${identity}; [Console]::Error.WriteLine('BCDFIXTURE_STAGE:identity-ready'); ` + (action === 'delete'
       ? '[BcDevToolset.CredentialStore]::Delete($target)'
-      : `[BcDevToolset.CredentialStore]::Write($target,'fixture-Ž-user',(ConvertTo-SecureString ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(password).toString('base64')}'))) -AsPlainText -Force))`);
-    const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', source], { encoding: 'utf8', windowsHide: true, timeout: 10000 });
+      : `[BcDevToolset.CredentialStore]::Write($target,'fixture-Ž-user',(ConvertTo-SecureString ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(password).toString('base64')}'))) -AsPlainText -Force))`) + "; [Console]::Error.WriteLine('BCDFIXTURE_STAGE:action-complete')";
+    // Native-store fixture setup launches cold PowerShell/Add-Type processes.
+    // This allowance does not change the provider's production/read deadlines.
+    const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', source], { encoding: 'utf8', windowsHide: true, timeout: 30000 });
     // Do not include stderr/command text in failures: native tests handle only
     // random synthetic credentials, and apply the same redaction discipline.
-    assert.equal(result.status, 0, 'Synthetic credential-store setup/cleanup failed.');
+    const stage = String(result.stderr || '').match(/BCDFIXTURE_STAGE:(?:started|imported|initialized|identity-ready|action-complete)/g)?.at(-1) || 'no-stage';
+    assert.equal(result.status, 0, `Synthetic credential-store ${action} failed (${result.error?.code || result.status}; ${stage}).`);
   }
   let starts = 0;
   const provider = createCredentialProvider({ toolsetRoot: root, spawnWorker: (...args) => { starts++; return spawn(...args); } });
+  let primaryFailure;
   try {
     store('write', 'synthetic-世界-😀-one');
     assert.deepEqual(await provider.read(container), { username: 'fixture-Ž-user', password: 'synthetic-世界-😀-one' });
@@ -127,5 +131,15 @@ test('native helper reuses Toolset credential identity, supports Unicode/rotatio
     store('delete');
     await assert.rejects(provider.read(container), { category: 'credential_missing' });
     assert.equal(starts, 1);
-  } finally { provider.dispose(); store('delete'); }
+  } catch (error) {
+    primaryFailure = error;
+    throw error;
+  } finally {
+    provider.dispose();
+    try { store('delete'); }
+    catch (error) {
+      if (!primaryFailure) throw error;
+      primaryFailure.message += ` Cleanup also failed: ${error.message}`;
+    }
+  }
 });
