@@ -52,7 +52,7 @@ async function main(input) {
     return state;
   }
   async function cleanup(runIds) {
-    assert.ok(Array.isArray(runIds) && runIds.length <= 19);
+    assert.ok(Array.isArray(runIds) && runIds.length <= 24);
     for (const runId of runIds) assert.match(runId, guidPattern);
     for (const runId of runIds) {
       assert.equal((await call('Cleanup', { runId })).status, 200);
@@ -70,7 +70,7 @@ async function main(input) {
     return { target: input.target, cleaned: true };
   }
   assert.ok(!fs.existsSync(statePath), 'Run -CleanupOnly for interrupted EV qualification.');
-  const runIds = Array.from({ length: 19 }, () => crypto.randomUUID());
+  const runIds = Array.from({ length: 24 }, () => crypto.randomUUID());
   fs.writeFileSync(statePath, JSON.stringify({ target: input.target, companyId, runIds }), { flag: 'wx' });
   const results = [];
   const pendingCalls = [];
@@ -82,6 +82,14 @@ async function main(input) {
   function insertion(runId, systemId = crypto.randomUUID(), requestId = crypto.randomUUID(), amount = 4) {
     return { runId, systemId, requestId, operation: 'insert', amount };
   }
+  function deletion(runId, row, requestId = crypto.randomUUID()) {
+    return { runId, requestId, systemId: row.systemId, expectedVersion: row.version, operation: 'delete' };
+  }
+  function assertDeleteAck(ack, systemId) {
+    assert.deepEqual(Object.keys(ack).sort(), ['applyCount','deletedSystemId','outcome','requestId','resultId']);
+    assert.equal(ack.deletedSystemId.toLowerCase(), systemId.toLowerCase());
+    assert.equal(ack.outcome, 'applied');
+  }
   function rejected(response, code) {
     assert.equal(response.status, 400);
     assert.ok(response.message.includes(code));
@@ -90,7 +98,7 @@ async function main(input) {
     const result = { name, passed: false };
     results.push(result);
     try {
-      const prepared = await call(index >= 14 ? 'PrepareEmpty' : 'Prepare', { runId: runIds[index] });
+      const prepared = await call(index >= 14 && index <= 18 ? 'PrepareEmpty' : 'Prepare', { runId: runIds[index] });
       assert.equal(prepared.status, 200);
       Object.assign(result, await test(runIds[index], prepared.value, result));
       result.passed = true;
@@ -116,7 +124,7 @@ async function main(input) {
     assert.ok(barrier && !finished, 'Observe the pending owner receipt before competitor submission.');
     assert.notEqual(barrier.ownerSessionId, barrier.observerSessionId);
     const secondRequest = { ...request, ...(kind === 'distinct' ? { requestId: crypto.randomUUID(), amount: 9 } :
-      kind === 'mismatch' ? { amount: 9 } : {}) };
+      kind === 'mismatch' ? (operation === 'delete' ? { systemId: crypto.randomUUID() } : { amount: 9 }) : {}) };
     const started = Date.now();
     const second = await call('Execute', secondRequest);
     diagnostics.competitor = second;
@@ -146,6 +154,12 @@ async function main(input) {
     assert.equal(first.status, 200);
     if (kind === 'mismatch') rejected(second, 'BCD_EV_REQUEST_ID_REUSED');
     else { assert.equal(second.status, 200); assert.equal(second.text, first.text); }
+    if (operation === 'delete') {
+      const observed = await receiptState(runId, 1);
+      assert.equal(observed.row.exists, false);
+      assertDeleteAck(first.value, request.systemId);
+      return { barrier, observed };
+    }
     return { barrier, observed: await stateFor(runId, operation === 'rename' ? 0 : 4, 1) };
   }
   try {
@@ -330,6 +344,57 @@ async function main(input) {
       (runId, row, diagnostics) => race(runId, row, 'identical', diagnostics, 'insert'));
     await check('overlapping insert same-ID different payload is rejected', 18,
       (runId, row, diagnostics) => race(runId, row, 'mismatch', diagnostics, 'insert'));
+    await check('delete minimal acknowledgement replays and never deletes a replacement', 19, async (runId, row) => {
+      const request = deletion(runId, row);
+      const first = await call('Execute', request);
+      assert.equal(first.status, 200);
+      assertDeleteAck(first.value, row.systemId);
+      assert.equal((await call('Execute', request)).text, first.text);
+      rejected(await call('Execute', { ...request, systemId: crypto.randomUUID() }), 'BCD_EV_REQUEST_ID_REUSED');
+      const deleted = await receiptState(runId, 1);
+      assert.equal(deleted.row.exists, false);
+      const replacement = await call('PrepareReplacement', { runId });
+      assert.equal(replacement.status, 200);
+      assert.notEqual(replacement.value.systemId, row.systemId);
+      assert.equal((await call('Execute', request)).text, first.text);
+      const observed = await stateFor(runId, 0, 1);
+      assert.equal(observed.row.systemId, replacement.value.systemId);
+      assert.equal(observed.row.version, replacement.value.version);
+      return { observed };
+    });
+    await check('failed delete restores row/version and releases request reservation', 20, async (runId, row) => {
+      const request = deletion(runId, row);
+      rejected(await call('Execute', { ...request, failAfterMutation: true }), 'BCD_EV_AFTER_MUTATION');
+      const rolledBack = await stateFor(runId, 0, 0);
+      assert.equal(rolledBack.row.systemId, row.systemId);
+      assert.equal(rolledBack.row.version, row.version);
+      const first = await call('Execute', request);
+      assert.equal(first.status, 200);
+      assertDeleteAck(first.value, row.systemId);
+      assert.equal((await call('Execute', request)).text, first.text);
+      const observed = await receiptState(runId, 1);
+      assert.equal(observed.row.exists, false);
+      return { observed };
+    });
+    await check('stale delete leaves no receipt and fresh same-ID retry binds the version', 21, async (runId, row) => {
+      const modified = await call('Execute', mutation(runId, row));
+      assert.equal(modified.status, 200);
+      const request = deletion(runId, row);
+      rejected(await call('Execute', request), 'BCD_E04_CONFLICT');
+      await stateFor(runId, 4, 1);
+      const fresh = { ...request, expectedVersion: modified.value.row.version };
+      const first = await call('Execute', fresh);
+      assert.equal(first.status, 200);
+      rejected(await call('Execute', request), 'BCD_EV_REQUEST_ID_REUSED');
+      assert.equal((await call('Execute', fresh)).text, first.text);
+      const observed = await receiptState(runId, 2);
+      assert.equal(observed.row.exists, false);
+      return { observed };
+    });
+    await check('overlapping identical delete IDs apply once and replay acknowledgement', 22,
+      (runId, row, diagnostics) => race(runId, row, 'identical', diagnostics, 'delete'));
+    await check('overlapping delete same-ID different target rejects payload reuse', 23,
+      (runId, row, diagnostics) => race(runId, row, 'mismatch', diagnostics, 'delete'));
   } finally {
     await Promise.allSettled(pendingCalls);
     await cleanup(runIds);
@@ -338,7 +403,7 @@ async function main(input) {
   }
   const evidence = { target: input.target, companyId, checkedAt: new Date().toISOString(),
     appVersion: readiness.appVersion, transport: 'native-node-http10', results, cleaned,
-    passed: results.length === 19 && results.every(result => result.passed) };
+    passed: results.length === 24 && results.every(result => result.passed) };
   fs.writeFileSync(evidencePath, JSON.stringify(evidence, null, 2));
   return evidence;
 }

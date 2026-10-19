@@ -16,10 +16,13 @@ codeunit 50219 "BCD Replay Identity Probe"
         Request: JsonObject;
         Token: JsonToken;
         RenamePolicy: Boolean;
+        DeletePolicy: Boolean;
     begin
         Request.ReadFrom(inputJson);
         if Request.Get('renamePolicy', Token) then
             RenamePolicy := Token.AsValue().AsBoolean();
+        if Request.Get('deletePolicy', Token) then
+            DeletePolicy := Token.AsValue().AsBoolean();
         NamespaceId := GetGuid(inputJson, 'namespaceId');
         Profiles := ProfileList();
         foreach Profile in Profiles do
@@ -53,8 +56,12 @@ codeunit 50219 "BCD Replay Identity Probe"
             AddPermission(Role."Role ID", 1, Database::"BCD Conflict Barrier", '', '');
             AddPermission(Role."Role ID", 0, Database::"BCD Conflict Barrier", 'RIMD', '');
             AddPermission(Role."Role ID", 0, Database::"BCD Receipt Run", 'RIMD', '');
-            AddPermission(Role."Role ID", 0, Database::"BCD Receipt Fixture", 'RIMD',
-                Receipt.TableName() + ': Principal=' + Format(Principal, 0, 4));
+            if DeletePolicy and (Profile = 'v') then
+                AddPermission(Role."Role ID", 0, Database::"BCD Receipt Fixture", 'IMD',
+                    Receipt.TableName() + ': Principal=' + Format(Principal, 0, 4))
+            else
+                AddPermission(Role."Role ID", 0, Database::"BCD Receipt Fixture", 'RIMD',
+                    Receipt.TableName() + ': Principal=' + Format(Principal, 0, 4));
             case Profile of
                 'r': AddPermission(Role."Role ID", 0, Database::"BCD Conflict Fixture", 'R',
                     Target.TableName() + ': Principal=' + Format(Principal, 0, 4));
@@ -296,6 +303,39 @@ codeunit 50219 "BCD Replay Identity Probe"
         Target.FindFirst();
         Target.Rename(RunId, Name);
         exit('{"changed":true}');
+    end;
+
+    procedure RestoreDeletedTarget(inputJson: Text): Text
+    var
+        Run: Record "BCD Receipt Run";
+        Receipt: Record "BCD Receipt Fixture";
+        Target: Record "BCD Conflict Fixture";
+        RunId: Guid;
+        Principal: Guid;
+    begin
+        // Test administration only: restore a different identity after one delete.
+        RunId := GetGuid(inputJson, 'runId');
+        Principal := ProfilePrincipal(GetGuid(inputJson, 'namespaceId'), 'f', true);
+        Run.Get(RunId);
+        if (Run.Principal <> Principal) or (Run."Apply Count" <> 1) then
+            Error('BCD_EVP_DATA_OWNER_CHANGED');
+        Receipt.SetRange("Run ID", RunId);
+        Receipt.SetRange(Principal, Principal);
+        if Receipt.Count() <> 1 then
+            Error('BCD_EVP_DELETE_RECEIPT_REQUIRED');
+        Receipt.FindFirst();
+        if not Receipt.Completed or (CopyStr(Receipt.Payload, 1, 7) <> 'delete|') then
+            Error('BCD_EVP_DELETE_RECEIPT_REQUIRED');
+        Target.SetRange("Run ID", RunId);
+        if not Target.IsEmpty() then
+            Error('BCD_EVP_TARGET_STILL_EXISTS');
+        Target.Init();
+        Target."Run ID" := RunId;
+        Target.Name := 'ORIGINAL';
+        Target.Principal := Principal;
+        Target.Amount := 4;
+        Target.Insert();
+        exit('{"restored":true}');
     end;
 
     local procedure AddPermission(RoleId: Code[20]; ObjectType: Integer; ObjectId: Integer; Rights: Text; Filter: Text)

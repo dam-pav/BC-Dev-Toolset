@@ -196,6 +196,55 @@ codeunit 50218 "BCD Versioned Replay Tests"
         CheckAndClean(RunId);
     end;
 
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure DeleteAcknowledgementUsesReceiptReadNotDeletedRowRead()
+    var
+        RunId: Guid;
+        Input: Text;
+        Result: Text;
+    begin
+        InitializeOperation(RunId, Input, Result, 'delete');
+        PermissionsMock.Set('BCD EV NO TARGET R');
+        Assert.AreEqual(Result, Probe.Execute(Input), 'Own minimal acknowledgement contains no row values and survives loss of target Read.');
+        PermissionsMock.Set('BCD EV NO RECEIPT R');
+        asserterror Probe.Execute(Input);
+        Assert.ExpectedError('BCD Receipt Fixture');
+        Assert.IsTrue(StrPos(LowerCase(GetLastErrorText()), 'read') > 0, 'Receipt Read is required for acknowledgement disclosure.');
+        PermissionsMock.Set('BCD EV SETUP');
+        Assert.AreEqual(Result, Probe.Execute(Input), 'Restored receipt Read recovers exact acknowledgement.');
+        CheckAndClean(RunId);
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure DeleteReplayWithoutDeleteCannotDeleteReplacement()
+    var
+        RunId: Guid;
+        Input: Text;
+        Result: Text;
+        Replacement: JsonObject;
+        Request: JsonObject;
+        Token: JsonToken;
+    begin
+        InitializeOperation(RunId, Input, Result, 'delete');
+        Replacement.ReadFrom(Probe.PrepareReplacement(RunRequest(RunId)));
+        Commit();
+        PermissionsMock.Set('BCD EV TARGET R');
+        Assert.AreEqual(Result, Probe.Execute(Input), 'Historical acknowledgement needs no new Delete permission.');
+        Request.ReadFrom(Input);
+        Request.Replace('requestId', Format(CreateGuid(), 0, 4));
+        Replacement.Get('systemId', Token);
+        Request.Replace('systemId', Token.AsValue().AsText());
+        Replacement.Get('version', Token);
+        Request.Replace('expectedVersion', Token.AsValue().AsText());
+        Request.WriteTo(Input);
+        asserterror Probe.Execute(Input);
+        Assert.ExpectedError('BCD Conflict Fixture');
+        Assert.IsTrue(StrPos(LowerCase(GetLastErrorText()), 'delete') > 0, 'A new delete still requires native target Delete.');
+        CheckAndClean(RunId);
+    end;
+
     local procedure Initialize(var RunId: Guid; var Input: Text; var Result: Text)
     begin
         InitializeOperation(RunId, Input, Result, 'modify');

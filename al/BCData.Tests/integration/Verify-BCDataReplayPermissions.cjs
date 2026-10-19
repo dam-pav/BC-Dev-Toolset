@@ -15,7 +15,7 @@ async function main(input) {
   assert.deepEqual(s.runs.map(r => r.kind).sort(), ['f','x']);
   for (const run of s.runs) assert.match(run.runId, guid);
   const operation = s.operation || 'modify';
-  assert.ok(['modify','rename','insert'].includes(operation));
+  assert.ok(['modify','rename','insert','delete'].includes(operation));
   const rename = operation === 'rename';
   const insert = operation === 'insert';
   const admin = input.admin;
@@ -36,7 +36,7 @@ async function main(input) {
     return safe.slice(0, 2048);
   }
   const runId = kind => s.runs.find(run => run.kind === kind).runId;
-  const payload = { namespaceId: s.namespaceId, runs: s.runs, renamePolicy: rename };
+  const payload = { namespaceId: s.namespaceId, runs: s.runs, renamePolicy: rename, deletePolicy: operation === 'delete' };
   async function call(user, service, action, request) {
     const url = new URL(`${baseUrl}/${service}_${action}`);
     url.searchParams.set('company', companyId); url.searchParams.set('tenant', 'default');
@@ -88,6 +88,106 @@ async function main(input) {
   async function check(name, work) {
     try { results.push({ name, passed: true, ...await work() }); }
     catch (error) { results.push({ name, passed: false, failure: error.name === 'AssertionError' ? redact(error.message) : 'Qualification request failed.' }); }
+  }
+  if (operation === 'delete') {
+    let history = input.expectedHistory;
+    const replayDelete = () => receipt('f', 'Execute', history.request);
+    async function deleteState(kind, targetCount) {
+      const state = (await administration('DataState')).rows.find(row => row.kind === kind);
+      assert.equal(state.runExists, true);
+      assert.equal(state.targetCount, targetCount);
+      assert.equal(state.receiptCount, 1);
+      assert.equal(state.applyCount, 1);
+      assert.equal(state.pendingCount, 0);
+      return state;
+    }
+    function ack(response, systemId) {
+      success(response);
+      assert.deepEqual(Object.keys(response.value).sort(), ['applyCount','deletedSystemId','outcome','requestId','resultId']);
+      assert.equal(response.value.deletedSystemId.toLowerCase(), systemId.toLowerCase());
+      assert.equal(response.value.outcome, 'applied');
+    }
+    function receiptDenied(response) {
+      assert.ok([400,403].includes(response.status));
+      assert.ok(response.message.includes('BCD Receipt Fixture'));
+      assert.match(response.message, /read/i);
+      assert.equal(response.text, undefined);
+      return { status: response.status, code: response.code };
+    }
+    if (input.phase === 'initial') {
+      await check('restricted owner deletes and replays only minimal acknowledgement', async () => {
+        const row = success(await receipt('f', 'Prepare')).value;
+        const request = { runId: runId('f'), requestId: s.requestId, systemId: row.systemId, expectedVersion: row.version, operation };
+        const applied = await receipt('f', 'Execute', request);
+        ack(applied, row.systemId);
+        history = { request, text: applied.text };
+        assert.equal(success(await replayDelete()).text, history.text);
+        return { observed: await deleteState('f', 0) };
+      });
+      if (!history) return { results };
+      await check('another principal independently deletes with the same request ID', async () => {
+        const row = success(await receipt('x', 'Prepare')).value;
+        const applied = await receipt('x', 'Execute', { requestId: s.requestId, systemId: row.systemId, expectedVersion: row.version, operation });
+        ack(applied, row.systemId);
+        assert.notEqual(applied.text, history.text);
+        return { observed: await deleteState('x', 0) };
+      });
+      for (const action of ['Execute','Inspect','ObservePending','Cleanup','CleanState']) {
+        await check(`another principal cannot ${action} owner delete history`, async () => {
+          const denied = await receipt('x', action, history.request);
+          assert.equal(denied.status, 400);
+          assert.ok(denied.message.includes(action === 'ObservePending' ? 'BCD_E06_RUN_OWNER_MISMATCH' :
+            action === 'CleanState' ? 'BCD_E04_OWNER_MISMATCH' : 'BCD_EV_OWNER_MISMATCH'));
+          assert.equal(denied.text, undefined);
+          return { status: denied.status, observed: await deleteState('f', 0) };
+        });
+      }
+      await check('restricted caller cannot administer deleted targets', async () => {
+        const denied = await call(users.x, 'BCDCompatibilityEVP', 'DataState', payload);
+        assert.ok([400,403].includes(denied.status));
+        assert.equal(denied.text, undefined);
+        return { status: denied.status, code: denied.code };
+      });
+    } else if (input.phase === 'r') {
+      await check('own delete acknowledgement replays without current Delete', async () => {
+        assert.equal(success(await replayDelete()).text, history.text);
+        return { observed: await deleteState('f', 0) };
+      });
+      await check('fresh delete without Delete cannot remove same-key replacement', async () => {
+        await administration('RestoreDeletedTarget', { runId: runId('f') });
+        const before = await deleteState('f', 1);
+        assert.notEqual(before.systemId, history.request.systemId);
+        const denied = nativeDenied(await receipt('f', 'Execute', { ...history.request,
+          requestId: crypto.randomUUID(), systemId: before.systemId, expectedVersion: before.version }), 'delete');
+        const observed = await deleteState('f', 1);
+        assert.equal(observed.systemId, before.systemId);
+        assert.equal(observed.version, before.version);
+        assert.equal(success(await replayDelete()).text, history.text);
+        return { ...denied, observed };
+      });
+    } else if (input.phase === 'n') {
+      await check('loss of business-row Read still permits own minimal acknowledgement', async () => {
+        assert.equal(success(await replayDelete()).text, history.text);
+        return { observed: await deleteState('f', 1) };
+      });
+      await check('business-row inspection still requires current target Read', async () => {
+        const denied = nativeDenied(await receipt('f', 'Inspect'), 'read');
+        return { ...denied, observed: await deleteState('f', 1) };
+      });
+    } else if (input.phase === 'v') {
+      for (const action of ['Execute','Inspect','ObservePending']) {
+        await check(`receipt Read revocation blocks ${action}`, async () => {
+          const denied = receiptDenied(await receipt('f', action, history.request));
+          return { ...denied, observed: await deleteState('f', 1) };
+        });
+      }
+    } else if (input.phase === 'f') {
+      await check('restored receipt Read returns exact acknowledgement and preserves replacement', async () => {
+        assert.equal(success(await replayDelete()).text, history.text);
+        return { observed: await deleteState('f', 1) };
+      });
+    } else throw new Error('Invalid delete phase.');
+    return { results, ...(input.phase === 'initial' ? { ownerHistory: history } : {}) };
   }
   let ownerHistory = input.expectedHistory;
   if (ownerHistory) {

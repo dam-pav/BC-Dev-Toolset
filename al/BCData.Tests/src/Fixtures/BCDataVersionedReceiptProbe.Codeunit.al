@@ -1,6 +1,6 @@
 codeunit 50217 "BCD Versioned Receipt Probe"
 {
-    // E04/E06 composition fixture: fixed insert/modify/rename, no elevated permissions.
+    // E04/E06 composition fixture: fixed insert/modify/delete/rename, no elevated permissions.
     procedure Prepare(inputJson: Text): Text
     begin
         exit(Conflict.Prepare(inputJson));
@@ -43,7 +43,7 @@ codeunit 50217 "BCD Versioned Receipt Probe"
         Request.ReadFrom(inputJson);
         Request.Get('operation', Token);
         Operation := Token.AsValue().AsText();
-        if not (Operation in ['insert', 'modify', 'rename']) then
+        if not (Operation in ['insert', 'modify', 'delete', 'rename']) then
             Error('BCD_EV_INVALID_OPERATION');
         if Operation = 'insert' then begin
             if Request.Get('expectedVersion', Token) then
@@ -70,8 +70,10 @@ codeunit 50217 "BCD Versioned Receipt Probe"
         if Operation in ['insert', 'modify'] then
             Payload += Format(Amount, 0, 9)
         else
-            // The E04 fixture has exactly one rename destination; no generic key API.
-            Payload += 'RENAMED';
+            if Operation = 'rename' then
+                Payload += 'RENAMED'
+            else
+                Payload += 'DELETE';
         if StrLen(Payload) > MaxStrLen(Receipt.Payload) then
             Error('BCD_EV_PAYLOAD_TOO_LONG');
         Receipt."Run ID" := RunId;
@@ -87,7 +89,10 @@ codeunit 50217 "BCD Versioned Receipt Probe"
                 Error('BCD_EV_REQUEST_ID_REUSED');
             if not Receipt.Completed then
                 Error('BCD_EV_INCOMPLETE_RECEIPT');
-            RequireReplayTarget(RunId, TargetId);
+            // Delete acknowledgement contains no business-row values. Native
+            // receipt Read + owned run authorize only this caller's history.
+            if Operation <> 'delete' then
+                RequireReplayTarget(RunId, TargetId);
             exit(Receipt.Result);
         end;
         // Existing E04 path locks, rereads and compares before mutation.
@@ -104,7 +109,11 @@ codeunit 50217 "BCD Versioned Receipt Probe"
             Error('BCD_EV_AFTER_MUTATION');
         ResultObject.Add('requestId', Format(RequestId, 0, 4));
         ResultObject.Add('resultId', Format(CreateGuid(), 0, 4));
-        ResultObject.Add('row', RowState);
+        if Operation = 'delete' then begin
+            ResultObject.Add('deletedSystemId', Format(TargetId, 0, 4));
+            ResultObject.Add('outcome', 'applied');
+        end else
+            ResultObject.Add('row', RowState);
         ResultObject.Add('applyCount', Run."Apply Count");
         ResultObject.WriteTo(ResultText);
         if StrLen(ResultText) > MaxStrLen(Receipt.Result) then

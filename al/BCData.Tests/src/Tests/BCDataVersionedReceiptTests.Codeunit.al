@@ -233,6 +233,101 @@ codeunit 50209 "BCD Versioned Receipt Tests"
         Probe.Cleanup(RunRequest(RunId));
     end;
 
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure DeleteAcknowledgementReplaysWithoutTouchingReplacement()
+    var
+        RunId: Guid;
+        Original: JsonObject;
+        Current: JsonObject;
+        Ack: JsonObject;
+        Input: Text;
+        Result: Text;
+    begin
+        Prepare(RunId, Original);
+        Input := DeleteRequest(RunId, CreateGuid(), Original, false);
+        Result := Probe.Execute(Input);
+        Commit();
+        Ack.ReadFrom(Result);
+        Assert.IsFalse(Ack.Contains('row'), 'No deleted row values are stored/disclosed.');
+        Assert.IsFalse(Ack.Contains('version'), 'Delete does not invent a new row version.');
+        Assert.AreEqual(Value(Original, 'systemId'), Value(Ack, 'deletedSystemId'), 'Acknowledgement identifies deletion.');
+        Assert.AreEqual('applied', Value(Ack, 'outcome'), 'Acknowledgement reports prior application.');
+        Assert.AreEqual(Result, Probe.Execute(Input), 'Absent original target permits exact acknowledgement replay.');
+        Probe.PrepareReplacement(RunRequest(RunId));
+        Commit();
+        Current := State(RunId);
+        Assert.AreNotEqual(Value(Original, 'systemId'), Value(Row(Current), 'systemId'), 'Same-key replacement has a new identity.');
+        Assert.AreEqual(Result, Probe.Execute(Input), 'Historical acknowledgement does not delete the replacement.');
+        CheckState(RunId, 0, 1, 1);
+        Probe.Cleanup(RunRequest(RunId));
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure DeleteFailureRestoresRowAndReservation()
+    var
+        RunId: Guid;
+        RequestId: Guid;
+        Original: JsonObject;
+        Current: JsonObject;
+    begin
+        Prepare(RunId, Original);
+        RequestId := CreateGuid();
+        asserterror Probe.Execute(DeleteRequest(RunId, RequestId, Original, true));
+        Assert.ExpectedError('BCD_EV_AFTER_MUTATION');
+        Current := State(RunId);
+        Assert.AreEqual(Value(Original, 'systemId'), Value(Row(Current), 'systemId'), 'Failed deletion restores identity.');
+        Assert.AreEqual(Value(Original, 'version'), Value(Row(Current), 'version'), 'Failed deletion restores version.');
+        CheckState(RunId, 0, 0, 0);
+        Probe.Execute(DeleteRequest(RunId, RequestId, Original, false));
+        Commit();
+        Current := State(RunId);
+        Assert.AreEqual('false', LowerCase(Value(Row(Current), 'exists')), 'Retry deletes the target.');
+        Assert.AreEqual('1', Value(Current, 'receiptCount'), 'Only successful retry has a receipt.');
+        Probe.Cleanup(RunRequest(RunId));
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoCommit)]
+    procedure DeleteStaleIdRollsBackAndCompletedIdBindsVersion()
+    var
+        RunId: Guid;
+        RequestId: Guid;
+        Original: JsonObject;
+        Current: JsonObject;
+        Input: Text;
+        Result: Text;
+    begin
+        Prepare(RunId, Original);
+        Probe.Execute(Mutation(RunId, CreateGuid(), Original, 4, false));
+        Commit();
+        RequestId := CreateGuid();
+        asserterror Probe.Execute(DeleteRequest(RunId, RequestId, Original, false));
+        Assert.ExpectedError('BCD_E04_CONFLICT');
+        CheckState(RunId, 4, 1, 1);
+        Current := State(RunId);
+        Input := DeleteRequest(RunId, RequestId, Row(Current), false);
+        Result := Probe.Execute(Input);
+        Commit();
+        asserterror Probe.Execute(DeleteRequest(RunId, RequestId, Original, false));
+        Assert.ExpectedError('BCD_EV_REQUEST_ID_REUSED');
+        Assert.AreEqual(Result, Probe.Execute(Input), 'Completed ID replay precedes missing-target lookup.');
+        Probe.Cleanup(RunRequest(RunId));
+    end;
+
+    local procedure DeleteRequest(RunId: Guid; RequestId: Guid; Target: JsonObject; Fail: Boolean): Text
+    var
+        Request: JsonObject;
+        Output: Text;
+    begin
+        Request.ReadFrom(Mutation(RunId, RequestId, Target, 0, Fail));
+        Request.Replace('operation', 'delete');
+        Request.Remove('amount');
+        Request.WriteTo(Output);
+        exit(Output);
+    end;
+
     local procedure PrepareInsert(var RunId: Guid; var TargetId: Guid)
     begin
         RunId := CreateGuid();
