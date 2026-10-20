@@ -10,7 +10,7 @@ const { resolveWithinRoot } = require('../../../vscode-extension/path-security')
 const guid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 async function main(input) {
-  const targets = { 'BC23 Baseline': 'bcdata23test', 'BC24 Matrix': 'bcdata24test', 'BC25 Matrix': 'bcdata25test', 'BC27.1': 'bcdata271' };
+  const targets = { 'BC23 Baseline': 'bcdata23test', 'BC24 Matrix': 'bcdata24test', 'BC25 Matrix': 'bcdata25test', 'BC26 Matrix': 'bcdata26test', 'BC27.1': 'bcdata271' };
   assert.ok(Object.hasOwn(targets, input.target)); assert.equal(input.container, targets[input.target]);
   const root = path.resolve(__dirname, '../../..');
   const statePath = resolveWithinRoot(root, '.bcdevtoolset', `mutation-client-${input.container}-state.json`);

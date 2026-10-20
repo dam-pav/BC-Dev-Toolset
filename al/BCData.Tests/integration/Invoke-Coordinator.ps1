@@ -1,19 +1,19 @@
 param(
-    [ValidateSet('BC23 Baseline','BC24 Matrix','BC25 Matrix','BC27.1')][string] $Target = 'BC23 Baseline',
+    [ValidateSet('BC23 Baseline','BC24 Matrix','BC25 Matrix','BC26 Matrix','BC27.1')][string] $Target = 'BC23 Baseline',
     [switch] $CleanupOnly,
     [switch] $InspectLockingFeatures
 )
 $ErrorActionPreference = 'Stop'
 if ($CleanupOnly -and $InspectLockingFeatures) { throw 'Choose cleanup or locking inspection, not both.' }
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
-$containers = @{'BC23 Baseline'='bcdata23test';'BC24 Matrix'='bcdata24test';'BC25 Matrix'='bcdata25test';'BC27.1'='bcdata271'}
+$containers = @{'BC23 Baseline'='bcdata23test';'BC24 Matrix'='bcdata24test';'BC25 Matrix'='bcdata25test';'BC26 Matrix'='bcdata26test';'BC27.1'='bcdata271'}
 $container = $containers[$Target]
 . (Join-Path $root 'common/CredentialMgt.ps1')
 $settings = Get-Content -LiteralPath (Join-Path $root '.bcdevtoolset/settings.json') -Raw | ConvertFrom-Json
 $matches = @($settings.configurations | Where-Object name -CEQ $Target)
 if ($matches.Count -ne 1 -or $matches[0].container -cne $container -or $matches[0].serverType -ne 'Container' -or
     $matches[0].targetType -ne 'Test' -or $matches[0].authentication -ne 'UserPassword') {
-    throw 'Only the four dedicated UserPassword Test configurations are accepted.'
+    throw 'Only the five dedicated UserPassword Test configurations are accepted.'
 }
 $credential = Get-ConfigurationCredential -configuration $matches[0] -kind bc
 $start = [Diagnostics.ProcessStartInfo]::new('node')

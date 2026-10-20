@@ -1,12 +1,12 @@
 param(
-    [ValidateSet('BC23 Baseline','BC24 Matrix','BC25 Matrix','BC27.1')][string] $Target = 'BC23 Baseline',
+    [ValidateSet('BC23 Baseline','BC24 Matrix','BC25 Matrix','BC26 Matrix','BC27.1')][string] $Target = 'BC23 Baseline',
     [ValidateSet('modify','rename','insert','delete')][string] $Operation = 'modify',
     [switch] $PublicService,
     [switch] $CleanupOnly
 )
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
-$container = @{'BC23 Baseline'='bcdata23test';'BC24 Matrix'='bcdata24test';'BC25 Matrix'='bcdata25test';'BC27.1'='bcdata271'}[$Target]
+$container = @{'BC23 Baseline'='bcdata23test';'BC24 Matrix'='bcdata24test';'BC25 Matrix'='bcdata25test';'BC26 Matrix'='bcdata26test';'BC27.1'='bcdata271'}[$Target]
 $prefix = switch ($Operation) { 'rename' { 'gcr' } 'insert' { 'gci' } 'delete' { 'gcd' } default { 'gcm' } }
 if ($PublicService) { $prefix = 'pub-' + $prefix }
 $statePath = Join-Path $root ".bcdevtoolset/$prefix-$container-state.json"
@@ -16,7 +16,7 @@ $settings = Get-Content -LiteralPath (Join-Path $root '.bcdevtoolset/settings.js
 $matches = @($settings.configurations | Where-Object name -CEQ $Target)
 if ($matches.Count -ne 1 -or $matches[0].container -cne $container -or $matches[0].serverType -ne 'Container' -or
     $matches[0].targetType -ne 'Test' -or $matches[0].authentication -ne 'UserPassword') {
-    throw 'Only the four dedicated UserPassword Test configurations are accepted.'
+    throw 'Only the five dedicated UserPassword Test configurations are accepted.'
 }
 $credential = Get-ConfigurationCredential -configuration $matches[0] -kind bc
 $admin = @{username=$credential.UserName;password=$credential.GetNetworkCredential().Password}
