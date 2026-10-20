@@ -139,6 +139,7 @@ codeunit 50226 "BCD Coordinator Probe"
         Entry: Record "BCD Mutation Trigger Log";
         Input: JsonObject;
         Response: JsonObject;
+        ClientExists: Boolean;
     begin
         LoadOwned(inputJson, Run, Input);
         Response.Add('epoch', Format(Run."First Epoch", 0, 4));
@@ -163,7 +164,29 @@ codeunit 50226 "BCD Coordinator Probe"
         Response.Add('completed', Receipt.Completed);
         Receipt.Get(UserSecurityId(), Run."Other Request ID");
         Response.Add('otherCompleted', Receipt.Completed);
+        if not IsNullGuid(Run."Client Request ID") then begin
+            ClientExists := Receipt.Get(UserSecurityId(), Run."Client Request ID");
+            Response.Add('clientReceiptExists', ClientExists);
+            Response.Add('clientCompleted', ClientExists and Receipt.Completed);
+            Response.Add('clientClosed', ClientExists and Receipt.Closed);
+        end;
         exit(ToText(Response));
+    end;
+
+    procedure RegisterClientRequest(inputJson: Text): Text
+    var
+        Run: Record "BCD Coordinator Run";
+        Input: JsonObject;
+        RequestId: Guid;
+    begin
+        // Durable test-only recovery intent BEFORE the client prepares its scope.
+        LoadOwned(inputJson, Run, Input);
+        RequestId := ReadGuid(Input, 'requestId');
+        if not IsNullGuid(Run."Client Request ID") and (Run."Client Request ID" <> RequestId) then
+            Error('BCD_COORD_CLIENT_ALREADY_REGISTERED');
+        Run."Client Request ID" := RequestId;
+        Run.Modify();
+        exit('{"registered":true}');
     end;
 
     procedure Cleanup(inputJson: Text): Text
@@ -175,6 +198,23 @@ codeunit 50226 "BCD Coordinator Probe"
         Input: JsonObject;
     begin
         LoadOwned(inputJson, Run, Input);
+        Receipt.LockTable();
+        if not IsNullGuid(Run."Client Request ID") then
+            if Receipt.Get(UserSecurityId(), Run."Client Request ID") then begin
+                if Receipt.Completed then begin
+                    Receipt.TestField("Table ID", Database::"BCD Mutation Fixture");
+                    if Run.Operation = 'insert' then begin
+                        if not Row.GetBySystemId(Receipt."Target ID") then
+                            Error('BCD_COORD_CLIENT_TARGET_MISSING');
+                        Row.TestField("Run ID", Run."Run ID");
+                        Row.Reset();
+                    end else
+                        Receipt.TestField("Target ID", Run."Target ID");
+                end;
+                Receipt.Delete();
+                if Receipt.Get(UserSecurityId(), Run."Client Request ID") then
+                    Error('BCD_COORD_CLIENT_RECEIPT_REMAINS');
+            end;
         Receipt.Get(UserSecurityId(), Run."Primary Request ID");
         Receipt.Delete();
         Receipt.Get(UserSecurityId(), Run."Other Request ID");
@@ -210,6 +250,8 @@ codeunit 50226 "BCD Coordinator Probe"
             Response.Add('receiptExists', Receipt.Get(UserSecurityId(), RunId));
         // Caller supplies the recorded secondary GUID for independent cleanup check.
         Response.Add('otherReceiptExists', Receipt.Get(UserSecurityId(), ReadGuid(Input, 'otherRequestId')));
+        if Input.Contains('clientRequestId') then
+            Response.Add('clientReceiptExists', Receipt.Get(UserSecurityId(), ReadGuid(Input, 'clientRequestId')));
         exit(ToText(Response));
     end;
 

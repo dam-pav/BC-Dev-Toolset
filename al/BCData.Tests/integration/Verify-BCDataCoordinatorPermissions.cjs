@@ -22,7 +22,7 @@ async function main(input) {
   const companyId = s.companyId || companies[0].id;
   assert.ok(companies.some(company => company.id === companyId));
   const runId = kind => s.runs.find(run => run.kind === kind).runId;
-  const payload = { namespaceId: s.namespaceId, ownerRunId: runId('f'), otherRunId: runId('x'), operation: s.operation };
+  const payload = { namespaceId: s.namespaceId, ownerRunId: runId('f'), otherRunId: runId('x'), operation: s.operation, publicService: s.publicService === true };
   function redact(value) {
     let safe = String(value);
     for (const user of [input.admin, ...Object.values(users)]) {
@@ -65,7 +65,18 @@ async function main(input) {
     try { Object.assign(result, await test()); result.passed = true; }
     catch (error) { result.error = redact(error.message); }
   }
-  const execute = (request, kind = 'f') => call(users[kind], 'BCDCompatibilityCoord', 'Execute', request);
+  const execute = (request, kind = 'f') => {
+    if (s.publicService !== true || kind !== 'f') return call(users[kind], 'BCDCompatibilityCoord', 'Execute', request);
+    const mutation = { operation: s.operation, tableId: 50221 };
+    if (s.operation !== 'insert') Object.assign(mutation, { systemId: request.systemId, expectedVersion: request.expectedVersion });
+    if (s.operation === 'insert') mutation.fields = [{ fieldId: 1, value: runId('f') }, { fieldId: 2, value: 'A' },
+      { fieldId: 3, value: 1 }, { fieldId: 23, value: 0 }, { fieldId: 4, value: request.quantity }];
+    if (s.operation === 'modify') mutation.fields = [{ fieldId: 4, value: request.quantity }];
+    if (s.operation === 'rename') mutation.primaryKey = [{ fieldId: 1, value: runId('f') },
+      { fieldId: 2, value: request.destination }, { fieldId: 3, value: 1 }];
+    return call(users.f, 'BCDDataWrite', 'Execute', { requestId: request.slot === 2 ? history.otherRequestId : s.requestId,
+      epoch: request.epoch, request: mutation });
+  };
   let history = input.expectedHistory;
   async function replay() {
     const response = success(await execute(history.request));
@@ -82,9 +93,15 @@ async function main(input) {
         runId: runId('f'), requestId: s.requestId, operation: s.operation, delayMs: 0 })).value;
       const request = { runId: runId('f'), epoch: prepared.epoch, systemId: prepared.systemId,
         expectedVersion: prepared.version, quantity: '4', destination: 'B' };
+      if (s.publicService === true) {
+        const publicScope = success(await call(users.f, 'BCDDataWrite', 'Prepare', { requestId: s.requestId })).value;
+        assert.equal(publicScope.epoch.toLowerCase(), prepared.epoch.toLowerCase());
+        assert.equal(publicScope.companyId.toLowerCase(), companyId.toLowerCase());
+      }
+      history = { request, otherEpoch: prepared.otherEpoch, otherRequestId: prepared.otherRequestId };
       const applied = success(await execute(request));
       assert.equal(applied.value.requestId.toLowerCase(), s.requestId.toLowerCase());
-      history = { request, result: applied.text, otherEpoch: prepared.otherEpoch };
+      history.result = applied.text;
       return { observed: await ownedAdmin('CoordinatorDataState') };
     });
     if (!history) return { results };
@@ -99,8 +116,10 @@ async function main(input) {
     });
     await check('owner history remains exact after another principal uses the same ID', () => replay().then(() => ({})));
     await check('foreign owned-run execution is denied without disclosing history', async () => denied(await execute(history.request, 'x')));
-    await check('restricted caller cannot execute qualification administration', async () =>
-      denied(await call(users.f, 'BCDCompatibilityEVP', 'CoordinatorDataState', { ...payload, kind: 'f', runId: runId('f') })));
+    await check('restricted caller cannot execute administration or use an ungranted public write service', async () => {
+      denied(await call(users.f, 'BCDCompatibilityEVP', 'CoordinatorDataState', { ...payload, kind: 'f', runId: runId('f') }));
+      if (s.publicService === true) denied(await call(users.x, 'BCDDataWrite', 'Prepare', { requestId: s.requestId }));
+    });
     return { results, ownerHistory: history };
   }
   assert.ok(history?.request && typeof history.result === 'string');
@@ -163,6 +182,11 @@ async function main(input) {
     await check('new completed command replays without another native trigger', async () => {
       assert.ok(applied); assert.equal(success(await execute(request)).text, applied.text);
       assert.deepEqual(await ownedAdmin('CoordinatorDataState'), after);
+      if (s.publicService === true) {
+        for (const scope of [{ requestId: s.requestId, epoch: history.request.epoch }, { requestId: history.otherRequestId, epoch: history.otherEpoch }]) {
+          assert.equal(success(await call(users.f, 'BCDDataWrite', 'Close', scope)).value.closed, true);
+        }
+      }
     });
   } else throw new Error('Unknown coordinator authorization phase.');
   return { results };

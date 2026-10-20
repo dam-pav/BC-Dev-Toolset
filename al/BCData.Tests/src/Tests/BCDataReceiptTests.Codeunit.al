@@ -146,6 +146,7 @@ codeunit 50206 "BCD Receipt Tests"
     [TransactionModel(TransactionModel::AutoCommit)]
     procedure ExpiredScopeRejectsIdenticalAndNewIdsAfterReceiptPurge()
     var
+        PersistedRun: Record "BCD Receipt Run";
         RunId: Guid;
         Epoch: Text;
         Input: Text;
@@ -156,6 +157,10 @@ codeunit 50206 "BCD Receipt Tests"
         Commit();
         Scope.ExpireForTest(Input);
         Commit();
+        SelectLatestVersion();
+        PersistedRun.ReadIsolation := IsolationLevel::ReadCommitted;
+        PersistedRun.Get(RunId);
+        Assert.IsTrue(PersistedRun."Retry Until" < CurrentDateTime(), 'Expiry fault must be persisted strictly in the past.');
         asserterror Scope.Execute(Input);
         Assert.ExpectedError('BCD_E08_SCOPE_EXPIRED');
         Scope.PurgeExpired(Input);

@@ -44,7 +44,9 @@ function Assert-BcDataPackageIdentity {
     if ($Expected.appId -cne '0f92aea5-4cc0-459b-ae98-ca9e5c2b0304' -or
         $Expected.name -cne 'BC Dev Toolset Data' -or $Expected.publisher -cne 'dam-pav' -or
         $Expected.contractVersion -ne 1 -or $Expected.serviceName -cne 'BCDData' -or
-        $Expected.packageFile -cne 'BCData.app' -or $Expected.mutationsEnabled -isnot [bool] -or $Expected.mutationsEnabled -ne $false -or
+        $Expected.packageFile -cne 'BCData.app' -or $Expected.mutationsEnabled -isnot [bool] -or
+        ($Expected.mutationsEnabled -and ($Expected.mutationServiceName -cne 'BCDDataWrite' -or $Expected.mutationProtocolVersion -ne 1 -or
+            ($Expected.mutationProtocolVersion -isnot [int] -and $Expected.mutationProtocolVersion -isnot [long]))) -or
         $Expected.runtime -cne '12.0' -or $Expected.application -cne '23.0.0.0' -or
         [string]$Expected.version -notmatch '^\d+\.\d+\.\d+\.\d+$') { throw 'Unsupported BC Data compatibility manifest.' }
     $app = $Document.Package.App

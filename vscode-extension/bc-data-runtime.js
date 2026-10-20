@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { dataMethods, validateDataArguments } = require('./bc-data-tools');
+const { dataMethods, mutationToolNames, validateDataArguments } = require('./bc-data-tools');
 
 // Extension-host boundary: settings and credentials never enter MCP tool results
 // or the bridge payload. No network access or client import until an enabled call.
@@ -64,7 +64,8 @@ function createDataRuntime({ getConfigurations, getToolSettings, createClient, g
       const correlationId = crypto.randomUUID();
       const fail = (category, message, extra = {}) => result({ error: { category, message, correlationId, outcome: 'not_applied', ...extra } }, true);
       if (!Object.hasOwn(dataMethods, name) || getToolSettings()[name] !== true) return fail('disabled', 'This BC Data tool is disabled. Enable it in Configure MCP Tools and restart the MCP client.');
-      if (!validateDataArguments(name, args)) return fail('invalid_input', 'Arguments do not match this read-only BC Data tool schema.');
+      if (!validateDataArguments(name, args)) return fail('invalid_input', 'Arguments do not match this BC Data tool schema.');
+      const mutation = mutationToolNames.includes(name);
       try {
         if (name === 'bc_data_list_connections') {
           const all = configurations();
@@ -78,8 +79,9 @@ function createDataRuntime({ getConfigurations, getToolSettings, createClient, g
           : method === 'readiness' ? await client.readiness(args.connectionId, args.companyId) : await client[method](args);
         return result(value);
       } catch (failure) {
-        if (failure.name === 'DataClientError' || failure.name === 'DataCredentialError') return fail(failure.category, failure.message);
-        if (failure.name === 'DataTransportError') return fail('connection_failure', 'BC Data transport failed; inspect the target and retry the read explicitly.', { transportCode: failure.code, status: failure.status, receivedBytes: failure.receivedBytes });
+        if (failure.name === 'DataClientError' || failure.name === 'DataCredentialError') return fail(failure.category, failure.message,
+          { outcome: failure.outcome || 'not_applied', ...(failure.requestId ? { requestId: failure.requestId, epoch: failure.epoch, retryUntil: failure.retryUntil } : {}) });
+        if (failure.name === 'DataTransportError') return fail('connection_failure', mutation ? 'BC Data mutation preparation transport failed; no business mutation was submitted.' : 'BC Data transport failed; inspect the target and retry the read explicitly.', { outcome: 'not_applied', transportCode: failure.code, status: failure.status, receivedBytes: failure.receivedBytes });
         return fail('invalid_configuration', 'BC Data could not resolve this configuration. Check local/shared settings; no credentials are included in diagnostics.');
       }
     }

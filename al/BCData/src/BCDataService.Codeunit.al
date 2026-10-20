@@ -10,10 +10,12 @@ codeunit 50100 "BCD Data Service"
         Capabilities.Add('table-search');
         Capabilities.Add('schema');
         Capabilities.Add('read-primary-key');
+        Capabilities.Add('mutation-scopes-v1');
         Response.Add('contractVersion', 1);
-        Response.Add('appVersion', '0.1.9.0');
+        Response.Add('appVersion', '0.1.10.0');
         Response.Add('capabilities', Capabilities);
-        Response.Add('mutationsEnabled', false);
+        Response.Add('mutationsEnabled', true);
+        Response.Add('mutationProtocolVersion', 1);
         Response.Add('maxPageSize', 100);
         exit(Serialize(Response));
     end;
@@ -68,7 +70,8 @@ codeunit 50100 "BCD Data Service"
                         Item.Add('name', Metadata.Name);
                         Item.Add('caption', Metadata.Caption);
                         Item.Add('dataPerCompany', Metadata.DataPerCompany);
-                        Item.Add('ordinaryReadSupported', (Metadata.TableType = Metadata.TableType::Normal) and (Metadata.ID < 2000000000));
+                        Item.Add('ordinaryReadSupported', (Metadata.TableType = Metadata.TableType::Normal) and
+                            (Metadata.ID < 2000000000) and (Metadata.ID <> Database::"BCD Mutation Receipt"));
                         Items.Add(Item);
                         LastId := Metadata.ID;
                     end else
@@ -294,6 +297,8 @@ codeunit 50100 "BCD Data Service"
     begin
         if (TableId <= 0) or (TableId >= 2000000000) then
             Error('BCD_UNSUPPORTED_TABLE: ordinary application tables only.');
+        if TableId = Database::"BCD Mutation Receipt" then
+            Error('BCD_UNSUPPORTED_TABLE: companion request state is not a record data target.');
         Metadata.Get(TableId);
         if Metadata.TableType <> Metadata.TableType::Normal then
             Error('BCD_UNSUPPORTED_TABLE: physical Normal tables only.');

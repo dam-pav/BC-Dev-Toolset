@@ -359,9 +359,12 @@ codeunit 50219 "BCD Replay Identity Probe"
         DeletePolicy: Boolean;
         ObjectId: Integer;
         ObjectIds: List of [Integer];
+        PublicService: Boolean;
     begin
         NamespaceId := GetGuid(inputJson, 'namespaceId');
         Input.ReadFrom(inputJson);
+        if Input.Get('publicService', Token) then
+            PublicService := Token.AsValue().AsBoolean();
         Input.Get('operation', Token);
         DeletePolicy := Token.AsValue().AsText() = 'delete';
         Profiles := ProfileList();
@@ -388,6 +391,8 @@ codeunit 50219 "BCD Replay Identity Probe"
             ObjectIds.Add(Codeunit::"BCD Record Mutation");
             ObjectIds.Add(Codeunit::"BCD Field Input");
             ObjectIds.Add(Codeunit::"BCD Data Service");
+            if PublicService and (Profile <> 'x') then
+                ObjectIds.Add(Codeunit::"BCD Mutation Service");
             ObjectIds.Add(7233);
             foreach ObjectId in ObjectIds do
                 AddPermission(Role."Role ID", 5, ObjectId, '', '');

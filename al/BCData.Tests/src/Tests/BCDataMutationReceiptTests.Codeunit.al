@@ -178,7 +178,7 @@ codeunit 50223 "BCD Mutation Receipt Tests"
         Assert.ExpectedError('BCD_SCOPE_CLOSED');
         Receipt.Get(UserSecurityId(), RequestId);
         Receipt.Closed := false;
-        Receipt."Retry Until" := CurrentDateTime() - 1;
+        Receipt."Retry Until" := CurrentDateTime() - 1000;
         Receipt.Modify();
         Commit();
         asserterror Coordinator.Execute(RequestId, Epoch, ToText(Request));

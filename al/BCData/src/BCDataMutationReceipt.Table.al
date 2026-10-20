@@ -18,5 +18,9 @@ table 50100 "BCD Mutation Receipt"
         field(11; Operation; Text[10]) { }
         field(12; "Owner Session ID"; Integer) { }
     }
-    keys { key(PK; Principal, "Request ID") { Clustered = true; } }
+    keys
+    {
+        key(PK; Principal, "Request ID") { Clustered = true; }
+        key(OwnedExpiry; Principal, "Retry Until") { }
+    }
 }

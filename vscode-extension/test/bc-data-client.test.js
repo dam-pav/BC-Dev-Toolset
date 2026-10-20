@@ -24,12 +24,13 @@ test('disabled calls do not initialize transport or make HTTP requests', async (
   await assert.rejects(client.listCompanies('a'), { category: 'disabled' });
   assert.equal(calls.length, 0);
 });
-test('read-only client has no mutation API and checks the companion before a read', async () => {
+test('read path checks the companion and never submits a mutation', async () => {
   const { client, calls } = fixture();
   const page = await client.readRecords({ connectionId: 'a', companyId: company, tableId: 50200, fieldIds: [1] });
   assert.equal(calls.length, 2);
   assert.match(calls[0].url, /BCDData_Readiness/);
-  assert.equal(client.modifyRecord, undefined);
+  assert.equal(typeof client.modifyRecord, 'function');
+  assert.ok(calls.every(call => !call.url.includes('BCDDataWrite')));
   assert.equal(page.position, undefined);
   assert.equal(typeof page.continuationToken, 'string');
 });
@@ -89,11 +90,12 @@ test('authentication and missing initialization remain actionable with non-JSON 
     await assert.rejects(client.readiness('a', company), { category });
   }
 });
-test('compatible newer companion capabilities do not enable client mutation APIs', async () => {
+test('a mutations boolean alone cannot satisfy the scoped mutation protocol', async () => {
   const { client } = fixture({ transport: async () => reply({ ...readiness, appVersion: '0.9.0.0', mutationsEnabled: true }) });
   const result = await client.readiness('a', company);
   assert.equal(result.appVersion, '0.9.0.0');
-  assert.equal(client.insertRecord, undefined);
+  await assert.rejects(client.insertRecord({ connectionId: 'a', companyId: company, tableId: 50221,
+    fields: [{ fieldId: 1, value: 'A' }] }), { category: 'incompatible_app', outcome: 'not_applied' });
 });
 
 test('BC23 read denial markers classify independently of localized text and retain redacted table context', async () => {

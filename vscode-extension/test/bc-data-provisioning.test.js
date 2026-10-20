@@ -87,18 +87,30 @@ test('package checksum/embedded identity/path checks reject tampering before dep
       $manifest=[pscustomobject]@{appId='0f92aea5-4cc0-459b-ae98-ca9e5c2b0304';name='BC Dev Toolset Data';publisher='dam-pav';version='0.1.3.0';contractVersion=1;runtime='12.0';application='23.0.0.0';serviceName='BCDData';packageFile='BCData.app';mutationsEnabled=$false}
       $xml=[xml]'<Package><App Id="0f92aea5-4cc0-459b-ae98-ca9e5c2b0304" Name="BC Dev Toolset Data" Publisher="dam-pav" Version="0.1.3.0" Runtime="12.0" Application="23.0.0.0" Target="OnPrem"/><Dependencies/><IdRanges><IdRange MinObjectId="50100" MaxObjectId="50149"/></IdRanges></Package>'
       Assert-BcDataPackageIdentity -Expected $manifest -Document $xml
+      $manifest.mutationsEnabled=$true
+      $manifest|Add-Member NoteProperty mutationServiceName 'BCDDataWrite'
+      $manifest|Add-Member NoteProperty mutationProtocolVersion 1
+      Assert-BcDataPackageIdentity -Expected $manifest -Document $xml
+      $manifest.mutationProtocolVersion=2; try{Assert-BcDataPackageIdentity -Expected $manifest -Document $xml}catch{$protocol=$_.Exception.Message}
+      $manifest.mutationProtocolVersion='1'; try{Assert-BcDataPackageIdentity -Expected $manifest -Document $xml}catch{$protocolType=$_.Exception.Message}
+      $manifest.mutationProtocolVersion=1
+      $manifest.mutationServiceName='Other'; try{Assert-BcDataPackageIdentity -Expected $manifest -Document $xml}catch{$service=$_.Exception.Message}
+      $manifest.mutationServiceName='BCDDataWrite'
       $xml.Package.App.Id='wrong'; try{Assert-BcDataPackageIdentity -Expected $manifest -Document $xml}catch{$identity=$_.Exception.Message}
       $manifest|Add-Member NoteProperty sha256 ('0'*64)
       $manifest|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $folder 'bc-data/manifest.json')
       [IO.File]::WriteAllText((Join-Path $folder 'bc-data/BCData.app'),'tampered')
       try{Get-ValidatedBcDataPackage -ToolsetRoot $folder}catch{$checksum=$_.Exception.Message}
       try{Assert-BcDataContainedPath -Root $folder -Path (Join-Path $folder '../escape')}catch{$escape=$_.Exception.Message}
-      @{identity=$identity;checksum=$checksum;escape=$escape}|ConvertTo-Json -Compress
+      @{identity=$identity;checksum=$checksum;escape=$escape;protocol=$protocol;protocolType=$protocolType;service=$service}|ConvertTo-Json -Compress
     }finally{Remove-Item -LiteralPath $folder -Recurse -Force}
   `);
   assert.match(result.identity, /identity mismatch/);
   assert.match(result.checksum, /checksum mismatch/);
   assert.match(result.escape, /escapes/);
+  assert.match(result.protocol, /Unsupported/);
+  assert.match(result.protocolType, /Unsupported/);
+  assert.match(result.service, /Unsupported/);
 });
 test('runtime preparation accepts current embedded sources and blocks stale same-version packages', () => {
   const builder = path.resolve(__dirname, '../build/prepare-bc-data-package.ps1');
@@ -139,11 +151,14 @@ test('runtime preparation accepts current embedded sources and blocks stale same
 test('initialization readiness uses exact HTTP/1.0 and validates the actual contract without exposing BC errors', { timeout: 30000 }, async t => {
   const requests = [];
   let compatible = true;
+  let mutationMode = 'off';
   const server = http.createServer(async (request, response) => {
     let body = '';
     for await (const part of request) body += part;
     requests.push({ version: request.httpVersion, body, authorization: request.headers.authorization, url: request.url });
-    const bytes = JSON.stringify({ value: JSON.stringify({ contractVersion: compatible ? 1 : 2, appVersion: '0.1.4.0', mutationsEnabled: false, capabilities: ['companies','schema','table-search','read-primary-key'] }) });
+    const bytes = JSON.stringify({ value: JSON.stringify({ contractVersion: compatible ? 1 : 2, appVersion: '0.1.4.0',
+      mutationsEnabled: mutationMode !== 'off', mutationProtocolVersion: mutationMode === 'string' ? '1' : mutationMode === 'on' ? 1 : 2,
+      capabilities: ['companies','schema','table-search','read-primary-key', ...(['on', 'string'].includes(mutationMode) ? ['mutation-scopes-v1'] : [])] }) });
     response.writeHead(200, { 'Content-Length': Buffer.byteLength(bytes) }).end(bytes);
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -151,18 +166,26 @@ test('initialization readiness uses exact HTTP/1.0 and validates the actual cont
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdata-readiness-'));
   t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
   const script = path.join(folder, 'readiness.ps1');
-  fs.writeFileSync(script, `$ErrorActionPreference='Stop'; . ${quote(helper)}
+  fs.writeFileSync(script, `param([switch]$RequireMutations)
+    $ErrorActionPreference='Stop'; . ${quote(helper)}
     $config=[pscustomobject]@{container='unused';bcData=[pscustomobject]@{baseUrl='http://127.0.0.1:${server.address().port}/BC/ODataV4';tenant='fixture'}}
     $credential=[pscredential]::new('fixture',(ConvertTo-SecureString 'synthetic-secret' -AsPlainText -Force))
-    try{$r=Get-BcDataInitializationReadiness -Configuration $config -Credential $credential -Expected ([pscustomobject]@{contractVersion=1;version='0.1.3.0'}); @{version=$r.appVersion}|ConvertTo-Json -Compress}catch{@{error=$_.Exception.Message}|ConvertTo-Json -Compress}
+    try{$r=Get-BcDataInitializationReadiness -Configuration $config -Credential $credential -Expected ([pscustomobject]@{contractVersion=1;version='0.1.3.0';mutationsEnabled=$RequireMutations.IsPresent}); @{version=$r.appVersion}|ConvertTo-Json -Compress}catch{@{error=$_.Exception.Message}|ConvertTo-Json -Compress}
   `);
-  const invoke = () => new Promise((resolve, reject) => {
-    const child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', script], { windowsHide: true });
+  const invoke = (requireMutations = false) => new Promise((resolve, reject) => {
+    const child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', script, ...(requireMutations ? ['-RequireMutations'] : [])], { windowsHide: true });
     let out = '', err = '';
     child.stdout.on('data', part => { out += part; }); child.stderr.on('data', part => { err += part; });
     child.on('error', reject); child.on('exit', code => code === 0 ? resolve(JSON.parse(out)) : reject(new Error(err)));
   });
   assert.equal((await invoke()).version, '0.1.4.0');
+  assert.match((await invoke(true)).error, /readiness verification failed/);
+  mutationMode = 'on';
+  assert.equal((await invoke(true)).version, '0.1.4.0');
+  mutationMode = 'wrong';
+  assert.match((await invoke(true)).error, /readiness verification failed/);
+  mutationMode = 'string';
+  assert.match((await invoke(true)).error, /readiness verification failed/);
   compatible = false;
   const failed = await invoke();
   assert.match(failed.error, /readiness verification failed/);

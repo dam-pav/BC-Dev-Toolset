@@ -59,7 +59,9 @@ function Get-BcDataInitializationReadiness {
         $envelope = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult() | ConvertFrom-Json -ErrorAction Stop
         $readiness = $envelope.value | ConvertFrom-Json -ErrorAction Stop
         if (($readiness.contractVersion -isnot [int] -and $readiness.contractVersion -isnot [long]) -or
-            $readiness.contractVersion -ne $Expected.contractVersion -or $readiness.mutationsEnabled -isnot [bool] -or $readiness.mutationsEnabled -ne $false -or
+            $readiness.contractVersion -ne $Expected.contractVersion -or $readiness.mutationsEnabled -isnot [bool] -or
+            ($Expected.mutationsEnabled -eq $true -and ($readiness.mutationsEnabled -ne $true -or $readiness.mutationProtocolVersion -ne 1 -or
+                ($readiness.mutationProtocolVersion -isnot [int] -and $readiness.mutationProtocolVersion -isnot [long]) -or 'mutation-scopes-v1' -notin $readiness.capabilities)) -or
             @('companies','table-search','schema','read-primary-key' | Where-Object { $_ -notin $readiness.capabilities }).Count -gt 0 -or
             [string]$readiness.appVersion -notmatch '^\d+\.\d+\.\d+\.\d+$' -or [version]$readiness.appVersion -lt [version]$Expected.version) {
             throw 'BC Data companion contract/capabilities are incompatible.'

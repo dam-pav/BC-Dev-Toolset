@@ -345,12 +345,32 @@
         "bc_data_read_records": {
           "type": "boolean",
           "default": false,
-          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. Read 1-50 selected fields from an ordinary table in primary-key ascending order, at most 100 rows. Supports BC filter expressions and separate FlowFilters. Returns SystemId and string rowversion; decimal/BigInteger are strings, enum/option are ordinals, BLOB/Media are descriptors. Date/time types and other sorting are not yet supported. Continuation tokens expire after 30 minutes and bind target revision/company/query/client session. Pagination is not a snapshot; rowversion does not cover FlowField dependencies. Reduce selection/page size on response_too_large."
+          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. Read 1-50 selected fields from an ordinary table in primary-key ascending order, at most 100 rows. Supports BC filter expressions and separate FlowFilters. Returns SystemId and string rowversion; decimal/BigInteger are strings, enum/option are ordinals, BLOB/Media are descriptors. Date/time use invariant wire values; other sorting is not yet supported. Continuation tokens expire after 30 minutes and bind target revision/company/query/client session. Pagination is not a snapshot; rowversion does not cover FlowField dependencies. Reduce selection/page size on response_too_large."
         },
         "bc_dev_toolset_initialize_bc_data": {
           "type": "boolean",
           "default": false,
           "description": "Explicitly install/upgrade and verify the bundled BC Data companion on one named Dev/Test container; never downgrade or enable data tools implicitly."
+        },
+        "bc_data_insert_record": {
+          "type": "boolean",
+          "default": false,
+          "description": "Single-record development-container mutation. Explicitly enable this tool; initialize companion mutation protocol1/service BCDDataWrite and grant BCD DATA WRITE plus native target/trigger table permissions. Native validation and triggers always run. One call owns one five-minute request scope and permits one identical in-call retry after uncertain transport; commands are never queued across calls. An unknown outcome requires reconciliation, never blind repetition or a fresh version. Receipt guarantees cover this database transaction and uninterrupted history, not external trigger effects or restore/copy. Initialize and insert one company-local physical Normal record. Apply1-50 fieldId/value assignments in array order; identity is server-generated. Return persisted requested values/SystemId/version. Decimal/BigInteger use strings; enum/option use integer ordinals; null, system/content fields and unqualified FlowField writes are rejected."
+        },
+        "bc_data_modify_record": {
+          "type": "boolean",
+          "default": false,
+          "description": "Single-record development-container mutation. Explicitly enable this tool; initialize companion mutation protocol1/service BCDDataWrite and grant BCD DATA WRITE plus native target/trigger table permissions. Native validation and triggers always run. One call owns one five-minute request scope and permits one identical in-call retry after uncertain transport; commands are never queued across calls. An unknown outcome requires reconciliation, never blind repetition or a fresh version. Receipt guarantees cover this database transaction and uninterrupted history, not external trigger effects or restore/copy. Modify one SystemId at the supplied expectedVersion. Apply1-50 ordered field assignments; omitted fields remain unchanged. Primary-key changes require rename. Return persisted requested values and the new version. Decimal/BigInteger are strings; null/content/system fields and unqualified FlowField writes are rejected."
+        },
+        "bc_data_delete_record": {
+          "type": "boolean",
+          "default": false,
+          "description": "Single-record development-container mutation. Explicitly enable this tool; initialize companion mutation protocol1/service BCDDataWrite and grant BCD DATA WRITE plus native target/trigger table permissions. Native validation and triggers always run. One call owns one five-minute request scope and permits one identical in-call retry after uncertain transport; commands are never queued across calls. An unknown outcome requires reconciliation, never blind repetition or a fresh version. Receipt guarantees cover this database transaction and uninterrupted history, not external trigger effects or restore/copy. Delete one SystemId at the supplied expectedVersion with native OnDelete. Return minimal applied acknowledgement; no deleted values or fictitious post-delete version. Trigger effects on related records follow native permissions and transaction rules."
+        },
+        "bc_data_rename_record": {
+          "type": "boolean",
+          "default": false,
+          "description": "Single-record development-container mutation. Explicitly enable this tool; initialize companion mutation protocol1/service BCDDataWrite and grant BCD DATA WRITE plus native target/trigger table permissions. Native validation and triggers always run. One call owns one five-minute request scope and permits one identical in-call retry after uncertain transport; commands are never queued across calls. An unknown outcome requires reconciliation, never blind repetition or a fresh version. Receipt guarantees cover this database transaction and uninterrupted history, not external trigger effects or restore/copy. Rename one SystemId at the supplied expectedVersion using every primary-key field in key order. Native dispatch supports up to16 components; the qualified runtime fixture covers a three-part GUID/Code/Integer key. Native relations/triggers decide the result; arbitrary relation cascades and other arities are not certified. Return persisted key values/SystemId/version."
         }
       },
       "additionalProperties": {

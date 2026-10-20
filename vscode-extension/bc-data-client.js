@@ -15,7 +15,7 @@ class DataClientError extends Error {
     super(message);
     this.name = 'DataClientError';
     this.category = category;
-    // This module exposes read-only operations; no mutation is attempted.
+    // Read/preflight default. Mutation execution overrides this conservatively.
     this.outcome = 'not_applied';
   }
 }
@@ -46,8 +46,8 @@ function createDataClient({ resolveConnection, transport = requestHttp10, now = 
     if (typeof value !== 'string' || !guid.test(value)) throw new DataClientError('invalid_input', 'An explicit company GUID is required.');
     return value.toLowerCase();
   }
-  async function send(connection, companyId, action, input) {
-    const url = new URL(`${connection.baseUrl}/BCDData_${action}`);
+  async function send(connection, companyId, action, input, service = 'BCDData') {
+    const url = new URL(`${connection.baseUrl}/${service}_${action}`);
     url.searchParams.set('tenant', connection.tenant);
     if (companyId) url.searchParams.set('company', companyId);
     const response = await transport({ url: url.href, username: connection.username, password: connection.password,
@@ -65,12 +65,17 @@ function createDataClient({ resolveConnection, transport = requestHttp10, now = 
       const category = authorizationRejected || original.startsWith('BCD_PERMISSION_DENIED:') ? 'permission_denied' :
         envelope?.error?.code === 'Internal_RecordNotFound' ? 'record_not_found' :
         original.includes('BCD_INVALID_INPUT') ? 'invalid_input' : original.includes('BCD_UNSUPPORTED') ? 'unsupported_operation' :
+        original.includes('BCD_CONCURRENCY_CONFLICT') ? 'concurrency_conflict' : original.includes('BCD_RECORD_NOT_FOUND') ? 'record_not_found' :
         original.includes('BCD_RESPONSE_TOO_LARGE') ? 'response_too_large' : response.status === 404 ? 'initialization_required' : 'bc_error';
       const message = original
         ? original.split(connection.password).join('[redacted]').split(Buffer.from(`${connection.username}:${connection.password}`).toString('base64')).join('[redacted]').slice(0, 2048)
         : authorizationRejected ? 'BC Data authentication or authorization was rejected.' : 'BC Data request was rejected.';
-      throw new DataClientError(category, category === 'initialization_required'
+      const rejected = new DataClientError(category, category === 'initialization_required'
         ? 'BC Data is not initialized. Deploy the compatible companion app and register BCDData on this target.' : message);
+      // A generic native/HTTP error (including DB:Ok) is not proof that a write
+      // rolled back. Only explicit companion rejections have qualified semantics.
+      rejected.bcRejected = response.status >= 400 && response.status < 500 && original.startsWith('BCD_');
+      throw rejected;
     }
     let value;
     try {
@@ -111,6 +116,10 @@ function createDataClient({ resolveConnection, transport = requestHttp10, now = 
     } catch { throw new DataClientError('invalid_cursor', 'Continuation token expired or does not match this target, company, query, or client session.'); }
   }
   return Object.freeze({
+    insertRecord: request => require('./bc-data-mutations').executeMutation({ capture, company, send, now, ErrorType: DataClientError }, 'insert', request),
+    modifyRecord: request => require('./bc-data-mutations').executeMutation({ capture, company, send, now, ErrorType: DataClientError }, 'modify', request),
+    deleteRecord: request => require('./bc-data-mutations').executeMutation({ capture, company, send, now, ErrorType: DataClientError }, 'delete', request),
+    renameRecord: request => require('./bc-data-mutations').executeMutation({ capture, company, send, now, ErrorType: DataClientError }, 'rename', request),
     async readiness(connectionId, companyId) {
       return checked(await capture(connectionId), company(companyId), 'Readiness', {});
     },

@@ -109,12 +109,12 @@ test('stored identity cannot be redirected through endpoint overrides to a diffe
   }
   assert.equal(f.requests.length, 0);
 });
-test('tool schemas reject credentials, endpoints, writes, unknown options and oversized inputs', async () => {
+test('tool schemas reject credentials, endpoints, malformed writes, unknown options and oversized inputs', async () => {
   const f = fixture();
   for (const input of [{ ...query, password: 'secret' }, { ...query, url: 'http://elsewhere' }, { ...query, sort: 'descending' }, { ...query, fieldIds: [1, 1] }, { ...query, pageSize: 101 }, { ...query, flowFilters: [{ fieldId: 1, expression: 'x'.repeat(4001) }] }]) {
     assert.equal((await f.runtime.call('bc_data_read_records', input)).structuredContent.error.category, 'invalid_input');
   }
-  assert.equal((await f.runtime.call('bc_data_modify_record', query)).structuredContent.error.category, 'disabled');
+  assert.equal((await f.runtime.call('bc_data_modify_record', query)).structuredContent.error.category, 'invalid_input');
   assert.equal(f.requests.length, 0);
   assert.equal(f.imports, 0);
   assert.equal(validateDataArguments('bc_data_find_tables', { connectionId: 'Test A', companyId, afterId: -1 }), false);
@@ -190,8 +190,9 @@ async function bridgeSession(t, { mismatch = false } = {}) {
 test('real MCP process routes read-only calls through the bound bridge with no credentials or operation launch', { timeout: 10000 }, async t => {
   const f = await bridgeSession(t);
   const tools = (await f.request('tools/list')).result.tools.filter(tool => tool.name.startsWith('bc_data_'));
-  assert.equal(tools.length, 6);
-  assert.ok(tools.every(tool => tool.annotations.readOnlyHint));
+  assert.equal(tools.length, 10);
+  assert.equal(tools.filter(tool => tool.annotations.readOnlyHint).length, 6);
+  assert.equal(tools.filter(tool => !tool.annotations.readOnlyHint && tool.annotations.destructiveHint).length, 4);
   const result = (await f.request('tools/call', { name: 'bc_data_list_companies', arguments: { connectionId: 'Test A' } })).result;
   assert.equal(result.isError, false);
   assert.equal(result.structuredContent.companies[0].id, companyId);
@@ -204,6 +205,29 @@ test('real MCP process routes read-only calls through the bound bridge with no c
   const revoked = (await f.request('tools/call', { name: 'bc_data_list_companies', arguments: { connectionId: 'Test A' } })).result;
   assert.equal(revoked.structuredContent.error.category, 'disabled');
 });
+test('write tools remain disabled when only read access was selected', async () => {
+  const f = fixture();
+  f.setSettings({ bc_data_read_records: true });
+  const result = await f.runtime.call('bc_data_modify_record', { connectionId: 'Test A', companyId,
+    tableId: 50221, systemId: companyId, expectedVersion: '1', fields: [{ fieldId: 4, value: '4' }] });
+  assert.equal(result.structuredContent.error.category, 'disabled');
+  assert.equal(f.imports, 0); assert.equal(f.requests.length, 0);
+});
+
+test('runtime preserves uncertain mutation outcome and scope without classifying it as an unapplied read', async () => {
+  const f = fixture({ createClient: () => ({ modifyRecord: async () => {
+    throw Object.assign(new Error('Reconcile the target before repeating.'), { name: 'DataClientError',
+      category: 'connection_failure', outcome: 'unknown', requestId: companyId, epoch: companyId, retryUntil: '2026-10-20T12:00:00Z' });
+  } }) });
+  const result = await f.runtime.call('bc_data_modify_record', { connectionId: 'Test A', companyId,
+    tableId: 50221, systemId: companyId, expectedVersion: '1', fields: [{ fieldId: 4, value: '4' }] });
+  assert.equal(result.structuredContent.error.outcome, 'unknown');
+  assert.equal(result.structuredContent.error.requestId, companyId);
+  assert.equal(result.structuredContent.error.epoch, companyId);
+  assert.equal(result.isError, true);
+  assert.ok(!JSON.stringify(result).includes('fixture-secret'));
+});
+
 test('data calls reject a different workspace bridge before forwarding', { timeout: 10000 }, async t => {
   const f = await bridgeSession(t, { mismatch: true });
   const result = (await f.request('tools/call', { name: 'bc_data_list_companies', arguments: { connectionId: 'Test A' } })).result;

@@ -13,6 +13,7 @@ table 50223 "BCD Coordinator Run"
         field(8; "Primary Request ID"; Guid) { }
         field(9; "Delay Milliseconds"; Integer) { }
         field(10; "Replacement ID"; Guid) { }
+        field(11; "Client Request ID"; Guid) { }
     }
     keys { key(PK; "Run ID") { Clustered = true; } }
 }

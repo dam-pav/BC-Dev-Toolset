@@ -50,7 +50,7 @@ table 50221 "BCD Mutation Fixture"
                 if Description = 'BCD_EXPIRE_RECEIPT' then begin
                     // Test-only clock fault, never a production scope timestamp input.
                     Receipt.Get(UserSecurityId(), "Scope Request");
-                    Receipt."Retry Until" := CurrentDateTime() - 1;
+                    Receipt."Retry Until" := CurrentDateTime() - 1000;
                     Receipt.Modify();
                 end;
             end;

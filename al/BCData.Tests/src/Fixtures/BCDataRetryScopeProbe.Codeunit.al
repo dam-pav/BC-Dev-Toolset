@@ -88,7 +88,8 @@ codeunit 50220 "BCD Retry Scope Probe"
     begin
         // Explicit fixture fault injection, never a production administration API.
         GetOwnedEpoch(Run, inputJson);
-        Run."Retry Until" := CurrentDateTime() - 1;
+        // Leave a full second for SQL DateTime rounding and immediate replay checks.
+        Run."Retry Until" := CurrentDateTime() - 1000;
         Run.Modify();
         exit('{"expired":true}');
     end;

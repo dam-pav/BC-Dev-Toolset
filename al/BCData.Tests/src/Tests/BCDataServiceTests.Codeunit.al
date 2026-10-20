@@ -41,16 +41,17 @@ codeunit 50202 "BCD Data Service Tests"
 
     [Test]
     [TransactionModel(TransactionModel::AutoRollback)]
-    procedure ReadinessDoesNotAdvertiseWrites()
+    procedure ReadinessAdvertisesSeparateMutationProtocol()
     var
         Service: Codeunit "BCD Data Service";
         Assert: Codeunit "Library Assert";
         Response: JsonObject;
     begin
-        // [SCENARIO] The initial companion contract advertises read capabilities only.
+        // [SCENARIO] Read contract1 stays compatible; writes use a separate service/grant.
         Response.ReadFrom(Service.Readiness('{}'));
         Assert.AreEqual(1, Value(Response, 'contractVersion').AsInteger(), 'Contract version.');
-        Assert.IsFalse(Value(Response, 'mutationsEnabled').AsBoolean(), 'Unqualified mutations must remain disabled.');
+        Assert.IsTrue(Value(Response, 'mutationsEnabled').AsBoolean(), 'Qualified mutation service is available.');
+        Assert.AreEqual(1, Value(Response, 'mutationProtocolVersion').AsInteger(), 'Mutation scope protocol.');
         Assert.AreNotEqual('', Value(Response, 'companyId').AsText(), 'Company context is explicit.');
     end;
 

@@ -120,6 +120,24 @@ codeunit 50106 "BCD Mutation Coordinator"
         Receipt.Delete();
     end;
 
+    procedure PurgeExpiredOwned()
+    var
+        Receipt: Record "BCD Mutation Receipt";
+        Removed: Integer;
+    begin
+        // Bounded foreground maintenance only when a new operation is prepared.
+        // Never delete usable history, another principal's scope or another company.
+        Receipt.SetCurrentKey(Principal, "Retry Until");
+        Receipt.SetRange(Principal, UserSecurityId());
+        Receipt.SetFilter("Retry Until", '>%1&<=%2', 0DT, CurrentDateTime());
+        Receipt.LockTable();
+        if Receipt.FindSet(true) then
+            repeat
+                Receipt.Delete();
+                Removed += 1;
+            until (Removed = 64) or (Receipt.Next() = 0);
+    end;
+
     local procedure LoadLocked(var Receipt: Record "BCD Mutation Receipt"; RequestId: Guid; Epoch: Guid)
     begin
         Receipt.LockTable();

@@ -1,12 +1,14 @@
 param(
     [ValidateSet('BC23 Baseline','BC27.1')][string] $Target = 'BC23 Baseline',
     [ValidateSet('modify','rename','insert','delete')][string] $Operation = 'modify',
+    [switch] $PublicService,
     [switch] $CleanupOnly
 )
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
 $container = @{'BC23 Baseline'='bcdata23test';'BC27.1'='bcdata271'}[$Target]
 $prefix = switch ($Operation) { 'rename' { 'gcr' } 'insert' { 'gci' } 'delete' { 'gcd' } default { 'gcm' } }
+if ($PublicService) { $prefix = 'pub-' + $prefix }
 $statePath = Join-Path $root ".bcdevtoolset/$prefix-$container-state.json"
 $evidencePath = Join-Path $root ".bcdevtoolset/$prefix-$container-evidence.json"
 . (Join-Path $root 'common/CredentialMgt.ps1')
@@ -23,6 +25,7 @@ $admin = @{username=$credential.UserName;password=$credential.GetNetworkCredenti
 Import-Module BcContainerHelper -DisableNameChecking
 
 function Get-Identities($State) {
+    if ([bool]$State.publicService -ne $PublicService.IsPresent) { throw 'Coordinator service mode mismatch.' }
     if (($State.operation -and $State.operation -cne $Operation) -or $State.target -cne $Target -or $State.container -cne $container) { throw 'EVP state target mismatch.' }
     $id = [guid]::Empty
     if (-not [guid]::TryParseExact($State.namespaceId, 'D', [ref]$id) -or $id -eq [guid]::Empty) { throw 'Invalid EVP namespace.' }
@@ -90,7 +93,7 @@ if ($CleanupOnly) {
     return
 }
 $state = [pscustomobject]@{target=$Target;container=$container;namespaceId=[guid]::NewGuid().ToString('D');
-    requestId=[guid]::NewGuid().ToString('D');companyId=$null;operation=$Operation;
+    requestId=[guid]::NewGuid().ToString('D');companyId=$null;operation=$Operation;publicService=$PublicService.IsPresent;
     runs=@('f','x' | ForEach-Object { @{kind=$_;runId=[guid]::NewGuid().ToString('D')} })}
 $identities = @(Get-Identities $state)
 $password = 'EVP!' + [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
@@ -139,7 +142,7 @@ try {
         Remove-Fixture $state
         $cleaned = $true
     } finally {
-        $evidence = @{target=$Target;operation=$Operation;utc=[DateTime]::UtcNow.ToString('o');results=$results;cleaned=$cleaned;
+        $evidence = @{target=$Target;operation=$Operation;publicService=$PublicService.IsPresent;utc=[DateTime]::UtcNow.ToString('o');results=$results;cleaned=$cleaned;
             passed=($cleaned -and $results.Count -eq 16 -and @($results | Where-Object passed -NE $true).Count -eq 0)}
         $evidence | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $evidencePath -Encoding utf8
         $evidence | ConvertTo-Json -Depth 12
