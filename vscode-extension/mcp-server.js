@@ -520,7 +520,7 @@ async function callTool(params) {
   }
   const toolArguments = params.arguments || {};
   if (dataTools.some(tool => tool.name === params.name)) {
-    if (!validateDataArguments(params.name, toolArguments)) return dataToolError('invalid_input', 'Arguments do not match this read-only BC Data tool schema.');
+    if (!validateDataArguments(params.name, toolArguments)) return dataToolError('invalid_input', 'Arguments do not match this BC Data tool schema.');
     if (!shouldUseTerminalBridge()) return dataToolError('bridge_unavailable', 'Reload the matching BC Dev Toolset extension host and restart the MCP client.');
     try {
       const response = await postBridgeJson('/data-call', { name: params.name, arguments: toolArguments });

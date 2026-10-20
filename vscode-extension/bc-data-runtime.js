@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { dataMethods, mutationToolNames, validateDataArguments } = require('./bc-data-tools');
+const { dataMethods, mutationMethods, mutationToolNames, validateDataArguments } = require('./bc-data-tools');
 
 // Extension-host boundary: settings and credentials never enter MCP tool results
 // or the bridge payload. No network access or client import until an enabled call.
@@ -17,19 +17,24 @@ function createDataRuntime({ getConfigurations, getToolSettings, createClient, g
     return value && value.serverType === 'Container' && ['Dev', 'Test'].includes(value.targetType) &&
       typeof value.name === 'string' && value.name.length > 0;
   }
-  async function resolveConnection(id) {
+  async function resolveConnection(id, operation) {
     const matches = configurations().filter(value => typeof value?.name === 'string' && value.name.toLowerCase() === id.toLowerCase());
-    if (matches.length !== 1 || !allowed(matches[0]) || matches[0].name !== id) throw error('invalid_configuration', 'Select a unique Dev/Test Container configuration name from bc_data_list_connections.');
+    if (matches.length !== 1 || !allowed(matches[0]) || matches[0].name !== id) throw error('invalid_configuration', 'Select a unique Dev/Test Container configuration name from bc_dev_toolset_data_list_connections.');
     const value = matches[0];
     if (value.bcCredential !== undefined && typeof value.bcCredential !== 'boolean') throw error('invalid_configuration', 'bcCredential must be a boolean.');
     if (typeof value.container !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(value.container) || value.authentication !== 'UserPassword') {
       throw error('invalid_configuration', 'This BC Data slice requires a named development container with UserPassword authentication.');
     }
     const settings = value.bcData || {};
-    if (!settings || typeof settings !== 'object' || Array.isArray(settings) || Object.keys(settings).some(key => !['baseUrl', 'tenant', 'provisioningEnabled'].includes(key)) ||
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings) || Object.keys(settings).some(key => !['baseUrl', 'tenant', 'provisioningEnabled', 'allowedMutationOperations'].includes(key)) ||
         (settings.provisioningEnabled !== undefined && typeof settings.provisioningEnabled !== 'boolean')) {
-      throw error('invalid_configuration', 'bcData accepts baseUrl, tenant and boolean provisioningEnabled.');
+      throw error('invalid_configuration', 'bcData accepts baseUrl, tenant, boolean provisioningEnabled and allowedMutationOperations.');
     }
+    const permitted = settings.allowedMutationOperations === undefined ? [] : settings.allowedMutationOperations;
+    if (!Array.isArray(permitted) || new Set(permitted).size !== permitted.length || permitted.some(item => typeof item !== 'string' || !Object.hasOwn(mutationMethods, item))) {
+      throw error('invalid_configuration', 'bcData.allowedMutationOperations must be a unique list of insert, modify, rename and delete.');
+    }
+    if (operation !== undefined && !permitted.includes(operation)) throw error('disabled', 'This mutation operation is not enabled in the connection bcData.allowedMutationOperations.');
     // Custom endpoint is explicit configuration, never a tool argument. Retain
     // configured endpoint/tenant/principal in cursor scope, not filesystem data.
     const baseUrl = settings.baseUrl ?? `http://${value.container}:7048/BC/ODataV4`;
@@ -67,7 +72,7 @@ function createDataRuntime({ getConfigurations, getToolSettings, createClient, g
       if (!validateDataArguments(name, args)) return fail('invalid_input', 'Arguments do not match this BC Data tool schema.');
       const mutation = mutationToolNames.includes(name);
       try {
-        if (name === 'bc_data_list_connections') {
+        if (name === 'bc_dev_toolset_data_list_connections') {
           const all = configurations();
           return result({ connections: all.filter(allowed).map(value => ({ id: value.name, container: value.container,
             targetType: value.targetType, authentication: value.authentication, readiness: 'not_checked',
@@ -75,7 +80,9 @@ function createDataRuntime({ getConfigurations, getToolSettings, createClient, g
         }
         client ||= (createClient || require('./bc-data-client').createDataClient)({ resolveConnection });
         const method = dataMethods[name];
-        const value = method === 'listCompanies' ? await client.listCompanies(args.connectionId)
+        const { operation, ...mutationRequest } = mutation ? args : {};
+        const value = mutation ? await client[mutationMethods[operation]](mutationRequest)
+          : method === 'listCompanies' ? await client.listCompanies(args.connectionId)
           : method === 'readiness' ? await client.readiness(args.connectionId, args.companyId) : await client[method](args);
         return result(value);
       } catch (failure) {

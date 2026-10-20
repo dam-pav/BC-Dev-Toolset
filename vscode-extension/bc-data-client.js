@@ -23,8 +23,8 @@ class DataClientError extends Error {
 function createDataClient({ resolveConnection, transport = requestHttp10, now = Date.now }) {
   if (typeof resolveConnection !== 'function') throw new Error('A target resolver is required.');
   const cursorKey = crypto.randomBytes(32); // Session-local: never stored in files or derived from paths.
-  async function capture(connectionId) {
-    const resolved = await resolveConnection(connectionId);
+  async function capture(connectionId, operation) {
+    const resolved = await resolveConnection(connectionId, operation);
     if (!resolved || resolved.id !== connectionId || resolved.dataToolsEnabled !== true) {
       throw new DataClientError('disabled', 'BC Data tools are disabled for this connection.');
     }

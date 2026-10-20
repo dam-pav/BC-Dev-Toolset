@@ -35,7 +35,7 @@ async function executeMutation({ capture, company, send, now, ErrorType }, opera
     ['operation', operation], ...keys.filter(key => !['connectionId', 'companyId'].includes(key)).map(key => [key, request[key]])
   ])));
   if (JSON.stringify(payload).length > 32768) throw fail('invalid_input', 'Mutation JSON exceeds32768 characters.');
-  const connection = await capture(request.connectionId);
+  const connection = await capture(request.connectionId, operation);
   let ready;
   try { ready = await send(connection, companyId, 'Readiness', {}); }
   catch (failure) { failure.outcome = 'not_applied'; throw failure; }

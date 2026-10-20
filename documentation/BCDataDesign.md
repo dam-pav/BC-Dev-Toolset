@@ -1,6 +1,6 @@
 # BC Data: agreed design and verification plan
 
-Status (2026-10-20): read contract1 remains compatible; companion0.1.10.0 adds separate mutation protocol1/service and an opt-in write permission set. Generic RIMD, receipt composition, native users/filters and the public Node client have dedicated BC23/BC27.1 AL/direct-HTTP evidence. Four new default-off MCP write tools have source/bridge tests; live development-binding verification requires refreshing the running Extension Development Host/MCP. See the compatibility ledger for exact evidence and limits. Intervening versions, arbitrary rename relations/arities and supported FlowField write paths remain pending.
+Status (2026-10-20): read contract1 and companion0.1.10.0 mutation protocol1 remain unchanged. Selected BC23/24/25/26/27.1 builds have runtime qualification. The MCP surface now uses six read tools plus the consolidated `bc_dev_toolset_data_mutate_records`, with per-connection operation permissions. Source/bridge regressions pass; the running development host must be refreshed to verify the renamed live tools. See the compatibility ledger for exact evidence and limits.
 Decision record: 2026-10-06.
 
 ## Purpose and scope
@@ -23,7 +23,7 @@ Keep these implementation boundaries:
 2. Data client and tool handlers: direct HTTP calls, structured MCP inputs/results, target-scoped caching, errors, and retry handling. Keep these modules separate from VS Code UI and the PowerShell operation runner.
 3. Toolset integration: resolve configured targets and credentials, provision the companion app, register tools, and expose configuration/status operations.
 
-Implemented transport: a published codeunit with OData V4 unbound actions carrying structured JSON in Text parameters, called through bounded native Node HTTP/1.0 connection-close requests. This avoids the reproduced HTTP.sys unbuffered chunked-response failure without changing BC server settings. TLS retains normal certificate validation; live HTTPS qualification remains pending. The MCP server defines six read-only and four mutation `bc_data_*` tools behind individual default-off switches; mutation execution uses the separate BCDDataWrite service and permission boundary. Credential resolution and data execution stay inside the extension host; MCP forwards validated arguments through its authenticated workspace bridge.
+Implemented transport: a published codeunit with OData V4 unbound actions carrying structured JSON in Text parameters, called through bounded native Node HTTP/1.0 connection-close requests. This avoids the reproduced HTTP.sys unbuffered chunked-response failure without changing BC server settings. TLS retains normal certificate validation; live HTTPS qualification remains pending. The MCP server defines six read-only tools and one mutation tool using the `bc_dev_toolset_data_` prefix, behind individual default-off switches; mutation execution uses the separate BCDDataWrite service and permission boundary. Credential resolution and data execution stay inside the extension host; MCP forwards validated arguments through its authenticated workspace bridge.
 
 Ordinary data calls must not launch a PowerShell operation per request. Deployment and upgrades use the existing Toolset deployment mechanisms. No dependencies on the developer's project apps belong in the companion app.
 
@@ -50,15 +50,13 @@ Proposed tool names, with agreed responsibilities:
 
 | Tool | Responsibility |
 | --- | --- |
-| `bc_data_list_connections` | Configured container targets and readiness |
-| `bc_data_list_companies` | Companies within a selected connection |
-| `bc_data_find_tables` | Paginated search by table ID, name, or caption |
-| `bc_data_get_table_schema` | Fields, keys, and structural capabilities |
-| `bc_data_read_records` | Selected fields, filters, sorting, and pagination |
-| `bc_data_insert_record` | Single-record insertion |
-| `bc_data_modify_record` | Single-record modification |
-| `bc_data_delete_record` | Single-record deletion |
-| `bc_data_rename_record` | Primary-key rename using BC semantics |
+| `bc_dev_toolset_data_list_connections` | Configured container targets and readiness |
+| `bc_dev_toolset_data_list_companies` | Companies within a selected connection |
+| `bc_dev_toolset_data_get_readiness` | Companion contract and structural capabilities |
+| `bc_dev_toolset_data_find_tables` | Paginated search by table ID, name, or caption |
+| `bc_dev_toolset_data_get_table_schema` | Fields, keys, and structural capabilities |
+| `bc_dev_toolset_data_read_records` | Selected fields, filters, sorting, and pagination |
+| `bc_dev_toolset_data_mutate_records` | One explicit insert, modify, rename or delete command per call |
 
 Table and field IDs are authoritative; names and captions aid understanding. Existing physical records are identified by SystemId. Tables that cannot satisfy this contract must report their limitations explicitly; do not claim universal SystemId support for virtual or special tables.
 
@@ -246,3 +244,5 @@ Development integration checkpoint2026-10-20: the refreshed workspace binding ex
 Intermediate qualification completed2026-10-20: the user accepted BC24 and BC25 as the additional pre-release targets, deferring BC26/27.0. BC24 Application24.18.40043.0 and BC25 Application25.18.48229.0 now pass the complete qualification set:118 AL tests,64 public-service native-user checks,8 independent concurrency/receipt scenarios,10 actual client scenarios,4 live MCP RIMD calls and large-response HTTP/1.0 assertions per run. BC25 passes separately under verified tri-state and server-controlled legacy locking. All compiled companion entries are identical across these BC23-baseline builds; only the manifest build timestamp changes. Owned test data/users/roles are cleaned, BC25's default is restored, new matrix containers are stopped and original BC23/BC27.1 readiness is restored. This satisfies the agreed additional pre-release test scope, while the full intervening range remains an inference pending direct BC26/27.0 evidence. Release preparation still needs companion-artifact integration into CI packaging; operation-specific limits remain unchanged.
 
 BC26 extension2026-10-20: the user added BC26 to that scope. Dedicated BC26 Application26.18.55014.0/platform26.0.54981.0 now passes the same118 AL,64 public authorization,8 concurrency,10 client,4 actual MCP and large-response HTTP/1.0 checks. Companion0.1.10.0 compiled contents remain identical to the earlier BC23-baseline build, apart from the manifest timestamp. Owned fixtures/users/roles are cleaned, BC26 is stopped and original-target MCP readiness is restored. Selected builds now cover BC23,24,25,26 and27.1; every cumulative update and BC27.0 remain unverified. See the compatibility ledger for the interrupted full-toolkit setup and recovered local Node process exit. CI companion-artifact packaging remains the next release-preparation step; operation-specific limits are unchanged.
+
+MCP surface decision2026-10-20: consolidate the four public mutation tools into **bc_dev_toolset_data_mutate_records**, keeping one explicit operation/record per call and the four tested internal implementations. Rename all six read tools to the same bc_dev_toolset_data_ convention. Strict operation-specific schemas require ordered fields for insert/modify, complete primaryKey for rename, and SystemId/expectedVersion for existing-record changes; irrelevant arguments and request-resume inputs are rejected. Each connection's bcData.allowedMutationOperations explicitly permits a subset of insert/modify/rename/delete, defaulting to none independently of the default-off MCP switch. Policy is checked with the captured target before credentials/HTTP; changing settings does not cancel submitted work. Old tool names/switches have no aliases and do not implicitly grant the new surface. The AL app, protocol, transaction boundary and in-call receipt/retry behavior are unchanged. Source and real MCP subprocess regression tests cover the new dispatch and boundaries; refreshed development-host live binding verification remains pending.

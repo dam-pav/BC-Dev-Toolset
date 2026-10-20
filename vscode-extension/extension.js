@@ -39,9 +39,9 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 38;
+const mcpServerDefinitionRevision = 39;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 37;
+const runtimeToolsetRevision = 38;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -286,7 +286,7 @@ async function handleMcpBridgeRequest(request, response) {
       // Recheck current settings at the authenticated bridge, even if an MCP
       // process still advertises an earlier enabled selection.
       const settings = getEffectiveMcpToolSettings();
-      if (typeof body.name !== 'string' || !body.name.startsWith('bc_data_') || settings[body.name] !== true) {
+      if (typeof body.name !== 'string' || !body.name.startsWith('bc_dev_toolset_data_') || settings[body.name] !== true) {
         writeMcpBridgeResponse(response, 403, { error: 'BC Data tool is disabled.' });
         return;
       }

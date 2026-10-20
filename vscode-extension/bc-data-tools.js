@@ -1,7 +1,7 @@
 'use strict';
 
-const connectionId = { type: 'string', minLength: 1, maxLength: 200, description: 'Exact unique Toolset configuration name; obtain it from bc_data_list_connections.' };
-const companyId = { type: 'string', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$', description: 'Explicit company GUID from bc_data_list_companies.' };
+const connectionId = { type: 'string', minLength: 1, maxLength: 200, description: 'Exact unique Toolset configuration name; obtain it from bc_dev_toolset_data_list_connections.' };
+const companyId = { type: 'string', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$', description: 'Explicit company GUID from bc_dev_toolset_data_list_companies.' };
 const tableId = { type: 'integer', minimum: 1, maximum: 1999999999 };
 const fieldId = { type: 'integer', minimum: 1, maximum: 2147483647 };
 const pageSize = { type: 'integer', minimum: 1, maximum: 100, default: 25 };
@@ -17,6 +17,18 @@ const mutationValue = { anyOf: [{ type: 'boolean' }, { type: 'integer', minimum:
   { type: 'string', maxLength: 32768 }, schema({ date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }, closing: { type: 'boolean' } })] };
 const assignments = maximum => ({ type: 'array', minItems: 1, maxItems: maximum,
   items: schema({ fieldId: mutationFieldId, value: mutationValue }) });
+const mutationMethods = Object.freeze({ insert: 'insertRecord', modify: 'modifyRecord', rename: 'renameRecord', delete: 'deleteRecord' });
+const mutationInputs = {
+  insert: schema({ connectionId, companyId, tableId, operation: { const: 'insert' }, fields: assignments(50) }),
+  modify: schema({ connectionId, companyId, tableId, operation: { const: 'modify' }, systemId, expectedVersion, fields: assignments(50) }),
+  rename: schema({ connectionId, companyId, tableId, operation: { const: 'rename' }, systemId, expectedVersion, primaryKey: assignments(16) }),
+  delete: schema({ connectionId, companyId, tableId, operation: { const: 'delete' }, systemId, expectedVersion })
+};
+const mutationSchema = {
+  ...schema({ connectionId, companyId, tableId, operation: { type: 'string', enum: Object.keys(mutationMethods) },
+    systemId, expectedVersion, fields: assignments(50), primaryKey: assignments(16) }, ['connectionId', 'companyId', 'tableId', 'operation']),
+  oneOf: Object.values(mutationInputs)
+};
 const definitions = [
   ['list_connections', 'List configured Dev/Test containers without connecting or checking installed state. Configuration names are connection IDs; ambiguous names cannot be used.', schema({}), 'listConnections'],
   ['list_companies', 'List company GUIDs/names for an explicit connection before selecting a company.', schema({ connectionId }), 'listCompanies'],
@@ -24,21 +36,21 @@ const definitions = [
   ['find_tables', 'Search installed table names/captions literally (numeric ID search is pending). Page using returned afterId with the same query. Structural support does not guarantee permission.', schema({ connectionId, companyId, query: { type: 'string', maxLength: 100, default: '' }, afterId: { type: 'integer', minimum: 0 }, pageSize }, ['connectionId', 'companyId']), 'findTables'],
   ['get_table_schema', 'Discover installed fields, extension fields, keys and enum ordinals. Relations/obsolescence details are explicitly unavailable in this slice. readSupportedInSlice governs scalar support.', schema({ connectionId, companyId, tableId }), 'getTableSchema'],
   ['read_records', 'Read 1-50 selected fields from an ordinary table in primary-key ascending order, at most 100 rows. Supports BC filter expressions and separate FlowFilters. Returns SystemId and string rowversion; decimal/BigInteger are strings, enum/option are ordinals, BLOB/Media are descriptors. Date/time use invariant wire values; other sorting is not yet supported. Continuation tokens expire after 30 minutes and bind target revision/company/query/client session. Pagination is not a snapshot; rowversion does not cover FlowField dependencies. Reduce selection/page size on response_too_large.', schema({ connectionId, companyId, tableId, fieldIds: { type: 'array', minItems: 1, maxItems: 50, uniqueItems: true, items: fieldId }, filters, flowFilters: filters, pageSize, continuationToken: { type: 'string', minLength: 1, maxLength: 32768 } }, ['connectionId', 'companyId', 'tableId', 'fieldIds']), 'readRecords'],
-  ['insert_record', 'Initialize and insert one company-local physical Normal record. Apply1-50 fieldId/value assignments in array order; identity is server-generated. Return persisted requested values/SystemId/version. Decimal/BigInteger use strings; enum/option use integer ordinals; null, system/content fields and unqualified FlowField writes are rejected.', schema({ connectionId, companyId, tableId, fields: assignments(50) }), 'insertRecord', true],
-  ['modify_record', 'Modify one SystemId at the supplied expectedVersion. Apply1-50 ordered field assignments; omitted fields remain unchanged. Primary-key changes require rename. Return persisted requested values and the new version. Decimal/BigInteger are strings; null/content/system fields and unqualified FlowField writes are rejected.', schema({ connectionId, companyId, tableId, systemId, expectedVersion, fields: assignments(50) }), 'modifyRecord', true],
-  ['delete_record', 'Delete one SystemId at the supplied expectedVersion with native OnDelete. Return minimal applied acknowledgement; no deleted values or fictitious post-delete version. Trigger effects on related records follow native permissions and transaction rules.', schema({ connectionId, companyId, tableId, systemId, expectedVersion }), 'deleteRecord', true],
-  ['rename_record', 'Rename one SystemId at the supplied expectedVersion using every primary-key field in key order. Native dispatch supports up to16 components; the qualified runtime fixture covers a three-part GUID/Code/Integer key. Native relations/triggers decide the result; arbitrary relation cascades and other arities are not certified. Return persisted key values/SystemId/version.', schema({ connectionId, companyId, tableId, systemId, expectedVersion, primaryKey: assignments(16) }), 'renameRecord', true]
+  ['mutate_records', 'Execute exactly one insert, modify, rename or delete, explicitly allowed by the connection bcData.allowedMutationOperations list (empty by default). Insert requires1-50 ordered fields and generates SystemId. Modify requires SystemId, expectedVersion and1-50 ordered fields; omitted fields remain unchanged. Rename requires SystemId, expectedVersion and every primaryKey field in key order (up to16; only three-part GUID/Code/Integer fixture qualified). Delete requires SystemId and expectedVersion and returns minimal acknowledgement without deleted values or post-delete version. Other successes return persisted requested values/SystemId/version. Decimal/BigInteger are strings; enum/option are integer ordinals. Null, system/content assignments and unqualified FlowField writes are rejected. Native relation/trigger permissions apply; arbitrary cascades and other key arities remain unqualified. Reject arguments belonging to another operation.', mutationSchema, 'mutateRecord', true]
 ];
 const dataTools = Object.freeze(definitions.map(([suffix, description, inputSchema, , mutation]) => ({
-  name: `bc_data_${suffix}`, description: (mutation ? mutationPrerequisite : prerequisite) + description, inputSchema,
+  name: `bc_dev_toolset_data_${suffix}`, description: (mutation ? mutationPrerequisite : prerequisite) + description, inputSchema,
   annotations: { readOnlyHint: !mutation, destructiveHint: Boolean(mutation), idempotentHint: !mutation, openWorldHint: true }
 })));
-const dataMethods = Object.freeze(Object.fromEntries(definitions.map(([suffix, , , method]) => [`bc_data_${suffix}`, method])));
-const mutationToolNames = Object.freeze(definitions.filter(item => item[4]).map(([suffix]) => `bc_data_${suffix}`));
+const dataMethods = Object.freeze(Object.fromEntries(definitions.map(([suffix, , , method]) => [`bc_dev_toolset_data_${suffix}`, method])));
+const mutationToolNames = Object.freeze(definitions.filter(item => item[4]).map(([suffix]) => `bc_dev_toolset_data_${suffix}`));
 
 // Validate at execution as well as advertising a schema: MCP clients need not
 // enforce schemas, and extra endpoint/credential/operation inputs must fail.
 function valid(value, rule) {
+  if (Object.hasOwn(rule, 'const')) return value === rule.const;
+  if (rule.enum && !rule.enum.includes(value)) return false;
+  if (rule.oneOf) return rule.oneOf.filter(option => valid(value, option)).length === 1;
   if (rule.anyOf) return rule.anyOf.some(option => valid(value, option));
   if (rule.type === 'object') return value !== null && typeof value === 'object' && !Array.isArray(value) &&
     rule.required.every(key => Object.hasOwn(value, key)) && Object.keys(value).every(key => Object.hasOwn(rule.properties, key) && valid(value[key], rule.properties[key]));
@@ -53,4 +65,4 @@ function validateDataArguments(name, args) {
   const tool = dataTools.find(item => item.name === name);
   return Boolean(tool && valid(args, tool.inputSchema));
 }
-module.exports = { dataTools, dataMethods, mutationToolNames, validateDataArguments };
+module.exports = { dataTools, dataMethods, mutationMethods, mutationToolNames, validateDataArguments };

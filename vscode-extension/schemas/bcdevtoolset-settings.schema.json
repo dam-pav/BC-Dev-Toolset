@@ -317,60 +317,45 @@
           "default": false,
           "description": "Show active container licenses through the legacy alias."
         },
-        "bc_data_list_connections": {
-          "type": "boolean",
-          "default": false,
-          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. List configured Dev/Test containers without connecting or checking installed state. Configuration names are connection IDs; ambiguous names cannot be used."
-        },
-        "bc_data_list_companies": {
-          "type": "boolean",
-          "default": false,
-          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. List company GUIDs/names for an explicit connection before selecting a company."
-        },
-        "bc_data_get_readiness": {
-          "type": "boolean",
-          "default": false,
-          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. Check companion contract, app version and advertised capabilities for an explicit connection/company."
-        },
-        "bc_data_find_tables": {
-          "type": "boolean",
-          "default": false,
-          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. Search installed table names/captions literally (numeric ID search is pending). Page using returned afterId with the same query. Structural support does not guarantee permission."
-        },
-        "bc_data_get_table_schema": {
-          "type": "boolean",
-          "default": false,
-          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. Discover installed fields, extension fields, keys and enum ordinals. Relations/obsolescence details are explicitly unavailable in this slice. readSupportedInSlice governs scalar support."
-        },
-        "bc_data_read_records": {
-          "type": "boolean",
-          "default": false,
-          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. Read 1-50 selected fields from an ordinary table in primary-key ascending order, at most 100 rows. Supports BC filter expressions and separate FlowFilters. Returns SystemId and string rowversion; decimal/BigInteger are strings, enum/option are ordinals, BLOB/Media are descriptors. Date/time use invariant wire values; other sorting is not yet supported. Continuation tokens expire after 30 minutes and bind target revision/company/query/client session. Pagination is not a snapshot; rowversion does not cover FlowField dependencies. Reduce selection/page size on response_too_large."
-        },
         "bc_dev_toolset_initialize_bc_data": {
           "type": "boolean",
           "default": false,
           "description": "Explicitly install/upgrade and verify the bundled BC Data companion on one named Dev/Test container; never downgrade or enable data tools implicitly."
         },
-        "bc_data_insert_record": {
+        "bc_dev_toolset_data_list_connections": {
           "type": "boolean",
           "default": false,
-          "description": "Single-record development-container mutation. Explicitly enable this tool; initialize companion mutation protocol1/service BCDDataWrite and grant BCD DATA WRITE plus native target/trigger table permissions. Native validation and triggers always run. One call owns one five-minute request scope and permits one identical in-call retry after uncertain transport; commands are never queued across calls. An unknown outcome requires reconciliation, never blind repetition or a fresh version. Receipt guarantees cover this database transaction and uninterrupted history, not external trigger effects or restore/copy. Initialize and insert one company-local physical Normal record. Apply1-50 fieldId/value assignments in array order; identity is server-generated. Return persisted requested values/SystemId/version. Decimal/BigInteger use strings; enum/option use integer ordinals; null, system/content fields and unqualified FlowField writes are rejected."
+          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. List configured Dev/Test containers without connecting or checking installed state. Configuration names are connection IDs; ambiguous names cannot be used."
         },
-        "bc_data_modify_record": {
+        "bc_dev_toolset_data_list_companies": {
           "type": "boolean",
           "default": false,
-          "description": "Single-record development-container mutation. Explicitly enable this tool; initialize companion mutation protocol1/service BCDDataWrite and grant BCD DATA WRITE plus native target/trigger table permissions. Native validation and triggers always run. One call owns one five-minute request scope and permits one identical in-call retry after uncertain transport; commands are never queued across calls. An unknown outcome requires reconciliation, never blind repetition or a fresh version. Receipt guarantees cover this database transaction and uninterrupted history, not external trigger effects or restore/copy. Modify one SystemId at the supplied expectedVersion. Apply1-50 ordered field assignments; omitted fields remain unchanged. Primary-key changes require rename. Return persisted requested values and the new version. Decimal/BigInteger are strings; null/content/system fields and unqualified FlowField writes are rejected."
+          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. List company GUIDs/names for an explicit connection before selecting a company."
         },
-        "bc_data_delete_record": {
+        "bc_dev_toolset_data_get_readiness": {
           "type": "boolean",
           "default": false,
-          "description": "Single-record development-container mutation. Explicitly enable this tool; initialize companion mutation protocol1/service BCDDataWrite and grant BCD DATA WRITE plus native target/trigger table permissions. Native validation and triggers always run. One call owns one five-minute request scope and permits one identical in-call retry after uncertain transport; commands are never queued across calls. An unknown outcome requires reconciliation, never blind repetition or a fresh version. Receipt guarantees cover this database transaction and uninterrupted history, not external trigger effects or restore/copy. Delete one SystemId at the supplied expectedVersion with native OnDelete. Return minimal applied acknowledgement; no deleted values or fictitious post-delete version. Trigger effects on related records follow native permissions and transaction rules."
+          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. Check companion contract, app version and advertised capabilities for an explicit connection/company."
         },
-        "bc_data_rename_record": {
+        "bc_dev_toolset_data_find_tables": {
           "type": "boolean",
           "default": false,
-          "description": "Single-record development-container mutation. Explicitly enable this tool; initialize companion mutation protocol1/service BCDDataWrite and grant BCD DATA WRITE plus native target/trigger table permissions. Native validation and triggers always run. One call owns one five-minute request scope and permits one identical in-call retry after uncertain transport; commands are never queued across calls. An unknown outcome requires reconciliation, never blind repetition or a fresh version. Receipt guarantees cover this database transaction and uninterrupted history, not external trigger effects or restore/copy. Rename one SystemId at the supplied expectedVersion using every primary-key field in key order. Native dispatch supports up to16 components; the qualified runtime fixture covers a three-part GUID/Code/Integer key. Native relations/triggers decide the result; arbitrary relation cascades and other arities are not certified. Return persisted key values/SystemId/version."
+          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. Search installed table names/captions literally (numeric ID search is pending). Page using returned afterId with the same query. Structural support does not guarantee permission."
+        },
+        "bc_dev_toolset_data_get_table_schema": {
+          "type": "boolean",
+          "default": false,
+          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. Discover installed fields, extension fields, keys and enum ordinals. Relations/obsolescence details are explicitly unavailable in this slice. readSupportedInSlice governs scalar support."
+        },
+        "bc_dev_toolset_data_read_records": {
+          "type": "boolean",
+          "default": false,
+          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. Read 1-50 selected fields from an ordinary table in primary-key ascending order, at most 100 rows. Supports BC filter expressions and separate FlowFilters. Returns SystemId and string rowversion; decimal/BigInteger are strings, enum/option are ordinals, BLOB/Media are descriptors. Date/time use invariant wire values; other sorting is not yet supported. Continuation tokens expire after 30 minutes and bind target revision/company/query/client session. Pagination is not a snapshot; rowversion does not cover FlowField dependencies. Reduce selection/page size on response_too_large."
+        },
+        "bc_dev_toolset_data_mutate_records": {
+          "type": "boolean",
+          "default": false,
+          "description": "Single-record development-container mutation. Explicitly enable this tool; initialize companion mutation protocol1/service BCDDataWrite and grant BCD DATA WRITE plus native target/trigger table permissions. Native validation and triggers always run. One call owns one five-minute request scope and permits one identical in-call retry after uncertain transport; commands are never queued across calls. An unknown outcome requires reconciliation, never blind repetition or a fresh version. Receipt guarantees cover this database transaction and uninterrupted history, not external trigger effects or restore/copy. Execute exactly one insert, modify, rename or delete, explicitly allowed by the connection bcData.allowedMutationOperations list (empty by default). Insert requires1-50 ordered fields and generates SystemId. Modify requires SystemId, expectedVersion and1-50 ordered fields; omitted fields remain unchanged. Rename requires SystemId, expectedVersion and every primaryKey field in key order (up to16; only three-part GUID/Code/Integer fixture qualified). Delete requires SystemId and expectedVersion and returns minimal acknowledgement without deleted values or post-delete version. Other successes return persisted requested values/SystemId/version. Decimal/BigInteger are strings; enum/option are integer ordinals. Null, system/content assignments and unqualified FlowField writes are rejected. Native relation/trigger permissions apply; arbitrary cascades and other key arities remain unqualified. Reject arguments belonging to another operation."
         }
       },
       "additionalProperties": {
@@ -670,6 +655,21 @@
                     "type": "boolean",
                     "default": false,
                     "description": "Maintain the bundled companion during container creation/start and test preparation. Does not expose data tools. Disabling preserves the installed app."
+                  },
+                  "allowedMutationOperations": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "default": [],
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "insert",
+                        "modify",
+                        "rename",
+                        "delete"
+                      ]
+                    },
+                    "description": "Explicitly permitted mutation operations for this connection. Empty or omitted disables all writes. Also requires the mutation MCP tool switch and native BC permissions."
                   }
                 }
               }

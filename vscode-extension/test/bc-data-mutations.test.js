@@ -171,18 +171,56 @@ test('invalid typed assignments identity versions and extras fail before any con
   assert.equal(f.calls.length, 0);
 });
 
-test('new write tools are strict destructive opt-ins with distinct schemas and no request-resume input', () => {
+test('one mutation tool is a strict destructive opt-in with operation-specific schemas and no request-resume input', () => {
   const pkg = require('../package.json');
   const properties = pkg.contributes.configuration.find(group => group.properties.bcDevToolset).properties.bcDevToolset.properties.mcpTools.properties;
-  assert.equal(mutationToolNames.length, 4);
+  assert.deepEqual(mutationToolNames, ['bc_dev_toolset_data_mutate_records']);
   for (const name of mutationToolNames) {
     const tool = dataTools.find(item => item.name === name);
     assert.equal(properties[name].default, false); assert.equal(tool.annotations.readOnlyHint, false);
     assert.equal(tool.annotations.destructiveHint, true); assert.equal(tool.annotations.idempotentHint, false);
-    assert.equal(tool.inputSchema.additionalProperties, false);
-    assert.equal(Object.hasOwn(tool.inputSchema.properties, 'requestId'), false);
+    assert.equal(tool.inputSchema.oneOf.length, 4);
+    for (const branch of tool.inputSchema.oneOf) {
+      assert.equal(branch.additionalProperties, false);
+      assert.equal(Object.hasOwn(branch.properties, 'requestId'), false);
+    }
   }
-  assert.equal(validateDataArguments('bc_data_modify_record', { ...existing, fields }), true);
-  assert.equal(validateDataArguments('bc_data_modify_record', { ...existing, fields: [{ fieldId: 1, value: { date: '2026-12-31', closing: true } }] }), true);
-  assert.equal(validateDataArguments('bc_data_insert_record', { ...base, fields: [{ fieldId: 1, value: null }] }), false);
+  assert.equal(validateDataArguments('bc_dev_toolset_data_mutate_records', { ...existing, operation: 'modify', fields }), true);
+  assert.equal(validateDataArguments('bc_dev_toolset_data_mutate_records', { ...existing, operation: 'modify', fields: [{ fieldId: 1, value: { date: '2026-12-31', closing: true } }] }), true);
+  assert.equal(validateDataArguments('bc_dev_toolset_data_mutate_records', { ...base, operation: 'insert', fields: [{ fieldId: 1, value: null }] }), false);
+});
+
+test('mutation dispatch schema rejects missing, mixed, unknown and legacy operations', () => {
+  const tool = 'bc_dev_toolset_data_mutate_records';
+  const requests = [
+    { ...base, operation: 'insert', fields },
+    { ...existing, operation: 'modify', fields },
+    { ...existing, operation: 'rename', primaryKey: [{ fieldId: 1, value: 'A' }] },
+    { ...existing, operation: 'delete' }
+  ];
+  for (const input of requests) {
+    assert.equal(validateDataArguments(tool, input), true);
+    for (const key of Object.keys(input)) {
+      const missing = { ...input }; delete missing[key];
+      assert.equal(validateDataArguments(tool, missing), false, `${input.operation} requires ${key}`);
+    }
+    for (const [key, value] of Object.entries({ fields, primaryKey: [{ fieldId: 1, value: 'A' }], systemId, expectedVersion: '1', requestId: companyId, endpoint: 'http://other' })) {
+      if (!Object.hasOwn(input, key)) assert.equal(validateDataArguments(tool, { ...input, [key]: value }), false);
+    }
+    assert.equal(validateDataArguments(tool, { ...input, operation: 'upsert' }), false);
+  }
+  assert.equal(validateDataArguments('bc_data_insert_record', requests[0]), false);
+  assert.equal(validateDataArguments('bc_dev_toolset_data_insert_record', requests[0]), false);
+  assert.ok(dataTools.every(item => item.name.startsWith('bc_dev_toolset_data_')));
+  assert.equal(dataTools.length, 7);
+});
+
+test('legacy data switches cannot expose renamed tools or consolidate write permission implicitly', () => {
+  const { resolveToolSettings } = require('../mcp-tool-settings');
+  const settings = resolveToolSettings({ bc_data_list_companies: true, bc_data_insert_record: true,
+    bc_data_modify_record: true, bc_data_rename_record: true, bc_data_delete_record: true });
+  assert.ok(dataTools.every(tool => settings[tool.name] === false));
+  assert.ok(!Object.keys(settings).some(name => name.startsWith('bc_data_')));
+  const { __test: server } = require('../mcp-server');
+  assert.ok(!server.getAllTools().some(tool => tool.name.startsWith('bc_data_')));
 });
