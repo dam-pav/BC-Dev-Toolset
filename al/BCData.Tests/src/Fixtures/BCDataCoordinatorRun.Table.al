@@ -10,6 +10,9 @@ table 50223 "BCD Coordinator Run"
         field(5; Operation; Text[10]) { }
         field(6; "First Epoch"; Guid) { }
         field(7; "Other Epoch"; Guid) { }
+        field(8; "Primary Request ID"; Guid) { }
+        field(9; "Delay Milliseconds"; Integer) { }
+        field(10; "Replacement ID"; Guid) { }
     }
     keys { key(PK; "Run ID") { Clustered = true; } }
 }

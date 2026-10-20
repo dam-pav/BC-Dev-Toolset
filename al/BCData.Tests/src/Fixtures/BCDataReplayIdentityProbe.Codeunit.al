@@ -338,6 +338,238 @@ codeunit 50219 "BCD Replay Identity Probe"
         exit('{"restored":true}');
     end;
 
+    procedure PrepareCoordinatorRoles(inputJson: Text): Text
+    var
+        Role: Record "Tenant Permission Set";
+        Receipt: Record "BCD Mutation Receipt";
+        Target: Record "BCD Mutation Fixture";
+        Run: Record "BCD Coordinator Run";
+        Entry: Record "BCD Mutation Trigger Log";
+        Objects: Record AllObjWithCaption;
+        Input: JsonObject;
+        Token: JsonToken;
+        NamespaceId: Guid;
+        Principal: Guid;
+        RunId: Guid;
+        NullGuid: Guid;
+        Profile: Text;
+        Profiles: List of [Text];
+        Filter: Text;
+        Rights: Text;
+        DeletePolicy: Boolean;
+        ObjectId: Integer;
+        ObjectIds: List of [Integer];
+    begin
+        NamespaceId := GetGuid(inputJson, 'namespaceId');
+        Input.ReadFrom(inputJson);
+        Input.Get('operation', Token);
+        DeletePolicy := Token.AsValue().AsText() = 'delete';
+        Profiles := ProfileList();
+        foreach Profile in Profiles do
+            if Role.Get(NullGuid, RoleId(NamespaceId, Profile)) then
+                Error('BCD_EVP_ROLE_COLLISION');
+        foreach Profile in Profiles do begin
+            Principal := ProfilePrincipal(NamespaceId, Profile, true);
+            if Profile = 'x' then
+                RunId := GetGuid(inputJson, 'otherRunId')
+            else
+                RunId := GetGuid(inputJson, 'ownerRunId');
+            Role.Init();
+            Role."App ID" := NullGuid;
+            Role."Role ID" := RoleId(NamespaceId, Profile);
+            Role.Name := 'BCD EVP ' + Tag(NamespaceId);
+            Role.Assignable := true;
+            Role.Insert();
+            AddPermission(Role."Role ID", 0, Database::Company, 'R', '');
+            AddPermission(Role."Role ID", 0, Database::"Table Metadata", 'R', '');
+            Clear(ObjectIds);
+            ObjectIds.Add(Codeunit::"BCD Coordinator Probe");
+            ObjectIds.Add(Codeunit::"BCD Mutation Coordinator");
+            ObjectIds.Add(Codeunit::"BCD Record Mutation");
+            ObjectIds.Add(Codeunit::"BCD Field Input");
+            ObjectIds.Add(Codeunit::"BCD Data Service");
+            ObjectIds.Add(7233);
+            foreach ObjectId in ObjectIds do
+                AddPermission(Role."Role ID", 5, ObjectId, '', '');
+            Objects.SetRange("Object Type", Objects."Object Type"::Codeunit);
+            Objects.SetRange("Object ID", 36951);
+            Objects.SetRange("Object Name", 'Initialization');
+            if not Objects.IsEmpty() then
+                AddPermission(Role."Role ID", 5, 36951, '', '');
+            AddPermission(Role."Role ID", 1, Database::"BCD Mutation Receipt", '', '');
+            AddPermission(Role."Role ID", 1, Database::"BCD Coordinator Run", '', '');
+            AddPermission(Role."Role ID", 1, Database::"BCD Mutation Fixture", '', '');
+            AddPermission(Role."Role ID", 1, Database::"BCD Mutation Trigger Log", '', '');
+            Rights := 'RIMD';
+            if DeletePolicy and (Profile = 'v') then
+                Rights := 'IMD';
+            AddPermission(Role."Role ID", 0, Database::"BCD Mutation Receipt", Rights,
+                Receipt.TableName() + ': Principal=' + Format(Principal, 0, 4));
+            AddPermission(Role."Role ID", 0, Database::"BCD Coordinator Run", 'RIMD',
+                Run.TableName() + ': Principal=' + Format(Principal, 0, 4));
+            AddPermission(Role."Role ID", 0, Database::"BCD Mutation Trigger Log", 'RIMD',
+                Entry.TableName() + ': "Run ID"=' + Format(RunId, 0, 4));
+            Filter := Target.TableName() + ': "Run ID"=' + Format(RunId, 0, 4);
+            Rights := 'RIMD';
+            case Profile of
+                'r': Rights := 'R';
+                'n': Rights := 'IMD';
+                'v':
+                    begin
+                        Rights := 'R';
+                        Filter += ',Quantity=4';
+                    end;
+            end;
+            AddPermission(Role."Role ID", 0, Database::"BCD Mutation Fixture", Rights, Filter);
+        end;
+        exit('{"created":true}');
+    end;
+
+    procedure CoordinatorDataState(inputJson: Text): Text
+    var
+        Run: Record "BCD Coordinator Run";
+        Row: Record "BCD Mutation Fixture";
+        Receipt: Record "BCD Mutation Receipt";
+        Entry: Record "BCD Mutation Trigger Log";
+        Response: JsonObject;
+        Principal: Guid;
+    begin
+        Principal := CoordinatorOwner(inputJson, Run);
+        Row.SetRange("Run ID", Run."Run ID");
+        Response.Add('rows', Row.Count());
+        if Row.FindFirst() then begin
+            Response.Add('systemId', Format(Row.SystemId, 0, 4));
+            Response.Add('version', Format(Row.SystemRowVersion, 0, 9));
+            Response.Add('name', Row.Name);
+            Response.Add('quantity', Format(Row.Quantity, 0, 9));
+        end;
+        Entry.SetRange("Run ID", Run."Run ID");
+        Response.Add('logs', Entry.Count());
+        Receipt.Get(Principal, Run."Primary Request ID");
+        Response.Add('completed', Receipt.Completed);
+        Receipt.Get(Principal, Run."Other Request ID");
+        Response.Add('otherCompleted', Receipt.Completed);
+        exit(CoordinatorJson(Response));
+    end;
+
+    procedure SetCoordinatorTarget(inputJson: Text): Text
+    var
+        Run: Record "BCD Coordinator Run";
+        Row: Record "BCD Mutation Fixture";
+        Input: JsonObject;
+        Token: JsonToken;
+        Principal: Guid;
+        Mode: Text;
+        Amount: Decimal;
+        Name: Code[20];
+    begin
+        Principal := CoordinatorOwner(inputJson, Run);
+        Input.ReadFrom(inputJson);
+        Input.Get('mode', Token);
+        Mode := Token.AsValue().AsText();
+        Row.SetRange("Run ID", Run."Run ID");
+        if Mode = 'restore' then begin
+            if (Run.Operation <> 'delete') or not Row.IsEmpty() then
+                Error('BCD_COORD_RESTORE_REQUIRES_DELETED_TARGET');
+            Row.Init();
+            Row."Run ID" := Run."Run ID";
+            Row.Name := 'A';
+            Row.Sequence := 1;
+            Row.Insert(false);
+            Run."Replacement ID" := Row.SystemId;
+            Run.Modify();
+        end else begin
+            if Row.Count() <> 1 then
+                Error('BCD_COORD_ONE_TARGET_REQUIRED');
+            Row.FindFirst();
+            case Mode of
+                'quantity':
+                    begin
+                        Input.Get('quantity', Token);
+                        if not Evaluate(Amount, Token.AsValue().AsText(), 9) or not (Amount in [4, 9]) then
+                            Error('BCD_COORD_QUANTITY');
+                        Row.Quantity := Amount;
+                        Row.Modify(false);
+                    end;
+                'name':
+                    begin
+                        Input.Get('name', Token);
+                        Name := CopyStr(Token.AsValue().AsText(), 1, MaxStrLen(Name));
+                        if not (Name in ['A', 'B']) then
+                            Error('BCD_COORD_NAME');
+                        Row.Rename(Run."Run ID", Name, 1);
+                    end;
+                else Error('BCD_COORD_ADMIN_MODE');
+            end;
+        end;
+        exit(CoordinatorDataState(inputJson));
+    end;
+
+    procedure CleanupCoordinatorData(inputJson: Text): Text
+    var
+        Run: Record "BCD Coordinator Run";
+        Row: Record "BCD Mutation Fixture";
+        Receipt: Record "BCD Mutation Receipt";
+        Entry: Record "BCD Mutation Trigger Log";
+        Input: JsonObject;
+        Token: JsonToken;
+        RunId: Guid;
+        Principal: Guid;
+    begin
+        // Namespace/user ownership is checked even when interrupted Prepare rolled back.
+        Input.ReadFrom(inputJson);
+        Input.Get('kind', Token);
+        if not (Token.AsValue().AsText() in ['f', 'x']) then
+            Error('BCD_COORD_KIND');
+        Principal := ProfilePrincipal(GetGuid(inputJson, 'namespaceId'), Token.AsValue().AsText(), true);
+        RunId := GetGuid(inputJson, 'runId');
+        if Run.Get(RunId) then begin
+            Run.TestField(Principal, Principal);
+            if Receipt.Get(Principal, Run."Primary Request ID") then Receipt.Delete();
+            if Receipt.Get(Principal, Run."Other Request ID") then Receipt.Delete();
+            Run.Delete();
+            if Receipt.Get(Principal, Run."Primary Request ID") or Receipt.Get(Principal, Run."Other Request ID") then
+                Error('BCD_COORD_RECEIPT_CLEANUP_INCOMPLETE');
+        end else begin
+            Row.SetRange("Run ID", RunId);
+            Entry.SetRange("Run ID", RunId);
+            if not Row.IsEmpty() or not Entry.IsEmpty() then
+                Error('BCD_COORD_RUN_MISSING_OWNERSHIP_UNAVAILABLE');
+            exit('{"cleaned":true}');
+        end;
+        Row.SetRange("Run ID", RunId);
+        Row.DeleteAll();
+        Entry.SetRange("Run ID", RunId);
+        Entry.DeleteAll();
+        if not Row.IsEmpty() or not Entry.IsEmpty() or Run.Get(RunId) then
+            Error('BCD_COORD_CLEANUP_INCOMPLETE');
+        exit('{"cleaned":true}');
+    end;
+
+    local procedure CoordinatorOwner(InputText: Text; var Run: Record "BCD Coordinator Run"): Guid
+    var
+        Input: JsonObject;
+        Token: JsonToken;
+        Principal: Guid;
+    begin
+        Input.ReadFrom(InputText);
+        Input.Get('kind', Token);
+        if not (Token.AsValue().AsText() in ['f', 'x']) then
+            Error('BCD_COORD_KIND');
+        Principal := ProfilePrincipal(GetGuid(InputText, 'namespaceId'), Token.AsValue().AsText(), true);
+        Run.Get(GetGuid(InputText, 'runId'));
+        Run.TestField(Principal, Principal);
+        exit(Principal);
+    end;
+
+    local procedure CoordinatorJson(Response: JsonObject): Text
+    var
+        Output: Text;
+    begin
+        Response.WriteTo(Output);
+        exit(Output);
+    end;
+
     local procedure AddPermission(RoleId: Code[20]; ObjectType: Integer; ObjectId: Integer; Rights: Text; Filter: Text)
     var
         Permission: Record "Tenant Permission";

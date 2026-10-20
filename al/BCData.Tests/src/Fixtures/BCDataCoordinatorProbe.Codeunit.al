@@ -18,9 +18,17 @@ codeunit 50226 "BCD Coordinator Probe"
         if not (Run.Operation in ['insert', 'modify', 'rename', 'delete']) then
             Error('BCD_COORD_OPERATION');
         Run.Principal := UserSecurityId();
+        Run."Primary Request ID" := Run."Run ID";
+        if Input.Contains('requestId') then
+            Run."Primary Request ID" := ReadGuid(Input, 'requestId');
+        Run."Delay Milliseconds" := 3000;
+        if Input.Get('delayMs', Token) then
+            Run."Delay Milliseconds" := Token.AsValue().AsInteger();
+        if not (Run."Delay Milliseconds" in [0, 3000]) then
+            Error('BCD_COORD_DELAY');
         Run."Other Request ID" := CreateGuid();
         Run.Insert();
-        Run."First Epoch" := PreparedEpoch(Coordinator.Prepare(Run."Run ID"));
+        Run."First Epoch" := PreparedEpoch(Coordinator.Prepare(Run."Primary Request ID"));
         Run."Other Epoch" := PreparedEpoch(Coordinator.Prepare(Run."Other Request ID"));
         if Run.Operation <> 'insert' then begin
             Row.Init();
@@ -29,7 +37,7 @@ codeunit 50226 "BCD Coordinator Probe"
             Row.Sequence := 1;
             Row.Insert(true);
             // Arm delay AFTER setup, without firing a business trigger.
-            Row."Delay Milliseconds" := 3000;
+            Row."Delay Milliseconds" := Run."Delay Milliseconds";
             Row.Modify(false);
             Run."Target ID" := Row.SystemId;
         end;
@@ -48,6 +56,7 @@ codeunit 50226 "BCD Coordinator Probe"
         RequestId: Guid;
         Epoch: Guid;
         TargetId: Guid;
+        AllowedTargetId: Guid;
         Destination: Text;
         Output: Text;
     begin
@@ -58,7 +67,10 @@ codeunit 50226 "BCD Coordinator Probe"
         Request.Add('tableId', Database::"BCD Mutation Fixture");
         if Run.Operation <> 'insert' then begin
             TargetId := ReadGuid(Input, 'systemId');
-            if TargetId <> Run."Target ID" then
+            AllowedTargetId := Run."Target ID";
+            if (RequestId = Run."Other Request ID") and not IsNullGuid(Run."Replacement ID") then
+                AllowedTargetId := Run."Replacement ID";
+            if TargetId <> AllowedTargetId then
                 Error('BCD_COORD_TARGET');
             Request.Add('systemId', Format(TargetId, 0, 4));
             Input.Get('expectedVersion', Token);
@@ -70,7 +82,7 @@ codeunit 50226 "BCD Coordinator Probe"
                     AddField(Fields, 1, Format(Run."Run ID", 0, 4));
                     AddField(Fields, 2, 'A');
                     AddField(Fields, 3, 1);
-                    AddField(Fields, 23, 3000);
+                    AddField(Fields, 23, Run."Delay Milliseconds");
                     Input.Get('quantity', Token);
                     AddField(Fields, 4, Token.AsValue().AsText());
                     Request.Add('fields', Fields);
@@ -132,6 +144,7 @@ codeunit 50226 "BCD Coordinator Probe"
         Response.Add('epoch', Format(Run."First Epoch", 0, 4));
         Response.Add('otherEpoch', Format(Run."Other Epoch", 0, 4));
         Response.Add('otherRequestId', Format(Run."Other Request ID", 0, 4));
+        Response.Add('primaryRequestId', Format(Run."Primary Request ID", 0, 4));
         Row.ReadIsolation := IsolationLevel::ReadCommitted;
         Row.SetRange("Run ID", Run."Run ID");
         Response.Add('rows', Row.Count());
@@ -146,7 +159,7 @@ codeunit 50226 "BCD Coordinator Probe"
         Entry.SetRange("Run ID", Run."Run ID");
         Response.Add('logs', Entry.Count());
         Receipt.ReadIsolation := IsolationLevel::ReadCommitted;
-        Receipt.Get(UserSecurityId(), Run."Run ID");
+        Receipt.Get(UserSecurityId(), Run."Primary Request ID");
         Response.Add('completed', Receipt.Completed);
         Receipt.Get(UserSecurityId(), Run."Other Request ID");
         Response.Add('otherCompleted', Receipt.Completed);
@@ -162,7 +175,7 @@ codeunit 50226 "BCD Coordinator Probe"
         Input: JsonObject;
     begin
         LoadOwned(inputJson, Run, Input);
-        Receipt.Get(UserSecurityId(), Run."Run ID");
+        Receipt.Get(UserSecurityId(), Run."Primary Request ID");
         Receipt.Delete();
         Receipt.Get(UserSecurityId(), Run."Other Request ID");
         Receipt.Delete();
@@ -191,7 +204,10 @@ codeunit 50226 "BCD Coordinator Probe"
         Response.Add('runExists', Run.Get(RunId));
         Response.Add('rows', Row.Count());
         Response.Add('logs', Entry.Count());
-        Response.Add('receiptExists', Receipt.Get(UserSecurityId(), RunId));
+        if Input.Contains('primaryRequestId') then
+            Response.Add('receiptExists', Receipt.Get(UserSecurityId(), ReadGuid(Input, 'primaryRequestId')))
+        else
+            Response.Add('receiptExists', Receipt.Get(UserSecurityId(), RunId));
         // Caller supplies the recorded secondary GUID for independent cleanup check.
         Response.Add('otherReceiptExists', Receipt.Get(UserSecurityId(), ReadGuid(Input, 'otherRequestId')));
         exit(ToText(Response));
@@ -210,9 +226,9 @@ codeunit 50226 "BCD Coordinator Probe"
         Token: JsonToken;
     begin
         if not Input.Get('slot', Token) then
-            exit(Run."Run ID");
+            exit(Run."Primary Request ID");
         case Token.AsValue().AsInteger() of
-            1: exit(Run."Run ID");
+            1: exit(Run."Primary Request ID");
             2: exit(Run."Other Request ID");
         end;
         Error('BCD_COORD_SLOT');
