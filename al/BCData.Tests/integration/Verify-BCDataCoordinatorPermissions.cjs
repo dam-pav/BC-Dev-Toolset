@@ -7,7 +7,7 @@ const guid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 async function main(input) {
   const s = input.state;
-  const targets = { 'BC23 Baseline': 'bcdata23test', 'BC27.1': 'bcdata271' };
+  const targets = { 'BC23 Baseline': 'bcdata23test', 'BC24 Matrix': 'bcdata24test', 'BC25 Matrix': 'bcdata25test', 'BC27.1': 'bcdata271' };
   assert.ok(Object.hasOwn(targets, s.target));
   assert.equal(s.container, targets[s.target]);
   for (const id of [s.namespaceId, s.requestId]) assert.match(id, guid);

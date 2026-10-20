@@ -2,6 +2,32 @@ codeunit 50226 "BCD Coordinator Probe"
 {
     // Test app only. Fixed fixture table/keys; no arbitrary table or field input.
     // No Permissions elevation; HTTP harness uses the dedicated test administrator.
+    procedure LockingFeatures(): Text
+    var
+        FeatureKey: Record "Feature Key";
+        Features: JsonArray;
+        Feature: JsonObject;
+        Response: JsonObject;
+        Enabled: Integer;
+    begin
+        // Test-only read of native feature state. Never change a tenant-wide
+        // feature through this service or infer its state from a server flag.
+        if FeatureKey.FindSet() then
+            repeat
+                if (StrPos(LowerCase(FeatureKey.ID), 'lock') > 0) or
+                   (StrPos(LowerCase(FeatureKey.Description), 'lock') > 0) then begin
+                    Clear(Feature);
+                    Feature.Add('id', FeatureKey.ID);
+                    Enabled := FeatureKey.Enabled;
+                    Feature.Add('enabled', Enabled);
+                    Feature.Add('description', FeatureKey.Description);
+                    Features.Add(Feature);
+                end;
+            until FeatureKey.Next() = 0;
+        Response.Add('features', Features);
+        exit(ToText(Response));
+    end;
+
     procedure Prepare(inputJson: Text): Text
     var
         Run: Record "BCD Coordinator Run";

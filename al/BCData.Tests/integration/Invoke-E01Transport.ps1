@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('BC23 Baseline', 'BC27.1')]
+    [ValidateSet('BC23 Baseline', 'BC24 Matrix', 'BC25 Matrix', 'BC27.1')]
     [string[]] $Target = @('BC23 Baseline', 'BC27.1'),
     [ValidateSet('default', 'gzip', 'http10')]
     [string] $ResponseMode = 'default'
@@ -23,8 +23,9 @@ foreach ($name in $Target) {
     $configuration = @($settings.configurations | Where-Object name -eq $name)
     if ($configuration.Count -ne 1) { throw 'E01 requires exactly one dedicated target configuration.' }
     $configuration = $configuration[0]
-    $hostName = if ($name -eq 'BC23 Baseline') { 'bcdata23test' } else { 'bcdata271' }
-    if ($configuration.container -ne $hostName -or $configuration.authentication -ne 'UserPassword') {
+    $hostName = @{'BC23 Baseline'='bcdata23test';'BC24 Matrix'='bcdata24test';'BC25 Matrix'='bcdata25test';'BC27.1'='bcdata271'}[$name]
+    if ($configuration.container -cne $hostName -or $configuration.authentication -ne 'UserPassword' -or
+        $configuration.serverType -ne 'Container' -or $configuration.targetType -ne 'Test') {
         throw 'E01 target must match the dedicated container and UserPassword authentication.'
     }
     if ($configuration.bcCredential) { throw 'E01 harness needs a credential-store adapter for stored credentials.' }
@@ -91,6 +92,9 @@ foreach ($name in $Target) {
         'BC23 Baseline/default' = 'e01-http-bc23.json'; 'BC27.1/default' = 'e01-http-bc271.json'
         'BC23 Baseline/gzip' = 'e01-http-bc23-gzip.json'; 'BC27.1/gzip' = 'e01-http-bc271-gzip.json'
         'BC23 Baseline/http10' = 'e01-http-bc23-http10.json'; 'BC27.1/http10' = 'e01-http-bc271-http10.json'
+        'BC24 Matrix/default' = 'e01-http-bc24.json'; 'BC25 Matrix/default' = 'e01-http-bc25.json'
+        'BC24 Matrix/gzip' = 'e01-http-bc24-gzip.json'; 'BC25 Matrix/gzip' = 'e01-http-bc25-gzip.json'
+        'BC24 Matrix/http10' = 'e01-http-bc24-http10.json'; 'BC25 Matrix/http10' = 'e01-http-bc25-http10.json'
     }
     $evidenceFile = $evidenceFiles["$name/$ResponseMode"]
     $targetResult | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $repositoryRoot ".bcdevtoolset/$evidenceFile") -Encoding utf8

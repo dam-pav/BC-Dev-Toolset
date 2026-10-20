@@ -10,7 +10,7 @@ const { resolveWithinRoot } = require('../../../vscode-extension/path-security')
 const guid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 async function main(input) {
-  const targets = { 'BC23 Baseline': 'bcdata23test', 'BC27.1': 'bcdata271' };
+  const targets = { 'BC23 Baseline': 'bcdata23test', 'BC24 Matrix': 'bcdata24test', 'BC25 Matrix': 'bcdata25test', 'BC27.1': 'bcdata271' };
   assert.ok(Object.hasOwn(targets, input.target));
   assert.equal(input.container, targets[input.target]);
   const root = path.resolve(__dirname, '../../..');
@@ -24,6 +24,17 @@ async function main(input) {
   const readiness = await client.readiness(connection.id, companyId);
   const redact = value => String(value).split(connection.password).join('[redacted]')
     .split(Buffer.from(`${connection.username}:${connection.password}`).toString('base64')).join('[redacted]').slice(0, 1024);
+  if (input.inspectLockingFeatures) {
+    assert.notEqual(input.cleanupOnly, true);
+    const url = new URL(`${connection.baseUrl}/BCDCompatibilityCoord_LockingFeatures`);
+    url.searchParams.set('company', companyId); url.searchParams.set('tenant', 'default');
+    const response = await requestHttp10({ url: url.href, username: connection.username, password: connection.password, body: {} });
+    assert.equal(response.status, 200, 'Native locking feature inspection failed.');
+    const value = JSON.parse(JSON.parse(response.body.toString('utf8')).value);
+    assert.ok(Array.isArray(value.features));
+    return { target: input.target, companyId, appVersion: readiness.appVersion,
+      utc: new Date().toISOString(), features: value.features };
+  }
   const executions = new Map();
   async function call(action, payload, signal, maxResponseBytes) {
     assert.match(payload.runId, guid);
