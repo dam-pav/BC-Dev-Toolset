@@ -11,7 +11,7 @@ codeunit 50100 "BCD Data Service"
         Capabilities.Add('schema');
         Capabilities.Add('read-primary-key');
         Response.Add('contractVersion', 1);
-        Response.Add('appVersion', '0.1.8.0');
+        Response.Add('appVersion', '0.1.9.0');
         Response.Add('capabilities', Capabilities);
         Response.Add('mutationsEnabled', false);
         Response.Add('maxPageSize', 100);

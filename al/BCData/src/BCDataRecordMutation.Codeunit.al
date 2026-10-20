@@ -52,6 +52,8 @@ codeunit 50104 "BCD Record Mutation"
         if (TableId <= 0) or (TableId >= 2000000000) then
             Error('BCD_UNSUPPORTED_TABLE: physical application tables only.');
         Metadata.Get(TableId);
+        if TableId = Database::"BCD Mutation Receipt" then
+            Error('BCD_UNSUPPORTED_TABLE: companion request state cannot be a mutation target.');
         if (Metadata.TableType <> Metadata.TableType::Normal) or not Metadata.DataPerCompany then
             Error('BCD_UNSUPPORTED_TABLE: company-local physical Normal table required.');
         if CompanyName() = '' then

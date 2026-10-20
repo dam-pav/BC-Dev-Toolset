@@ -35,9 +35,24 @@ table 50221 "BCD Mutation Fixture"
         field(12; Description; Text[100])
         {
             trigger OnValidate()
+            var
+                Receipt: Record "BCD Mutation Receipt";
             begin
                 if Description = 'BCD_MOVE_KEY' then
                     Name := 'B';
+                if Description = 'BCD_COMMIT' then
+                    Commit();
+                if Description = 'BCD_IMPLICIT' then begin
+                    if Codeunit.Run(Codeunit::"BCD Mutation Commit Body", Rec) then
+                        Error('BCD_GENERIC_IMPLICIT_RETURNED');
+                    Error('BCD_GENERIC_IMPLICIT_REJECTED: %1', GetLastErrorText());
+                end;
+                if Description = 'BCD_EXPIRE_RECEIPT' then begin
+                    // Test-only clock fault, never a production scope timestamp input.
+                    Receipt.Get(UserSecurityId(), "Scope Request");
+                    Receipt."Retry Until" := CurrentDateTime() - 1;
+                    Receipt.Modify();
+                end;
             end;
         }
         field(13; Identifier; Guid) { }
@@ -53,6 +68,7 @@ table 50221 "BCD Mutation Fixture"
             FieldClass = FlowField;
             CalcFormula = sum("BCD Probe Sum Entry".Amount where("Run ID" = field("Run ID"), "Header Line No." = field("Sequence Filter")));
         }
+        field(22; "Scope Request"; Guid) { }
     }
     keys { key(PK; "Run ID", Name, Sequence) { Clustered = true; } }
 
