@@ -3,6 +3,12 @@
   <TenantWebServiceCollection>
     <TenantWebService>
       <ObjectType>CodeUnit</ObjectType>
+      <ObjectID>50226</ObjectID>
+      <ServiceName>BCDCompatibilityCoord</ServiceName>
+      <Published>true</Published>
+    </TenantWebService>
+    <TenantWebService>
+      <ObjectType>CodeUnit</ObjectType>
       <ObjectID>50220</ObjectID>
       <ServiceName>BCDCompatibilityE08</ServiceName>
       <Published>true</Published>

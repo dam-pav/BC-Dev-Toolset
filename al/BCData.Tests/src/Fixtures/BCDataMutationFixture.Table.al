@@ -69,11 +69,13 @@ table 50221 "BCD Mutation Fixture"
             CalcFormula = sum("BCD Probe Sum Entry".Amount where("Run ID" = field("Run ID"), "Header Line No." = field("Sequence Filter")));
         }
         field(22; "Scope Request"; Guid) { }
+        field(23; "Delay Milliseconds"; Integer) { }
     }
     keys { key(PK; "Run ID", Name, Sequence) { Clustered = true; } }
 
     trigger OnInsert()
     begin
+        DelayForTest();
         "Insert Count" += 1;
         Trace += 'I';
         Log('I');
@@ -81,6 +83,7 @@ table 50221 "BCD Mutation Fixture"
 
     trigger OnModify()
     begin
+        DelayForTest();
         "Modify Count" += 1;
         Trace += 'M';
         Log('M');
@@ -88,12 +91,22 @@ table 50221 "BCD Mutation Fixture"
 
     trigger OnDelete()
     begin
+        DelayForTest();
         Log('D');
     end;
 
     trigger OnRename()
     begin
+        DelayForTest();
         Log('R');
+    end;
+
+    local procedure DelayForTest()
+    begin
+        if ("Delay Milliseconds" < 0) or ("Delay Milliseconds" > 5000) then
+            Error('BCD_COORD_DELAY');
+        if "Delay Milliseconds" > 0 then
+            Sleep("Delay Milliseconds");
     end;
 
     local procedure Log(Action: Code[1])
