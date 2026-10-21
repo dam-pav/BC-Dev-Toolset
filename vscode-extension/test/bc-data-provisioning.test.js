@@ -55,6 +55,37 @@ test('automatic provisioning defaults off and does no package, credential, metad
   assert.equal(result.passed, true);
   assert.match(result.error, /must be a boolean/);
 });
+
+test('explicit initialization and automatic provisioning accept valid mutation allowlists', () => {
+  const result = run(fixture + `
+    $results=@()
+    foreach($allowed in @(@(), @('modify'), @('insert','modify','rename','delete'))) {
+      $config|Add-Member NoteProperty bcData ([pscustomobject]@{allowedMutationOperations=$allowed;provisioningEnabled=$true}) -Force
+      $results+=Initialize-BcDataCompanion -ToolsetRoot 'fixed' -Configuration $config 6>$null
+      Sync-ConfiguredBcData -ToolsetRoot 'fixed' -Configuration $config 6>$null
+    }
+    @{actions=@($results.Action);reads=$script:reads;published=$script:published.Count}|ConvertTo-Json -Compress
+  `);
+  assert.deepEqual(result.actions, ['unchanged', 'unchanged', 'unchanged']);
+  assert.equal(result.reads, 6);
+  assert.equal(result.published, 0);
+});
+
+test('invalid mutation allowlists fail before initialization or automatic provisioning accesses the container', () => {
+  const result = run(fixture + `
+    $errors=@()
+    foreach($json in @('null','true','"delete"','["upsert"]','["delete","delete"]','[1]','[{}]','["Delete"]')) {
+      $config|Add-Member NoteProperty bcData (ConvertFrom-Json ('{"provisioningEnabled":true,"allowedMutationOperations":'+$json+'}')) -Force
+      try{Initialize-BcDataCompanion -ToolsetRoot 'fixed' -Configuration $config|Out-Null}catch{$errors+=$_.Exception.Message}
+      try{Sync-ConfiguredBcData -ToolsetRoot 'fixed' -Configuration $config}catch{$errors+=$_.Exception.Message}
+    }
+    @{errors=$errors;reads=$script:reads;published=$script:published.Count}|ConvertTo-Json -Compress
+  `);
+  assert.equal(result.errors.length, 16);
+  assert.ok(result.errors.every(message => /allowedMutationOperations must be a unique list/.test(message)));
+  assert.equal(result.reads, 0);
+  assert.equal(result.published, 0);
+});
 test('production, remote, option-like container names and invalid endpoints fail before deployment', () => {
   const result = run(fixture + `
     $errors=@()

@@ -11,8 +11,18 @@ function Assert-BcDataConfiguration {
     if ($null -ne $data) {
         if ($data -isnot [pscustomobject] -and $data -isnot [System.Collections.IDictionary]) { throw 'bcData must be an object.' }
         $keys = if ($data -is [System.Collections.IDictionary]) { @($data.Keys) } else { @($data.PSObject.Properties.Name) }
-        if (@($keys | Where-Object { $_ -notin @('baseUrl','tenant','provisioningEnabled') }).Count -gt 0) { throw 'Unsupported bcData configuration property.' }
+        if (@($keys | Where-Object { $_ -notin @('baseUrl','tenant','provisioningEnabled','allowedMutationOperations') }).Count -gt 0) { throw 'Unsupported bcData configuration property.' }
         if ($keys -contains 'provisioningEnabled' -and $data.provisioningEnabled -isnot [bool]) { throw 'bcData.provisioningEnabled must be a boolean.' }
+        if ($keys -contains 'allowedMutationOperations') {
+            $allowed = $data.allowedMutationOperations
+            $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            if ($allowed -isnot [array]) { throw 'bcData.allowedMutationOperations must be a unique list of insert, modify, rename and delete.' }
+            foreach ($operation in $allowed) {
+                if ($operation -isnot [string] -or $operation -cnotin @('insert','modify','rename','delete') -or -not $seen.Add($operation)) {
+                    throw 'bcData.allowedMutationOperations must be a unique list of insert, modify, rename and delete.'
+                }
+            }
+        }
     }
 }
 

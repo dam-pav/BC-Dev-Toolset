@@ -943,12 +943,11 @@ function getEffectiveMcpToolSettings() {
 function getBcDataConfigurations() {
   // Toolset Merge-Settings appends local target entries to shared entries.
   // Ambiguous names are rejected by the data runtime instead of choosing one.
-  const root = vscode.workspace.getConfiguration();
-  const shared = root.get('bcDevToolset') || root.get('dam-pav.bcDevToolset') || root.get('dam-pav.bcdevtoolset') || {};
+  const shared = getConfiguration().get('configurations');
   const local = getLocalMcpSettings().settings;
-  if ((shared.configurations !== undefined && !Array.isArray(shared.configurations)) ||
+  if ((shared !== undefined && !Array.isArray(shared)) ||
       (local.configurations !== undefined && !Array.isArray(local.configurations))) throw new Error('Configurations must be arrays.');
-  return [...(shared.configurations || []), ...(local.configurations || [])];
+  return [...(shared || []), ...(local.configurations || [])];
 }
 
 function resetBcDataCredentials() {
