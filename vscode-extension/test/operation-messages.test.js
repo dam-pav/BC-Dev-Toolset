@@ -75,6 +75,44 @@ for (const nonInteractive of [false, true]) {
   });
 }
 
+for (const failOperation of [false, true]) {
+  test(`non-interactive overrides leave the caller's clear commands intact (failure=${failOperation})`, (t) => {
+    const { root, write } = fixture(t);
+    write('operations/operations.json', JSON.stringify([
+      { id: 'test', title: 'Test operation', script: 'operations/Test.ps1' }
+    ]));
+    write('operations/Test.ps1', `
+      Clear-Host
+      clear
+      cls
+      if ($env:TEST_OPERATION_THROW -eq 'true') { throw 'Expected fixture failure' }
+    `);
+    const output = run(root, `
+      function global:Clear-Host { Write-Host 'CALLER CLEAR-HOST' }
+      function global:Clear-Custom { Write-Host 'CALLER CLEAR ALIAS' }
+      Set-Alias clear Clear-Custom -Scope Global -Force
+      Set-Alias cls Clear-Custom -Scope Global -Force
+      $originalClearHost = (Get-Command Clear-Host).Definition
+      try {
+        & ./Invoke-BcDevToolsetOperation.ps1 -Operation test -NonInteractive
+        if ($env:TEST_OPERATION_THROW -eq 'true') { throw 'Fixture did not throw' }
+      } catch {
+        if ($_.Exception.Message -ne 'Expected fixture failure') { throw }
+      }
+      if ((Get-Command Clear-Host).Definition -ne $originalClearHost) { throw 'Caller Clear-Host changed' }
+      if ((Get-Alias clear).Definition -ne 'Clear-Custom') { throw 'Caller clear alias changed' }
+      if ((Get-Alias cls).Definition -ne 'Clear-Custom') { throw 'Caller cls alias changed' }
+      Write-Host 'NON-INTERACTIVE FINISHED'
+      $env:TEST_OPERATION_THROW = 'false'
+      & ./Invoke-BcDevToolsetOperation.ps1 -Operation test
+    `, { TEST_OPERATION_THROW: String(failOperation) });
+    const [before, after] = output.split('NON-INTERACTIVE FINISHED');
+    assert.doesNotMatch(before, /CALLER CLEAR/);
+    assert.equal(after.split('CALLER CLEAR-HOST').length - 1, 2);
+    assert.equal(after.split('CALLER CLEAR ALIAS').length - 1, 2);
+  });
+}
+
 for (const success of [true, false]) {
   test(`assembly extraction prints reload instructions only on success (${success})`, (t) => {
     const { root, write } = fixture(t);
