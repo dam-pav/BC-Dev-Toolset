@@ -14,11 +14,12 @@ test('companion objects reserve 99100..99149 independently of the test app range
   assert.deepEqual(companion.idRanges, [{ from: 99100, to: 99149 }]);
   assert.deepEqual(tests.idRanges, [{ from: 50200, to: 50299 }]);
   const sourceRoot = path.resolve(__dirname, '../../al/BCData/src');
-  const declarations = fs.readdirSync(sourceRoot).filter(name => name.endsWith('.al')).map(name => {
+  // Authorized fixed companion source directory, constructed solely from this test's repository location.
+  const declarations = fs.readdirSync(sourceRoot).filter(name => name.endsWith('.al')).map(name => { // nosemgrep -- fixed repository source root; no external path input
     const sourcePath = path.resolve(sourceRoot, name);
     const relative = path.relative(sourceRoot, sourcePath);
     assert.ok(relative && !path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`));
-    const source = fs.readFileSync(sourcePath, 'utf8');
+    const source = fs.readFileSync(sourcePath, 'utf8'); // nosemgrep -- repository source read; path.relative containment asserted immediately above
     const declaration = /^(\w+)\s+(\d+)\s+"([^"]+)"/m.exec(source);
     assert.ok(declaration, `Missing object declaration in ${name}`);
     const [, type, id, objectName] = declaration;
@@ -76,6 +77,25 @@ test('automatic provisioning defaults off and does no package, credential, metad
   `);
   assert.equal(result.passed, true);
   assert.match(result.error, /must be a boolean/);
+});
+
+test('renumbered companion upgrades the former 0.1.10.0 installation and advertises its package version', () => {
+  const companion = require('../../al/BCData/app.json');
+  const compatibility = require('../../bc-data/compatibility.json');
+  const tests = require('../../al/BCData.Tests/app.json');
+  assert.equal(companion.version, compatibility.version);
+  assert.equal(tests.dependencies.find(app => app.id === companion.id).version, companion.version);
+  const service = fs.readFileSync(path.resolve(__dirname, '../../al/BCData/src/BCDataService.Codeunit.al'), 'utf8'); // nosemgrep -- fixed repository source file without external input
+  assert.ok(service.includes(`Response.Add('appVersion', '${companion.version}');`));
+  const result = run(fixture + `
+    function Get-ValidatedBcDataPackage { param($ToolsetRoot) [pscustomobject]@{Path='fixed/BCData.app';Manifest=[pscustomobject]@{appId='${companion.id}';version='${companion.version}';application='23.0.0.0';contractVersion=1}} }
+    $script:version='0.1.10.0'; $script:readinessVersion='${companion.version}'
+    $result=Initialize-BcDataCompanion -ToolsetRoot 'fixed' -Configuration $config 6>$null
+    @{action=$result.Action;published=$script:published}|ConvertTo-Json -Depth 5 -Compress
+  `);
+  assert.equal(result.action, 'upgraded');
+  assert.equal(result.published.length, 1);
+  assert.equal(result.published[0].upgrade, true);
 });
 
 test('explicit initialization and automatic provisioning accept valid mutation allowlists', () => {

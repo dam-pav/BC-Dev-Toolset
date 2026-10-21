@@ -6,6 +6,6 @@ codeunit 99103 "BCD Data Upgrade"
     var
         Registration: Codeunit "BCD Service Registration";
     begin
-        Registration.RegisterService();
+        Registration.RegisterUpgradedService();
     end;
 }
