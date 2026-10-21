@@ -7,11 +7,15 @@ const { authorizeRoot, assertWithinRoot, resolveWithinRoot } = require('./path-s
 
 function discoverAlTool(extensionPath, options = {}) {
   const platform = options.platform || process.platform;
+  const probeTimeoutMs = options.probeTimeoutMs ?? 5000;
+  if (!Number.isSafeInteger(probeTimeoutMs) || probeTimeoutMs < 1 || probeTimeoutMs > 60000) {
+    throw new Error('ALTool probe timeout must be an integer between 1 and 60000 milliseconds');
+  }
   const root = authorizeRoot(extensionPath, 'Microsoft AL extension root');
   const realRoot = fs.realpathSync(root); // nosemgrep -- explicitly authorized extension installation
   const executable = platform === 'win32' ? 'altool.exe' : 'altool';
   const probe = options.probe || ((validatedPath) => execFileSync(validatedPath, ['--help'], {
-    encoding: 'utf8', timeout: 5000, maxBuffer: 1024 * 1024, windowsHide: true
+    encoding: 'utf8', timeout: probeTimeoutMs, maxBuffer: 1024 * 1024, windowsHide: true
   }));
   const failures = [];
   const tried = new Set();
