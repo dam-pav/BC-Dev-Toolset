@@ -1,4 +1,4 @@
-table 50100 "BCD Mutation Receipt"
+table 99100 "BCD Mutation Receipt"
 {
     Access = Internal;
     DataClassification = CustomerContent;

@@ -1,4 +1,4 @@
-codeunit 50101 "BCD Service Registration"
+codeunit 99101 "BCD Service Registration"
 {
     Access = Internal;
 

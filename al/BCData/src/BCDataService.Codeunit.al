@@ -1,4 +1,4 @@
-codeunit 50100 "BCD Data Service"
+codeunit 99100 "BCD Data Service"
 {
     // No Permissions property: business-table access always uses the caller's rights.
     procedure Readiness(inputJson: Text): Text

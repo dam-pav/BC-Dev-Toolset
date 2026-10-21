@@ -1,4 +1,4 @@
-codeunit 50103 "BCD Data Upgrade"
+codeunit 99103 "BCD Data Upgrade"
 {
     Subtype = Upgrade;
 

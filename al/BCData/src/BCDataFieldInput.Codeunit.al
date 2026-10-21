@@ -1,4 +1,4 @@
-codeunit 50105 "BCD Field Input"
+codeunit 99105 "BCD Field Input"
 {
     Access = Internal;
     // Decode only: native FieldRef.Validate applies the value at the ordered step.

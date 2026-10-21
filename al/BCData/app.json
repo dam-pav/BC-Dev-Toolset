@@ -11,6 +11,6 @@
     { "id": "0f2cdb66-8275-41a6-a145-f07d77d0f825", "name": "BC Dev Toolset Data Tests", "publisher": "dam-pav" }
   ],
   "target": "OnPrem",
-  "idRanges": [{ "from": 50100, "to": 50149 }],
+  "idRanges": [{ "from": 99100, "to": 99149 }],
   "features": ["NoImplicitWith"]
 }

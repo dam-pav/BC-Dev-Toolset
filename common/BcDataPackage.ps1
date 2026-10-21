@@ -57,7 +57,7 @@ function Assert-BcDataPackageIdentity {
         throw 'BC Data package must be the standalone OnPrem companion without app dependencies.'
     }
     $range = $Document.Package.IdRanges.IdRange
-    if ($range.MinObjectId -cne '50100' -or $range.MaxObjectId -cne '50149') { throw 'Unexpected BC Data object range.' }
+    if ($range.MinObjectId -cne '99100' -or $range.MaxObjectId -cne '99149') { throw 'Unexpected BC Data object range.' }
 }
 
 function Get-ValidatedBcDataPackage {

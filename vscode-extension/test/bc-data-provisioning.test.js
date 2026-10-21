@@ -8,6 +8,28 @@ const http = require('node:http');
 const { spawnSync, spawn } = require('node:child_process');
 const helper = path.resolve(__dirname, '../../common/BcDataMgt.ps1');
 const quote = value => "'" + value.replaceAll("'", "''") + "'";
+test('companion objects reserve 99100..99149 independently of the test app range', () => {
+  const companion = require('../../al/BCData/app.json');
+  const tests = require('../../al/BCData.Tests/app.json');
+  assert.deepEqual(companion.idRanges, [{ from: 99100, to: 99149 }]);
+  assert.deepEqual(tests.idRanges, [{ from: 50200, to: 50299 }]);
+  const sourceRoot = path.resolve(__dirname, '../../al/BCData/src');
+  const declarations = fs.readdirSync(sourceRoot).filter(name => name.endsWith('.al')).map(name => {
+    const sourcePath = path.resolve(sourceRoot, name);
+    const relative = path.relative(sourceRoot, sourcePath);
+    assert.ok(relative && !path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`));
+    const source = fs.readFileSync(sourcePath, 'utf8');
+    const declaration = /^(\w+)\s+(\d+)\s+"([^"]+)"/m.exec(source);
+    assert.ok(declaration, `Missing object declaration in ${name}`);
+    const [, type, id, objectName] = declaration;
+    assert.ok(Number(id) >= 99100 && Number(id) <= 99149, `${name} is outside the companion range`);
+    return { type, id: Number(id), name: objectName };
+  });
+  assert.ok(declarations.some(object => object.type === 'table' && object.id === 99100 && object.name === 'BCD Mutation Receipt'));
+  assert.ok(declarations.some(object => object.type === 'codeunit' && object.id === 99100 && object.name === 'BCD Data Service'));
+  assert.ok(declarations.some(object => object.type === 'codeunit' && object.id === 99107 && object.name === 'BCD Mutation Service'));
+});
+
 function run(body) {
   const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', `$ErrorActionPreference='Stop'; . ${quote(helper)}; ${body}`], { encoding: 'utf8', timeout: 30000, windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -116,8 +138,13 @@ test('package checksum/embedded identity/path checks reject tampering before dep
     New-Item -ItemType Directory -Path (Join-Path $folder 'bc-data')|Out-Null
     try {
       $manifest=[pscustomobject]@{appId='0f92aea5-4cc0-459b-ae98-ca9e5c2b0304';name='BC Dev Toolset Data';publisher='dam-pav';version='0.1.3.0';contractVersion=1;runtime='12.0';application='23.0.0.0';serviceName='BCDData';packageFile='BCData.app';mutationsEnabled=$false}
-      $xml=[xml]'<Package><App Id="0f92aea5-4cc0-459b-ae98-ca9e5c2b0304" Name="BC Dev Toolset Data" Publisher="dam-pav" Version="0.1.3.0" Runtime="12.0" Application="23.0.0.0" Target="OnPrem"/><Dependencies/><IdRanges><IdRange MinObjectId="50100" MaxObjectId="50149"/></IdRanges></Package>'
+      $xml=[xml]'<Package><App Id="0f92aea5-4cc0-459b-ae98-ca9e5c2b0304" Name="BC Dev Toolset Data" Publisher="dam-pav" Version="0.1.3.0" Runtime="12.0" Application="23.0.0.0" Target="OnPrem"/><Dependencies/><IdRanges><IdRange MinObjectId="99100" MaxObjectId="99149"/></IdRanges></Package>'
       Assert-BcDataPackageIdentity -Expected $manifest -Document $xml
+      $xml.Package.IdRanges.IdRange.MinObjectId='50100'; $xml.Package.IdRanges.IdRange.MaxObjectId='50149'
+      try{Assert-BcDataPackageIdentity -Expected $manifest -Document $xml}catch{$oldRange=$_.Exception.Message}
+      $xml.Package.IdRanges.IdRange.MinObjectId='99100'; $xml.Package.IdRanges.IdRange.MaxObjectId='99150'
+      try{Assert-BcDataPackageIdentity -Expected $manifest -Document $xml}catch{$wideRange=$_.Exception.Message}
+      $xml.Package.IdRanges.IdRange.MaxObjectId='99149'
       $manifest.mutationsEnabled=$true
       $manifest|Add-Member NoteProperty mutationServiceName 'BCDDataWrite'
       $manifest|Add-Member NoteProperty mutationProtocolVersion 1
@@ -133,7 +160,7 @@ test('package checksum/embedded identity/path checks reject tampering before dep
       [IO.File]::WriteAllText((Join-Path $folder 'bc-data/BCData.app'),'tampered')
       try{Get-ValidatedBcDataPackage -ToolsetRoot $folder}catch{$checksum=$_.Exception.Message}
       try{Assert-BcDataContainedPath -Root $folder -Path (Join-Path $folder '../escape')}catch{$escape=$_.Exception.Message}
-      @{identity=$identity;checksum=$checksum;escape=$escape;protocol=$protocol;protocolType=$protocolType;service=$service}|ConvertTo-Json -Compress
+      @{identity=$identity;checksum=$checksum;escape=$escape;protocol=$protocol;protocolType=$protocolType;service=$service;oldRange=$oldRange;wideRange=$wideRange}|ConvertTo-Json -Compress
     }finally{Remove-Item -LiteralPath $folder -Recurse -Force}
   `);
   assert.match(result.identity, /identity mismatch/);
@@ -142,6 +169,8 @@ test('package checksum/embedded identity/path checks reject tampering before dep
   assert.match(result.protocol, /Unsupported/);
   assert.match(result.protocolType, /Unsupported/);
   assert.match(result.service, /Unsupported/);
+  assert.match(result.oldRange, /Unexpected BC Data object range/);
+  assert.match(result.wideRange, /Unexpected BC Data object range/);
 });
 test('runtime preparation accepts current embedded sources and blocks stale same-version packages', () => {
   const builder = path.resolve(__dirname, '../build/prepare-bc-data-package.ps1');
@@ -156,9 +185,9 @@ test('runtime preparation accepts current embedded sources and blocks stale same
       Copy-Item -LiteralPath ${quote(compatibility)} -Destination (Join-Path $folder 'bc-data/compatibility.json')
       $expected=Get-Content -LiteralPath (Join-Path $folder 'bc-data/compatibility.json') -Raw|ConvertFrom-Json
       @{id=$expected.appId;name=$expected.name;publisher=$expected.publisher;version=$expected.version;runtime=$expected.runtime;application=$expected.application}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $folder 'al/BCData/app.json')
-      $al='codeunit 50100 Dummy {}'
+      $al='codeunit 99100 Dummy {}'
       [IO.File]::WriteAllText((Join-Path $folder 'al/BCData/src/Dummy.Codeunit.al'),$al)
-      $xml='<Package><App Id="0f92aea5-4cc0-459b-ae98-ca9e5c2b0304" Name="BC Dev Toolset Data" Publisher="dam-pav" Version="'+$expected.version+'" Runtime="12.0" Application="23.0.0.0" Target="OnPrem"/><Dependencies/><IdRanges><IdRange MinObjectId="50100" MaxObjectId="50149"/></IdRanges></Package>'
+      $xml='<Package><App Id="0f92aea5-4cc0-459b-ae98-ca9e5c2b0304" Name="BC Dev Toolset Data" Publisher="dam-pav" Version="'+$expected.version+'" Runtime="12.0" Application="23.0.0.0" Target="OnPrem"/><Dependencies/><IdRanges><IdRange MinObjectId="99100" MaxObjectId="99149"/></IdRanges></Package>'
       Add-Type -AssemblyName System.IO.Compression
       $stream=[IO.MemoryStream]::new()
       $zip=[IO.Compression.ZipArchive]::new($stream,[IO.Compression.ZipArchiveMode]::Create,$true)

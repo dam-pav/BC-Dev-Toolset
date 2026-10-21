@@ -1,4 +1,4 @@
-codeunit 50107 "BCD Mutation Service"
+codeunit 99107 "BCD Mutation Service"
 {
     // Separate service/object execution permission. No business-table elevation.
     procedure Prepare(inputJson: Text): Text

@@ -109,9 +109,9 @@ codeunit 50228 "BCD Mutation Service Tests"
         Item := Token.AsObject();
         Item.Get('ordinaryReadSupported', Token);
         Assert.IsFalse(Token.AsValue().AsBoolean(), 'Discovery must agree with the receipt read boundary.');
-        asserterror ReadService.ReadRecords('{"tableId":50100,"fieldIds":[1,2,9],"pageSize":1}');
+        asserterror ReadService.ReadRecords('{"tableId":99100,"fieldIds":[1,2,9],"pageSize":1}');
         Assert.ExpectedError('companion request state is not a record data target');
-        asserterror ReadService.GetTableSchema('{"tableId":50100}');
+        asserterror ReadService.GetTableSchema('{"tableId":99100}');
         Assert.ExpectedError('companion request state is not a record data target');
     end;
 

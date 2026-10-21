@@ -1,4 +1,4 @@
-codeunit 50104 "BCD Record Mutation"
+codeunit 99104 "BCD Record Mutation"
 {
     Access = Internal;
     // Internal primitive only. The receipt coordinator must anchor the transaction
