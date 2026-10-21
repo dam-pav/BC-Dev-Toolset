@@ -21,3 +21,5 @@ bc-data/manifest.json
 vscode-extension/.github/instructions/
 .codacy/
 .vscode/development-user-data/
+.vscode/.alcache/
+.codex/
