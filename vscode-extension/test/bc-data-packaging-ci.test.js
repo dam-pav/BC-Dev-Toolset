@@ -69,7 +69,7 @@ test('finished VSIX verification rejects missing, altered, duplicate and test ap
     try {
       Copy-Item -LiteralPath ${quote(path.join(root,'vscode-extension/build/verify-bc-data-vsix.ps1'))} -Destination (Join-Path $folder 'vscode-extension/build')
       Copy-Item -LiteralPath ${quote(path.join(root,'common/BcDataPackage.ps1'))} -Destination (Join-Path $folder 'common')
-      $compatibility=Get-Content -LiteralPath ${quote(path.join(root,'bc-data/compatibility.json'))} -Raw
+      $compatibility=(Get-Content -LiteralPath ${quote(path.join(root,'bc-data/compatibility.json'))} -Raw).Replace("\u0060r\u0060n","\u0060n")
       $expected=$compatibility|ConvertFrom-Json
       $memory=[IO.MemoryStream]::new();$zip=[IO.Compression.ZipArchive]::new($memory,[IO.Compression.ZipArchiveMode]::Create,$true)
       $writer=[IO.StreamWriter]::new($zip.CreateEntry('NavxManifest.xml').Open());$writer.Write('<Package><App Id="'+$expected.appId+'" Name="'+$expected.name+'" Publisher="'+$expected.publisher+'" Version="'+$expected.version+'" Runtime="12.0" Application="23.0.0.0" Target="OnPrem"/><Dependencies/><IdRanges><IdRange MinObjectId="50100" MaxObjectId="50149"/></IdRanges></Package>');$writer.Dispose();$zip.Dispose()
@@ -77,14 +77,15 @@ test('finished VSIX verification rejects missing, altered, duplicate and test ap
       $app=[byte[]]($header+$memory.ToArray());$memory.Dispose()
       $expected|Add-Member NoteProperty sha256 ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($app)).ToLowerInvariant())
       $manifest=$expected|ConvertTo-Json -Depth 5
-      [IO.File]::WriteAllBytes((Join-Path $folder 'bc-data/BCData.app'),$app);[IO.File]::WriteAllText((Join-Path $folder 'bc-data/manifest.json'),$manifest);[IO.File]::WriteAllText((Join-Path $folder 'bc-data/compatibility.json'),$compatibility)
+      [IO.File]::WriteAllBytes((Join-Path $folder 'bc-data/BCData.app'),$app);[IO.File]::WriteAllText((Join-Path $folder 'bc-data/manifest.json'),$manifest);[IO.File]::WriteAllText((Join-Path $folder 'bc-data/compatibility.json'),$compatibility.Replace("\u0060n","\u0060r\u0060n"))
       $errors=@();$accepted=0
-      foreach($mode in @('valid','missing','altered','duplicate','case-collision','recipe','test-app')){
+      foreach($mode in @('valid','line-endings','missing','altered','duplicate','case-collision','recipe','test-app')){
         $vsix=Join-Path $folder ($mode+'.vsix');$zip=[IO.Compression.ZipFile]::Open($vsix,[IO.Compression.ZipArchiveMode]::Create)
         foreach($file in @('BCData.app','manifest.json','compatibility.json')){
           if($mode -eq 'missing' -and $file -eq 'BCData.app'){continue}
           $bytes=if($file -eq 'BCData.app'){$app}else{[IO.File]::ReadAllBytes((Join-Path $folder ('bc-data/'+$file)))}
           if($mode -eq 'altered' -and $file -eq 'BCData.app'){$bytes=[Text.Encoding]::UTF8.GetBytes('altered')}
+          if($mode -eq 'line-endings' -and $file -eq 'compatibility.json'){$bytes=[Text.Encoding]::UTF8.GetBytes($compatibility)}
           $entry=$zip.CreateEntry('extension/runtime/bc-data/'+$file).Open();$entry.Write([byte[]]$bytes,0,$bytes.Length);$entry.Dispose()
         }
         if($mode -eq 'duplicate'){$null=$zip.CreateEntry('extension/runtime/bc-data/manifest.json')}
@@ -97,7 +98,7 @@ test('finished VSIX verification rejects missing, altered, duplicate and test ap
       @{accepted=$accepted;errors=$errors}|ConvertTo-Json -Depth 3 -Compress
     }finally{if($zip){$zip.Dispose()};Remove-Item -LiteralPath $folder -Recurse -Force}
   `);
-  assert.equal(result.accepted, 1); assert.equal(result.errors.length, 6);
+  assert.equal(result.accepted, 2); assert.equal(result.errors.length, 6);
   assert.ok(result.errors.some(message => /checksum mismatch/.test(message)));
   assert.ok(result.errors.some(message => /three required/.test(message)));
   assert.ok(result.errors.some(message => /exactly the companion/.test(message)));

@@ -22,9 +22,10 @@ try {
         try { $inputStream.CopyTo($outputStream) } finally { $inputStream.Dispose(); $outputStream.Dispose() }
     }
     $bundle = Get-ValidatedBcDataPackage -ToolsetRoot $temporaryRoot
+    $bundledCompatibility = [IO.File]::ReadAllText((Join-Path $temporaryRoot 'bc-data/compatibility.json')).Replace("`r`n", "`n")
+    $checkoutCompatibility = [IO.File]::ReadAllText((Join-Path $repositoryRoot 'bc-data/compatibility.json')).Replace("`r`n", "`n")
     if ($bundle.Manifest.sha256 -cne $staged.Manifest.sha256 -or
-        [IO.File]::ReadAllText((Join-Path $temporaryRoot 'bc-data/compatibility.json')) -cne
-        [IO.File]::ReadAllText((Join-Path $repositoryRoot 'bc-data/compatibility.json'))) {
+        $bundledCompatibility -cne $checkoutCompatibility) {
         throw 'VSIX companion differs from the validated checkout build.'
     }
     Write-Host "Verified bundled BC Data $($bundle.Manifest.version), SHA256 $($bundle.Manifest.sha256)."
