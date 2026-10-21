@@ -49,7 +49,11 @@
     },
     "testIsolationDisabledCodeunits": {
       "type": "array",
-      "items": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+      "items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 2147483647
+      },
       "default": [],
       "description": "Test codeunit IDs to run with isolation disabled (runner 130451). Other tests use codeunit isolation (130450). Duplicates are removed. An explicit local array replaces the shared list; local [] clears it. Non-isolated tests own setup, cleanup and recovery because committed data persists. Applies only to Run AL test tool tests."
     },
@@ -57,11 +61,6 @@
       "type": "boolean",
       "default": false,
       "description": "Stop the AL test tool operation before container preparation or tests when its build emits compiler warnings. Resolve the reported warnings and rerun. Defaults to false; an explicit local value overrides the shared workspace setting."
-    },
-    "executeTestsInContainerName": {
-      "type": "string",
-      "default": "",
-      "description": "Optional container name used by Test operations. Workspace initialization sets it to the generated Local-Test container name. A non-empty local value takes priority over the shared workspace setting."
     },
     "sqlBackupPath": {
       "not": {},
@@ -75,18 +74,6 @@
           "name": "Local",
           "serverType": "Container",
           "targetType": "Dev",
-          "container": "",
-          "includeTestToolkit": "false",
-          "authentication": "UserPassword",
-          "bcUser": "admin",
-          "bcPassword": "P@ssw0rd",
-          "sqlBackupPath": "",
-          "autoRestoreBackup": true
-        },
-        {
-          "name": "Local-Test",
-          "serverType": "Container",
-          "targetType": "Test",
           "container": "",
           "includeTestToolkit": "true",
           "authentication": "UserPassword",
@@ -220,6 +207,21 @@
           "default": false,
           "description": "Run workspace AL tests using AL Runner."
         },
+        "bc_dev_toolset_invoke_compatibility_tests": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run AL test-tool tests sequentially on every configured newer platform."
+        },
+        "bc_dev_toolset_invoke_compatibility_page_script_tests": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run page script tests sequentially on every configured newer platform."
+        },
+        "bc_dev_toolset_al_runner_compatibility_test": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run AL Runner tests sequentially for every configured newer release."
+        },
         "bc_dev_toolset_publish_dependencies2_docker": {
           "type": "boolean",
           "default": false,
@@ -314,6 +316,46 @@
           "type": "boolean",
           "default": false,
           "description": "Show active container licenses through the legacy alias."
+        },
+        "bc_dev_toolset_initialize_bc_data": {
+          "type": "boolean",
+          "default": false,
+          "description": "Explicitly install/upgrade and verify the bundled BC Data companion on one named Dev/Test container; never downgrade or enable data tools implicitly."
+        },
+        "bc_dev_toolset_data_list_connections": {
+          "type": "boolean",
+          "default": false,
+          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. List configured Dev/Test containers without connecting or checking installed state. Configuration names are connection IDs; ambiguous names cannot be used."
+        },
+        "bc_dev_toolset_data_list_companies": {
+          "type": "boolean",
+          "default": false,
+          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. List company GUIDs/names for an explicit connection before selecting a company."
+        },
+        "bc_dev_toolset_data_get_readiness": {
+          "type": "boolean",
+          "default": false,
+          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. Check companion contract, app version and advertised capabilities for an explicit connection/company."
+        },
+        "bc_dev_toolset_data_find_tables": {
+          "type": "boolean",
+          "default": false,
+          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. Search installed table names/captions literally (numeric ID search is pending). Page using returned afterId with the same query. Structural support does not guarantee permission."
+        },
+        "bc_dev_toolset_data_get_table_schema": {
+          "type": "boolean",
+          "default": false,
+          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. Discover installed fields, extension fields, keys and enum ordinals. Relations/obsolescence details are explicitly unavailable in this slice. readSupportedInSlice governs scalar support."
+        },
+        "bc_dev_toolset_data_read_records": {
+          "type": "boolean",
+          "default": false,
+          "description": "Read-only development-container access. Enable this tool in MCP settings and explicitly deploy companion contract 1 with published service BCDData first. Calls never install apps. Uses configured BC credentials and permissions; no credential arguments. Read 1-50 selected fields from an ordinary table in primary-key ascending order, at most 100 rows. Supports BC filter expressions and separate FlowFilters. Returns SystemId and string rowversion; decimal/BigInteger are strings, enum/option are ordinals, BLOB/Media are descriptors. Date/time use invariant wire values; other sorting is not yet supported. Continuation tokens expire after 30 minutes and bind target revision/company/query/client session. Pagination is not a snapshot; rowversion does not cover FlowField dependencies. Reduce selection/page size on response_too_large."
+        },
+        "bc_dev_toolset_data_mutate_records": {
+          "type": "boolean",
+          "default": false,
+          "description": "Single-record development-container mutation. Explicitly enable this tool; initialize companion mutation protocol1/service BCDDataWrite and grant BCD DATA WRITE plus native target/trigger table permissions. Native validation and triggers always run. One call owns one five-minute request scope and permits one identical in-call retry after uncertain transport; commands are never queued across calls. An unknown outcome requires reconciliation, never blind repetition or a fresh version. Receipt guarantees cover this database transaction and uninterrupted history, not external trigger effects or restore/copy. Execute exactly one insert, modify, rename or delete, explicitly allowed by the connection bcData.allowedMutationOperations list (empty by default). Insert requires1-50 ordered fields and generates SystemId. Modify requires SystemId, expectedVersion and1-50 ordered fields; omitted fields remain unchanged. Rename requires SystemId, expectedVersion and every primaryKey field in key order (up to16; only three-part GUID/Code/Integer fixture qualified). Delete requires SystemId and expectedVersion and returns minimal acknowledgement without deleted values or post-delete version. Other successes return persisted requested values/SystemId/version. Decimal/BigInteger are strings; enum/option are integer ordinals. Null, system/content assignments and unqualified FlowField writes are rejected. Native relation/trigger permissions apply; arbitrary cascades and other key arities remain unqualified. Reject arguments belonging to another operation."
         }
       },
       "additionalProperties": {
@@ -348,7 +390,7 @@
             "Test",
             "Production"
           ],
-          "description": "Target environment role."
+          "description": "Target environment role. Automated testing requires Test."
         },
         "autoUpdateLaunchJson": {
           "type": "boolean",
@@ -457,6 +499,11 @@
               "container": {
                 "type": "string",
                 "description": "Docker container name for Container targets."
+              },
+              "platform": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)(\\.(0|[1-9][0-9]*)){0,3}$",
+                "description": "Business Central artifact release used to create this Container. A major-only value such as 23.0 selects the latest artifact for that major; a non-zero minor such as 27.1 selects that release. Omit to use the workspace app.json application baseline."
               },
               "multitenant": {
                 "type": "boolean",
@@ -589,6 +636,42 @@
                 "type": "boolean",
                 "default": true,
                 "description": "Whether Create Docker container and Test operations automatically restore a compatible SQL backup set from sqlBackupPath. Defaults to true when omitted. Manual restore operations ignore this setting."
+              },
+              "bcData": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "BC Data endpoint and optional companion provisioning. Data tool exposure is configured independently with MCP switches.",
+                "properties": {
+                  "baseUrl": {
+                    "type": "string",
+                    "description": "Explicit configured HTTP(S) ODataV4 base URL ending /ODataV4. TLS certificates are validated normally."
+                  },
+                  "tenant": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Tenant ID; defaults to default."
+                  },
+                  "provisioningEnabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Maintain the bundled companion during container creation/start and test preparation. Does not expose data tools. Disabling preserves the installed app."
+                  },
+                  "allowedMutationOperations": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "default": [],
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "insert",
+                        "modify",
+                        "rename",
+                        "delete"
+                      ]
+                    },
+                    "description": "Explicitly permitted mutation operations for this connection. Empty or omitted disables all writes. Also requires the mutation MCP tool switch and native BC permissions."
+                  }
+                }
               }
             }
           }
@@ -719,6 +802,11 @@
               "container": {
                 "not": {},
                 "errorMessage": "Field \"container\" is not valid when \"serverType\" is not \"Container\".",
+                "doNotSuggest": true
+              },
+              "platform": {
+                "not": {},
+                "errorMessage": "Field \"platform\" is valid only when \"serverType\" is \"Container\".",
                 "doNotSuggest": true
               },
               "includeTestToolkit": {

@@ -7,6 +7,8 @@ This repository contains the BC Dev Toolset runtime scripts and the VS Code exte
 ## Development Guidance
 
 - Prefer direct source edits, tests, and repository inspection when working on this repo.
+- Run development builds only in an Extension Development Host using the checked-in launch configuration. Do not install development VSIX packages into the regular VS Code environment or replace its shared runtime. Any production-installation experiment requires explicit user authorization.
+- Keep development MCP bindings local to the development workspace; do not replace the user's global binding with a development server. Use dedicated containers for live tests.
 - Do not use the BC Dev Toolset MCP server to operate on this repository unless the task is explicitly about testing the MCP integration itself.
 - Keep operation metadata, VS Code command contributions, MCP tool exposure, and README documentation aligned when adding, removing, renaming, or recategorizing operations.
 - Preserve the distinction between deployed-user behavior and this development environment. End-user Codex setup belongs in the extension's `Configure Codex MCP Integration` operation, not in this repo-level instruction file.

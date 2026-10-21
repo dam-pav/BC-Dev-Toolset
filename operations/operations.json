@@ -140,7 +140,7 @@
     "category": "Backup",
     "promptInputs": [
       { "promptId": "selectIndex.Select.container.for.SQL.backup.restore.", "inputName": "containerSelection", "type": "choice", "question": "Select a container configuration for SQL backup restore. Runtime choices are displayed by the operation.", "conditional": true },
-      { "promptId": "backup.restoreBackupSet", "type": "confirm", "question": "Confirm restoration of the selected backup set. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+      { "promptId": "backup.restoreBackupSet", "type": "confirm", "question": "Confirm restoration of the selected backup set. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
     ],
     "requiresConfirmation": true
   },
@@ -150,8 +150,7 @@
     "script": "operations/Invoke-Tests.ps1",
     "category": "Tests",
     "promptInputs": [
-      { "promptId": "selectIndex.Select.the.container.configuration.to.execute.tests.in.", "inputName": "testContainerSelection", "type": "choice", "question": "Select the container configuration in which to execute tests.", "conditional": true },
-      { "promptId": "tests.executeInContainer", "inputName": "executeTestsInContainer", "type": "confirm", "question": "Do you want to execute tests in the selected container?" },
+        { "promptId": "tests.executeInContainer", "inputName": "executeTestsInContainer", "type": "confirm", "question": "Do you want to execute tests in the selected container?" },
       { "promptId": "clearArtifacts.translationFiles", "inputName": "clearTranslationFiles", "type": "confirm", "question": "Do you want to clear translation files if a test container must be created?", "conditional": true },
       { "promptId": "clearArtifacts.appFiles", "inputName": "clearAppFiles", "type": "confirm", "question": "Do you want to clear APP files if a test container must be created?", "conditional": true },
       { "promptId": "tests.createMissingContainer.pullFullArtifact", "inputName": "pullFullArtifact", "type": "confirm", "question": "Do you want a complete artifact pull if a test container must be created?", "conditional": true }
@@ -163,8 +162,31 @@
     "script": "operations/Invoke-PageScriptTests.ps1",
     "category": "Tests",
     "promptInputs": [
-      { "promptId": "selectIndex.Select.the.container.configuration.to.execute.tests.in.", "inputName": "testContainerSelection", "type": "choice", "question": "Select the container configuration in which to execute tests.", "conditional": true },
-      { "promptId": "tests.executeInContainer", "inputName": "executeTestsInContainer", "type": "confirm", "question": "Do you want to execute page script tests in the selected container?" },
+        { "promptId": "tests.executeInContainer", "inputName": "executeTestsInContainer", "type": "confirm", "question": "Do you want to execute page script tests in the selected container?" },
+      { "promptId": "clearArtifacts.translationFiles", "inputName": "clearTranslationFiles", "type": "confirm", "question": "Do you want to clear translation files if a test container must be created?", "conditional": true },
+      { "promptId": "clearArtifacts.appFiles", "inputName": "clearAppFiles", "type": "confirm", "question": "Do you want to clear APP files if a test container must be created?", "conditional": true },
+      { "promptId": "tests.createMissingContainer.pullFullArtifact", "inputName": "pullFullArtifact", "type": "confirm", "question": "Do you want a complete artifact pull if a test container must be created?", "conditional": true }
+    ]
+  },
+  {
+    "id": "invokeCompatibilityTests",
+    "title": "Run AL compatibility tests on newer platforms",
+    "script": "operations/Invoke-CompatibilityTests.ps1",
+    "category": "Tests",
+    "promptInputs": [
+      { "promptId": "tests.executeInContainer", "inputName": "executeTestsInContainer", "type": "confirm", "question": "Do you want to execute tests on every configured newer platform?" },
+      { "promptId": "clearArtifacts.translationFiles", "inputName": "clearTranslationFiles", "type": "confirm", "question": "Do you want to clear translation files if a test container must be created?", "conditional": true },
+      { "promptId": "clearArtifacts.appFiles", "inputName": "clearAppFiles", "type": "confirm", "question": "Do you want to clear APP files if a test container must be created?", "conditional": true },
+      { "promptId": "tests.createMissingContainer.pullFullArtifact", "inputName": "pullFullArtifact", "type": "confirm", "question": "Do you want a complete artifact pull if a test container must be created?", "conditional": true }
+    ]
+  },
+  {
+    "id": "invokeCompatibilityPageScriptTests",
+    "title": "Run page script compatibility tests on newer platforms",
+    "script": "operations/Invoke-CompatibilityPageScriptTests.ps1",
+    "category": "Tests",
+    "promptInputs": [
+      { "promptId": "tests.executeInContainer", "inputName": "executeTestsInContainer", "type": "confirm", "question": "Do you want to execute page script tests on every configured newer platform?" },
       { "promptId": "clearArtifacts.translationFiles", "inputName": "clearTranslationFiles", "type": "confirm", "question": "Do you want to clear translation files if a test container must be created?", "conditional": true },
       { "promptId": "clearArtifacts.appFiles", "inputName": "clearAppFiles", "type": "confirm", "question": "Do you want to clear APP files if a test container must be created?", "conditional": true },
       { "promptId": "tests.createMissingContainer.pullFullArtifact", "inputName": "pullFullArtifact", "type": "confirm", "question": "Do you want a complete artifact pull if a test container must be created?", "conditional": true }
@@ -174,6 +196,12 @@
     "id": "alRunnerTest",
     "title": "AL Runner Test",
     "script": "operations/Invoke-AlRunnerTests.ps1",
+    "category": "Tests"
+  },
+  {
+    "id": "alRunnerCompatibilityTest",
+    "title": "Run AL Runner compatibility tests on newer platforms",
+    "script": "operations/Invoke-CompatibilityAlRunnerTests.ps1",
     "category": "Tests"
   },
   {
@@ -196,7 +224,7 @@
     "promptInputs": [
       { "promptId": "publishApps2Docker.publishAsNormalApps", "inputName": "publishAsNormalApps", "type": "confirm", "question": "Do you want to publish apps as normal apps (not Dev)?" },
       { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
     ]
   },
   {
@@ -206,7 +234,7 @@
     "category": "Publish",
     "promptInputs": [
       { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
     ],
     "requiresConfirmation": true
   },
@@ -218,7 +246,7 @@
     "promptInputs": [
       { "promptId": "publishApps2Test.publishAsNormalApps", "inputName": "publishAsNormalApps", "type": "confirm", "question": "Do you want to publish apps as normal apps (not Dev)?" },
       { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
     ]
   },
   {
@@ -234,7 +262,7 @@
     "category": "Runtime",
     "promptInputs": [
       { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
     ]
   },
   {
@@ -244,7 +272,7 @@
     "category": "Runtime",
     "promptInputs": [
       { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
     ],
     "requiresConfirmation": true
   },
@@ -255,7 +283,7 @@
     "category": "Runtime",
     "promptInputs": [
       { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision must be answered by the user in the terminal.", "conditional": true, "agentAllowed": false }
+      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
     ]
   },
   {
@@ -341,5 +369,30 @@
     "title": "Configure MCP Tools",
     "command": "configureMcpTools",
     "category": "MCP Configuration"
+  },
+  {
+    "id": "initializeBcData",
+    "title": "Initialize BC Data Access",
+    "script": "operations/InitializeBcData.ps1",
+    "category": "BC Data",
+    "promptInputs": [
+      {
+        "promptId": "bcData.connectionId",
+        "inputName": "connectionId",
+        "type": "text",
+        "question": "Exact configuration name of the Dev/Test container to initialize",
+        "inputSchema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      {
+        "promptId": "bcData.initialize",
+        "inputName": "initializeCompanion",
+        "type": "confirm",
+        "question": "Install or upgrade the companion on this one development container? Tool exposure remains separately configured."
+      }
+    ]
   }
 ]

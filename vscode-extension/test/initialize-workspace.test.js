@@ -92,11 +92,10 @@ test('workspace initialization recognizes BC apps nested in a workspace folder',
   assert.equal('country' in initializedWorkspace.settings['bcDevToolset'], false);
   assert.equal(fs.existsSync(settingsPath), true); // nosemgrep -- path is contained by the test-owned workspace root
   const localSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- settingsPath is contained by the test-owned workspace root
-  assert.equal(localSettings.executeTestsInContainerName, 'sample-Test');
-  assert.deepEqual(localSettings.configurations.map(({ name }) => name), ['Local', 'Local-Test']);
-  assert.deepEqual(localSettings.configurations.map(({ targetType }) => targetType), ['Dev', 'Test']);
-  assert.deepEqual(localSettings.configurations.map(({ container }) => container), ['sample', 'sample-Test']);
-  assert.deepEqual(localSettings.configurations.map(({ includeTestToolkit }) => includeTestToolkit), ['false', 'true']);
+  assert.equal(Object.hasOwn(localSettings, 'executeTestsInContainerName'), false);
+  assert.deepEqual(localSettings.configurations.map(({ name }) => name), ['Local']);
+  assert.deepEqual(localSettings.configurations.map(({ container }) => container), ['sample']);
+  assert.deepEqual(localSettings.configurations.map(({ includeTestToolkit }) => includeTestToolkit), ['true']);
 });
 
 test('workspace initialization coordinates repository, app folders, and file exclusions', () => {
@@ -187,25 +186,22 @@ test('workspace initialization adds missing test defaults without changing exist
   const result = runInitializeWorkspace(workspacePath, workspaceFile);
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Added Local-Test configuration for 'sample-Test'/);
+  assert.doesNotMatch(result.stdout, /Local-Test/);
   const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- settingsPath is contained by the test-owned workspace root
   assert.equal(settings.licenseFile, 'custom-license.flf');
   assert.equal(settings.configurations[0].customValue, 'preserve-me');
-  assert.equal(settings.configurations[1].name, 'Local-Test');
-  assert.equal(settings.configurations[1].container, 'sample-Test');
-  assert.equal(settings.executeTestsInContainerName, 'sample-Test');
+  assert.equal(Object.hasOwn(settings, 'executeTestsInContainerName'), false);
 
-  settings.configurations = [settings.configurations[0]];
   settings.executeTestsInContainerName = 'preselected-test';
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2)); // nosemgrep -- settingsPath is contained by the test-owned workspace root
   const rerunResult = runInitializeWorkspace(workspacePath, workspaceFile);
   assert.equal(rerunResult.status, 0, rerunResult.stderr);
   const rerunSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- settingsPath is contained by the test-owned workspace root
-  assert.equal(rerunSettings.executeTestsInContainerName, 'preselected-test');
-  assert.equal(rerunSettings.configurations[1].name, 'Local-Test');
+  assert.equal(Object.hasOwn(rerunSettings, 'executeTestsInContainerName'), false);
+  assert.equal(rerunSettings.configurations.length, 1);
 });
 
-test('workspace initialization adds missing Local while preserving an existing Local-Test and explicit test target', () => {
+test('workspace initialization adds missing Local and removes obsolete named test target setting', () => {
   const workspacePath = authorizeRoot(
     fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-existing-test-workspace-')),
     'Test workspace'
@@ -228,9 +224,8 @@ test('workspace initialization adds missing Local while preserving an existing L
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Added Local configuration for 'sample'/);
-  assert.match(result.stdout, /already contain Local-Test; existing values were preserved/);
   const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- settingsPath is contained by the test-owned workspace root
-  assert.equal(settings.executeTestsInContainerName, 'custom-test');
+  assert.equal(Object.hasOwn(settings, 'executeTestsInContainerName'), false);
   assert.equal(settings.configurations[0].customValue, true);
   assert.equal(settings.configurations[0].container, 'custom-test');
   assert.equal(settings.configurations[1].name, 'Local');
@@ -261,8 +256,9 @@ test('workspace initialization reports default container conflicts without chang
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Local was not added because container 'sample' is already used/);
-  assert.match(result.stdout, /Local-Test was not added because container 'sample-Test' is already used/);
-  assert.equal(fs.readFileSync(settingsPath, 'utf8'), originalSettings); // nosemgrep -- settingsPath is contained by the test-owned workspace root
+  const migrated = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- settingsPath is contained by the test-owned workspace root
+  assert.equal(Object.hasOwn(migrated, 'executeTestsInContainerName'), false);
+  assert.deepEqual(migrated.configurations.map(({ container }) => container), ['sample', 'sample-Test']);
 });
 
 test('workspace initialization migrates the obsolete country setting to the AL region setting', () => {

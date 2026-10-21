@@ -1,0 +1,8 @@
+# Downloaded symbols, generated apps, and local AL tooling state.
+**/.alpackages/
+**/.alcache/
+**/.snapshots/
+**/.vscode/launch.json
+**/*.app
+**/*.runtime.json
+**/TestResults.xml

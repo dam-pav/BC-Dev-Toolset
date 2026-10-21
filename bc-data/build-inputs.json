@@ -1,0 +1,12 @@
+{
+  "alExtensionVersion": "18.1.2842859",
+  "artifactUrl": "https://bcartifacts-exdbf9fwegejdqak.b02.azurefd.net/onprem/23.18.32409.0/platform",
+  "applicationVersion": "23.18.32409.0",
+  "platformVersion": "23.0.32309.0",
+  "symbols": [
+    { "entry": "Applications/Application/Source/Microsoft_Application.app", "file": "Microsoft_Application.app", "sha256": "13a511e4ad8ddbe17ef031d976616cd388c2c7c0e76b2971836e124f0fd91be8" },
+    { "entry": "Applications/BaseApp/Source/Microsoft_Base Application.app", "file": "Microsoft_Base Application.app", "sha256": "0b08a8544d048e33107c867b120222d1b840a55afaaa04986e50098bc27568ad" },
+    { "entry": "Applications/system application/source/Microsoft_System Application.app", "file": "Microsoft_System Application.app", "sha256": "dcb5c697fa35b7329e6a80722dabd60e317c74fd583b5f87d4752da2282f4a6f" },
+    { "entry": "ModernDev/program files/Microsoft Dynamics NAV/230/AL Development Environment/System.app", "file": "System.app", "sha256": "60059aac3213dab7cc377d319d47f56aa46c64517c459576d9b1d2a21ae6666a" }
+  ]
+}

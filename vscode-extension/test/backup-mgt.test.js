@@ -293,20 +293,32 @@ function quotePowerShell(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
-function getBackupEntries(fileNames) {
+function getBackupEntries(fileNames, { source, expectError, restoreParameters = false } = {}) {
   const backupFolder = fs.mkdtempSync(path.join(os.tmpdir(), 'bc-dev-toolset-backup-test-'));
   try {
     for (const fileName of fileNames) {
       fs.writeFileSync(path.join(backupFolder, fileName), '');
     }
+    if (source !== undefined) {
+      fs.writeFileSync(path.join(backupFolder, 'bcdevtoolset-backup-source.json'), JSON.stringify(source));
+    }
 
     const script = [
+      "$ErrorActionPreference = 'Stop'",
       `. ${quotePowerShell(backupMgtPath)}`,
-      `@(Get-SqlBackupSetEntries -backupRootPath ${quotePowerShell(backupFolder)}) | ConvertTo-Json -Compress`
+      `$entries = @(Get-SqlBackupSetEntries -backupRootPath ${quotePowerShell(backupFolder)})`,
+      restoreParameters
+        ? `Get-BcContainerSqlBackupRestoreParameters -containerName 'different-target' -bakFolder ${quotePowerShell(backupFolder)} -backupEntries $entries | ConvertTo-Json -Compress`
+        : 'ConvertTo-Json -InputObject $entries -Compress'
     ].join('; ');
     const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], {
       encoding: 'utf8'
     });
+    if (expectError) {
+      assert.notEqual(result.status, 0, 'Invalid source metadata must fail closed.');
+      assert.match(result.stderr, expectError);
+      return;
+    }
     assert.equal(result.status, 0, result.stderr);
     return JSON.parse(result.stdout);
   } finally {
@@ -367,6 +379,123 @@ test('preserves database names in a service-created backup set', () => {
     { DatabaseName: 'default', HelperFileName: 'default.bak' },
     { DatabaseName: 'tenant', HelperFileName: 'tenant.bak' }
   ]);
+});
+
+test('single-file container export restores the original database on a different target', () => {
+  const source = { schemaVersion: 1, kind: 'container', container: 'bcdata23test' };
+  const files = ['bcdata23test.CRONUS.database.bak'];
+  assert.equal(getBackupEntries(files, { source })[0].DatabaseName, 'CRONUS');
+  const parameters = getBackupEntries(files, { source, restoreParameters: true });
+  assert.equal(parameters.containerName, 'different-target');
+  assert.equal(parameters.databaseName, 'CRONUS');
+  assert.equal(path.basename(parameters.bakFile), 'database.bak');
+});
+
+test('explicit source preserves dotted database names and exact dotted container prefixes', () => {
+  const containerEntries = getBackupEntries(['source.container.Sales.2026.database.bak'], {
+    source: { schemaVersion: 1, kind: 'container', container: 'source.container' }
+  });
+  assert.equal(containerEntries[0].DatabaseName, 'Sales.2026');
+  for (const source of [undefined, { schemaVersion: 1, kind: 'service' }]) {
+    assert.equal(getBackupEntries(['Sales.2026.database.bak'], { source })[0].DatabaseName, 'Sales.2026');
+  }
+  const serviceEntries = getBackupEntries(['BC.App.app.bak', 'BC.North.tenant.bak'], {
+    source: { schemaVersion: 1, kind: 'service' }
+  });
+  assert.deepEqual(serviceEntries.map(entry => entry.DatabaseName).sort(), ['BC.App', 'BC.North']);
+});
+
+test('invalid or mixed backup source metadata cannot silently change a restore mapping', () => {
+  for (const source of [
+    { schemaVersion: 2, kind: 'container', container: 'bcdata23test' },
+    { schemaVersion: 1, kind: 'other' },
+    { schemaVersion: 1, kind: 'incomplete' },
+    { schemaVersion: '1', kind: 'service' },
+    { schemaVersion: 1, kind: 'container', container: '../outside' },
+    { schemaVersion: 1, kind: 'container', container: 'wrong-container' },
+    { schemaVersion: 1, kind: 'container' }
+  ]) {
+    getBackupEntries(['bcdata23test.CRONUS.database.bak'], { source, expectError: /SQL backup|source container/ });
+  }
+  getBackupEntries(['bcdata23test.CRONUS.app.bak', 'different.default.tenant.bak'], {
+    source: { schemaVersion: 1, kind: 'container', container: 'bcdata23test' }, expectError: /do not match/
+  });
+});
+
+test('container and service exports write explicit source metadata, replacing stale origin', () => {
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'bc-dev-toolset-backup-source-'));
+  try {
+    const script = [
+      "$ErrorActionPreference = 'Stop'",
+      `. ${quotePowerShell(backupMgtPath)}`,
+      `Write-SqlBackupSetSource -validatedBackupRootPath ${quotePowerShell(folder)} -kind container -container 'bcdata23test'`,
+      `$container = Get-Content -LiteralPath ${quotePowerShell(path.join(folder, 'bcdevtoolset-backup-source.json'))} -Raw | ConvertFrom-Json`,
+      `Write-SqlBackupSetSource -validatedBackupRootPath ${quotePowerShell(folder)} -kind service`,
+      `$service = Get-Content -LiteralPath ${quotePowerShell(path.join(folder, 'bcdevtoolset-backup-source.json'))} -Raw | ConvertFrom-Json`,
+      '@{ Container=$container; Service=$service } | ConvertTo-Json -Compress'
+    ].join('; ');
+    const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 10000 });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), {
+      Container: { schemaVersion: 1, kind: 'container', container: 'bcdata23test' },
+      Service: { schemaVersion: 1, kind: 'service' }
+    });
+    const scriptSource = fs.readFileSync(backupMgtPath, 'utf8');
+    assert.equal((scriptSource.match(/Write-SqlBackupSetSource -validatedBackupRootPath \$exportRootPath -kind container/g) || []).length, 2);
+    assert.match(scriptSource, /Write-SqlBackupSetSource -validatedBackupRootPath \$exportRootPath -kind service/);
+  } finally {
+    fs.rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+test('container export round trip maps CRONUS and refuses missing or failed transfers', () => {
+  for (const mode of ['complete', 'missing', 'move']) {
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'bc-dev-toolset-export-roundtrip-'));
+    try {
+      const script = `
+        $ErrorActionPreference='Continue' # Export must stop on IO errors without relying on caller policy.
+        . ${quotePowerShell(backupMgtPath)}
+        $hostHelperFolder=${quotePowerShell(path.join(folder, 'helper'))}
+        $script:exportRoot=${quotePowerShell(path.join(folder, 'export'))}
+        function Get-SqlBackupRootPath { $script:exportRoot }
+        function Test-DockerContainerRunning { $true }
+        function Backup-BcContainerDatabases {
+          param($containerName, $bakFolder)
+          if ($containerName -ne 'bcdata23test') { throw 'Wrong container' }
+          if (${mode === 'missing' ? '$false' : '$true'}) { Set-Content -LiteralPath (Join-Path $bakFolder 'database.bak') -Value 'mock SQL backup' }
+        }
+        ${mode === 'move' ? "function Move-Item { Write-Error 'Mock move failure' }" : ''}
+        function Get-BcContainerDatabaseBackupMap {
+          [pscustomobject]@{ HelperFileName='database.bak'; ExportFileName='bcdata23test.CRONUS.database.bak' }
+        }
+        $settings=[pscustomobject]@{configurations=@([pscustomobject]@{
+          name='Dedicated';serverType='Container';container='bcdata23test';sqlBackupPath='export'
+        })}
+        try { Export-BcContainerSqlBackupSet -scriptPath ${quotePowerShell(folder)} -settingsJSON $settings 6>$null }
+        catch { $failure=$_.Exception.Message }
+        try { $entries=@(Get-SqlBackupSetEntries -backupRootPath $script:exportRoot) }
+        catch { $mappingError=$_.Exception.Message }
+        $source=Get-Content -LiteralPath (Join-Path $script:exportRoot 'bcdevtoolset-backup-source.json') -Raw | ConvertFrom-Json
+        @{ Failure=$failure; MappingError=$mappingError; Entries=@($entries); Source=$source } | ConvertTo-Json -Depth 5 -Compress
+      `;
+      // Cold PowerShell startup and filesystem setup are not a restore deadline.
+      const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 60000 });
+      assert.equal(result.status, 0, `Export fixture subprocess: ${result.error?.code || result.status}; ${result.stderr}`);
+      const observed = JSON.parse(result.stdout);
+      if (mode !== 'complete') {
+        assert.match(observed.Failure, mode === 'missing' ? /export is incomplete/ : /Mock move failure/);
+        assert.match(observed.MappingError, /incomplete SQL backup source manifest/);
+        assert.equal(observed.Source.kind, 'incomplete');
+      } else {
+        assert.equal(observed.Failure, null);
+        assert.equal(observed.MappingError, null);
+        assert.equal(observed.Entries[0].DatabaseName, 'CRONUS');
+        assert.equal(observed.Source.container, 'bcdata23test');
+      }
+    } finally {
+      fs.rmSync(folder, { recursive: true, force: true });
+    }
+  }
 });
 
 test('passes tenant IDs to BcContainerHelper so a stopped service can be restored', () => {
@@ -587,7 +716,8 @@ test('service SQL export uses one source and destination and stops on SQL or cop
   for (const mode of ['sql', 'missing', 'copy', 'success']) {
     const script = `
       . ${quotePowerShell(backupMgtPath)}
-      $script:copies=0; $script:backups=0; $script:closed=0; $script:localClears=0; $script:hostSaves=0; $script:messages=@()
+      $script:copies=0; $script:backups=0; $script:closed=0; $script:localClears=0; $script:hostSaves=0; $script:sourceWrites=@(); $script:messages=@()
+      function Write-SqlBackupSetSource { param($validatedBackupRootPath, $kind) if ($validatedBackupRootPath -ne 'C:\\exports\\two' -or $kind -notin @('incomplete','service')) { throw 'Wrong source manifest' }; $script:sourceWrites += $kind }
       function Write-Host { param($Object) $script:messages += [string]$Object }
       function Save-BcDatabaseServerHost { $script:hostSaves++ }
       function Import-BcServiceBackupDiscoveryModules {}
@@ -626,13 +756,14 @@ test('service SQL export uses one source and destination and stops on SQL or cop
       ) }
       try { Export-BcServiceSqlBackupSet -scriptPath 'C:\\toolset' -settingsJSON $settings }
       catch { $failure=$_.Exception.Message }
-      @{ Error=$failure; Copies=$script:copies; Backups=$script:backups; Closed=$script:closed; Clears=$script:localClears; HostSaves=$script:hostSaves; Success=(@($script:messages | Where-Object { $_ -like 'SQL backup set exported*' }).Count) } | ConvertTo-Json -Compress
+      @{ Error=$failure; Copies=$script:copies; Backups=$script:backups; Closed=$script:closed; Clears=$script:localClears; HostSaves=$script:hostSaves; SourceWrites=$script:sourceWrites; Success=(@($script:messages | Where-Object { $_ -like 'SQL backup set exported*' }).Count) } | ConvertTo-Json -Compress
     `;
     const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     const output = JSON.parse(result.stdout);
     assert.equal(output.Success, mode === 'success' ? 1 : 0);
     assert.equal(output.HostSaves, mode === 'success' ? 1 : 0);
+    assert.deepEqual(output.SourceWrites, mode === 'success' ? ['incomplete', 'service'] : ['incomplete']);
     assert.equal(output.Backups, 1);
     assert.equal(output.Closed, 1);
     assert.equal(output.Copies, ['sql', 'missing'].includes(mode) ? 0 : 1);

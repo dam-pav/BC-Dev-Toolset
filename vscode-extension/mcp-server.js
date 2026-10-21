@@ -10,6 +10,7 @@ const os = require('os');
 const bridgeIdentity = require('./mcp-bridge-identity');
 const { authorizeRoot, resolveWithinRoot } = require('./path-security');
 const { parseSettingsJsonc } = require('./settings-migration');
+const { dataTools, validateDataArguments } = require('./bc-data-tools');
 
 const defaultProtocolVersion = '2025-11-25';
 const toolsetPath = authorizeRoot(process.env.BCDEVTOOLSET_MCP_TOOLSET_PATH || path.resolve(__dirname, '..'), 'BC Dev Toolset MCP toolset path');
@@ -264,7 +265,7 @@ function getServerInstructions() {
     'Before answering questions about the active VS Code workspace, workspace file, workspace folders, AL project path, app.json location, .code-workspace settings, local .bcdevtoolset settings path, or AL settings such as assembly probing paths, call bc_dev_toolset_get_workspace or read bcdevtoolset://workspace/current. Do not infer the workspace by scanning parent folders unless this tool/resource is unavailable.',
     'PowerShell-backed operations require the VS Code terminal bridge and run visibly in the BC Dev Toolset terminal. If the bridge is unavailable, report that the BC Dev Toolset VS Code extension must be active instead of falling back to manual PowerShell.',
     'Use bc_dev_toolset_show_active_licenses for requests about the current container license. Use bc_dev_toolset_new_docker_container for creating or recreating containers.',
-    'Operations with declared inputs use two phases: call the operation tool without execute:true to receive relevant questions, including conditional questions, without starting it, then call the same tool with execute:true and the named answers. If an unexpected conditional prompt still returns waiting_for_input and the dedicated answer tool is unavailable, call the same operation tool with promptAnswers; the existing session resumes and retains answers for later prompts. Use bc_dev_toolset_answer_operation_prompt when it is available. Sensitive or agent-disallowed prompts must be answered by the user in the terminal.'
+    'Operations with declared inputs use two phases: call the operation tool without execute:true to receive relevant questions, including conditional questions, without starting it, then call the same tool with execute:true and the named answers. If an unexpected conditional prompt still returns waiting_for_input and the dedicated answer tool is unavailable, call the same operation tool with promptAnswers; the existing session resumes and retains answers for later prompts. Use bc_dev_toolset_answer_operation_prompt when it is available. Sensitive prompts must be answered by the user in the terminal. Agent-disallowed non-sensitive prompts require an explicit user decision in chat, which may then be relayed through bc_dev_toolset_answer_operation_prompt; never decide them autonomously.'
   ].join('\n');
 }
 
@@ -477,7 +478,7 @@ function readHelpContent() {
 }
 
 function getAllTools() {
-  return [...getTools(), ...getLegacyTools()];
+  return [...getTools(), ...getLegacyTools(), ...dataTools];
 }
 
 function getToolsForList() {
@@ -508,6 +509,7 @@ function getGenericToolsForDocumentation() {
 async function callTool(params) {
   await ensureStartupToolSettings();
   if (!getToolsForList().some((tool) => tool.name === params.name)) {
+    if (dataTools.some(tool => tool.name === params.name)) return dataToolError('disabled', 'This BC Data tool is disabled. Enable it in Configure MCP Tools and restart the MCP client.');
     return textResult(`Tool is disabled or unknown: ${params.name}. Enable its BC Dev Toolset user or workspace setting and restart the MCP server/client.`, true);
   }
   const targetOperation = params.name === 'run_bc_dev_toolset_operation'
@@ -517,6 +519,17 @@ async function callTool(params) {
     return textResult(`Operation tool is disabled: bc_dev_toolset_${toSnakeCase(targetOperation)}. Enable its user or workspace setting and restart the MCP server/client.`, true);
   }
   const toolArguments = params.arguments || {};
+  if (dataTools.some(tool => tool.name === params.name)) {
+    if (!validateDataArguments(params.name, toolArguments)) return dataToolError('invalid_input', 'Arguments do not match this BC Data tool schema.');
+    if (!shouldUseTerminalBridge()) return dataToolError('bridge_unavailable', 'Reload the matching BC Dev Toolset extension host and restart the MCP client.');
+    try {
+      const response = await postBridgeJson('/data-call', { name: params.name, arguments: toolArguments });
+      if (response.statusCode === 200 && Array.isArray(response.body?.content) && typeof response.body.isError === 'boolean') return response.body;
+      return dataToolError(response.statusCode === 403 ? 'disabled' : 'bridge_unavailable', 'BC Data bridge rejected the call. Check tool settings and reload the matching extension host.');
+    } catch {
+      return dataToolError('bridge_unavailable', 'BC Data workspace bridge is unavailable or mismatched. Reload the matching extension host and restart the MCP client.');
+    }
+  }
   const progress = createProgressReporter(params._meta && params._meta.progressToken);
   const operationId = getOperationIdForToolName(params.name);
   if (operationId) {
@@ -545,6 +558,11 @@ async function callTool(params) {
     default:
       return textResult(`Unknown tool: ${params.name}`, true);
   }
+}
+
+function dataToolError(category, message) {
+  const value = { error: { category, message, outcome: 'not_applied', correlationId: require('node:crypto').randomUUID() } };
+  return { ...textResult(JSON.stringify(value), true), structuredContent: value };
 }
 
 async function getWorkspaceContext() {
@@ -655,9 +673,9 @@ function getOperationToolDescription(operation) {
   const preflightText = getOperationPromptInputs(operation).length > 0
     ? ' Call without execute:true to return relevant input decisions, including conditional questions, without starting the operation; then call again with execute:true and the answers.'
     : '';
-  const compiledReportText = operation.id === 'invokeTests'
+  const compiledReportText = ['invokeTests', 'invokeCompatibilityTests'].includes(operation.id)
     ? ' Reports completed stages through MCP progress notifications and returns one compiled report with stage status, test totals, failure details, and diagnostics for the failed stage; do not rerun a failed build or test merely to retrieve output. The testBuildWarningsAsErrors workspace/local setting defaults to false; when true, compiler warnings block tests. Resolve the reported warnings before rerunning.'
-    : operation.id === 'alRunnerTest'
+    : ['alRunnerTest', 'alRunnerCompatibilityTest'].includes(operation.id)
     ? ' Distinguishes AL Runner availability or compatibility failures from genuine AL compilation and test failures. On a runner-tool failure, report it and suggest bc_dev_toolset_invoke_tests as the container-based fallback; do not invoke the fallback automatically.'
     : '';
   return `BC Dev Toolset: ${operation.title}. Category: ${operation.category}.${aliasText}${confirmationText}${preflightText}${compiledReportText} A repeated call with promptAnswers resumes the same pending operation and retains answers for later prompts; it does not restart it.`;
@@ -668,39 +686,7 @@ function getOperationPromptInputs(operation) {
 }
 
 function getPreflightPromptInputs(operation, args, context) {
-  const inputs = getOperationPromptInputs(operation);
-  if (!isTestOperation(operation)) return inputs;
-
-  try {
-    // Authorize against the bound workspace, never a caller-supplied root.
-    const root = authorizeRoot(context.workspaceBasePath || context.workspacePath, 'Bound workspace');
-    const workspacePath = resolveWithinRoot(root, args.workspacePath || context.workspacePath || root);
-    const workspaceFile = args.workspaceFile || context.workspaceFilePath;
-    // Discovery can require a runtime choice, so keep questions in that case.
-    if (!workspaceFile && process.env.BCDEVTOOLSET_ALLOW_WORKSPACE_FILE_DISCOVERY === 'true') return inputs;
-    const validatedWorkspaceFile = workspaceFile ? resolveWithinRoot(root, workspacePath, workspaceFile) : '';
-    const workspace = validatedWorkspaceFile
-      ? parseSettingsJsonc(fs.readFileSync(validatedWorkspaceFile, 'utf8')) : {}; // nosemgrep -- resolveWithinRoot verifies containment in the bound workspace before this read
-    const settingsRoot = validatedWorkspaceFile ? path.dirname(validatedWorkspaceFile) : workspacePath;
-    const validatedLocalSettingsPath = resolveWithinRoot(root, settingsRoot,
-      args.localSettingsPath || context.localSettingsPath || '.bcdevtoolset/settings.json');
-    const local = JSON.parse(fs.readFileSync(validatedLocalSettingsPath, 'utf8').replace(/^\uFEFF/, '')); // nosemgrep -- resolveWithinRoot verifies containment in the bound workspace before this read
-    const shared = workspace.settings?.bcDevToolset ?? workspace.settings?.['dam-pav.bcdevtoolset'] ?? {};
-    const configurations = [...(local.configurations || []), ...(shared.configurations || [])]
-      .filter(config => String(config.serverType).toLowerCase() === 'container' &&
-        String(config.includeTestToolkit).toLowerCase() === 'true' && String(config.container || '').trim());
-    const target = (String(local.executeTestsInContainerName || '').trim() ||
-      String(shared.executeTestsInContainerName || '').trim()).toLowerCase();
-    const resolved = configurations.length === 1 || (target &&
-      configurations.filter(config => String(config.container).toLowerCase() === target).length === 1);
-    if (resolved) {
-      return inputs.filter(input => input.inputName !== 'testContainerSelection');
-    }
-  } catch {
-    // Missing, unreadable, or out-of-workspace settings cannot prove that a
-    // question is redundant. Keep the declared questions in that case.
-  }
-  return inputs;
+  return getOperationPromptInputs(operation);
 }
 
 function getOperationToolAliases(operationId) {
@@ -771,6 +757,12 @@ function getOperationToolAliases(operationId) {
         'run standalone AL tests with AL Runner',
         'run AL Runner tests without a Business Central container'
       ];
+    case 'invokeCompatibilityTests':
+      return ['run AL compatibility tests against every configured newer Business Central platform'];
+    case 'invokeCompatibilityPageScriptTests':
+      return ['run page script compatibility tests against every configured newer Business Central platform'];
+    case 'alRunnerCompatibilityTest':
+      return ['run AL Runner tests against configured newer Business Central platforms'];
     default:
       return [];
   }
@@ -834,13 +826,6 @@ function getOperationToolInputSchema(operation) {
   }
 
   if (isTestOperation(operation)) {
-    properties.testContainerSelection = {
-      anyOf: [
-        { type: 'string' },
-        { type: 'number' }
-      ],
-      description: 'Optional 1-based choice for the test container configuration prompt. Preflight omits this question when settings already resolve the target container. Otherwise use the displayed configuration options to choose an index.'
-    };
     properties.executeTestsInContainer = {
       anyOf: [
         { type: 'boolean' },
@@ -1008,7 +993,7 @@ async function runOperationInTerminal(operation, args, progress) {
   }
 
   const bridgeResult = response.body || {};
-  if (operation.id === 'invokeTests' && bridgeResult.status === 'running' && bridgeResult.sessionId) {
+  if (['invokeTests', 'invokeCompatibilityTests'].includes(operation.id) && bridgeResult.status === 'running' && bridgeResult.sessionId) {
     const finalStatus = await waitForTestOperationWithProgress(bridgeResult.sessionId, progress);
     return textResult(formatOperationStatus(finalStatus), finalStatus.status === 'failed' || finalStatus.status === 'timeout');
   }
@@ -1018,7 +1003,7 @@ async function runOperationInTerminal(operation, args, progress) {
   const waitingForInput = bridgeResult.status === 'waiting_for_input';
   const promptAnswered = bridgeResult.status === 'prompt_answered';
   if (promptAnswered && bridgeResult.sessionId) {
-    const followUpStatus = operation.id === 'invokeTests'
+    const followUpStatus = ['invokeTests', 'invokeCompatibilityTests'].includes(operation.id)
       ? await waitForTestOperationWithProgress(bridgeResult.sessionId, progress, { timeoutSeconds: getPromptAnswerStatusTimeoutSeconds(args) })
       : await waitForOperationStatusAfterPrompt(bridgeResult.sessionId, getPromptAnswerStatusTimeoutSeconds(args));
     const followUpResult = followUpStatus.result || {};
@@ -1055,7 +1040,7 @@ async function runOperationInTerminal(operation, args, progress) {
       ? 'Instruction: The operation is running visibly in the VS Code terminal. Terminal output capture was unavailable, so watch that terminal for progress and final output.'
       : alRunnerToolFailure
       ? 'Instruction: AL Runner itself was unavailable or incompatible; AL tests were not executed. Report this as a tool failure and suggest bc_dev_toolset_invoke_tests as the container-based fallback. Do not invoke the fallback automatically unless the user asks to proceed.'
-      : displayOperationId === 'invokeTests'
+      : ['invokeTests', 'invokeCompatibilityTests'].includes(displayOperationId)
       ? 'Instruction: The operation ran visibly in the VS Code terminal. Use the compiled operation report below as the definitive MCP result; do not rerun a failed stage merely to retrieve diagnostics.'
       : 'Instruction: The operation ran visibly in the VS Code terminal. Use the captured terminal output below as the MCP result.',
     bridgeResult.output ? ['', getOperationOutputLabel(displayOperationId), formatOperationOutput(displayOperationId, bridgeResult.output, bridgeResult.status, bridgeResult.operationReport)].join('\n') : ''
@@ -1063,7 +1048,7 @@ async function runOperationInTerminal(operation, args, progress) {
 }
 
 function isTestOperation(operation) {
-  return operation && (operation.id === 'invokeTests' || operation.id === 'invokePageScriptTests');
+  return operation && ['invokeTests', 'invokePageScriptTests', 'invokeCompatibilityTests', 'invokeCompatibilityPageScriptTests'].includes(operation.id);
 }
 
 function isContainerBackupOperation(operation) {
@@ -1088,7 +1073,6 @@ function getOperationPromptAnswers(operation, args = {}) {
     promptAnswers['initializeWorkspace.workspaceName'] = String(args.workspaceName).trim();
   }
   if (isTestOperation(operation)) {
-    promptAnswers['selectIndex.Select.the.container.configuration.to.execute.tests.in.'] = normalizePromptAliasAnswer(args.testContainerSelection, '1');
     promptAnswers['tests.executeInContainer'] = normalizePromptAliasAnswer(args.executeTestsInContainer, 'yes');
     promptAnswers['tests.createMissingContainer.pullFullArtifact'] = normalizePromptAliasAnswer(args.pullFullArtifact, 'no');
   }
@@ -1190,7 +1174,7 @@ async function answerOperationPrompt(args, progress) {
 
   const operationSessionId = response.body.sessionId || sessionId;
   const initialStatus = await postBridgeJson('/operation-status', { sessionId: operationSessionId });
-  const followUpStatus = initialStatus.body && initialStatus.body.operationId === 'invokeTests'
+  const followUpStatus = initialStatus.body && ['invokeTests', 'invokeCompatibilityTests'].includes(initialStatus.body.operationId)
     ? await waitForTestOperationWithProgress(operationSessionId, progress, { timeoutSeconds: getPromptAnswerStatusTimeoutSeconds(args) })
     : await waitForOperationStatusAfterPrompt(operationSessionId, getPromptAnswerStatusTimeoutSeconds(args));
   const followUpResult = followUpStatus.result || {};
@@ -1338,6 +1322,9 @@ function formatPendingPromptInstruction(bridgeResult) {
   if (prompt.sensitive) {
     lines.push('Next: Ask the user to type their answer directly in the VS Code terminal. Do not call answer_operation_prompt for sensitive prompts.');
   } else {
+    if (prompt.agentAllowed === false) {
+      lines.push('Next: Ask for the explicit user decision in chat, then relay that non-sensitive answer through the prompt answer tool. Terminal keyboard entry is not used for this MCP prompt.');
+    }
     lines.push(`Next: Call bc_dev_toolset_answer_operation_prompt with sessionId '${bridgeResult.sessionId}' and ${answerHint}.`);
   }
 
@@ -1459,8 +1446,8 @@ function postBridgeJsonRaw(route, body) {
       });
     });
 
-    if (route === '/handshake' || route === '/tool-settings') {
-      request.setTimeout(5000, () => request.destroy(new Error('BC Dev Toolset workspace bridge timed out. Reload the extension host and restart the MCP client.')));
+    if (route === '/handshake' || route === '/tool-settings' || route === '/data-call') {
+      request.setTimeout(route === '/data-call' ? 70000 : 5000, () => request.destroy(new Error('BC Dev Toolset workspace bridge timed out. Reload the extension host and restart the MCP client.')));
     }
     request.on('error', reject);
     request.write(content);
@@ -1588,12 +1575,12 @@ function truncateOutput(output) {
 }
 
 function formatOperationOutput(operationId, output, operationStatus, operationReport) {
-  if (operationId === 'invokeTests') {
+  if (['invokeTests', 'invokeCompatibilityTests'].includes(operationId)) {
     const compiledReport = compileInvokeTestsReport(output, operationStatus, operationReport);
     return compiledReport || truncateOutput(output);
   }
 
-  if (operationId === 'alRunnerTest') {
+  if (['alRunnerTest', 'alRunnerCompatibilityTest'].includes(operationId)) {
     const compiledReport = compileAlRunnerTestReport(output);
     return compiledReport || truncateOutput(output);
   }
@@ -1602,7 +1589,7 @@ function formatOperationOutput(operationId, output, operationStatus, operationRe
 }
 
 function getOperationOutputLabel(operationId) {
-  return operationId === 'invokeTests' || operationId === 'alRunnerTest' ? 'OPERATION REPORT:' : 'TERMINAL OUTPUT:';
+  return ['invokeTests', 'invokeCompatibilityTests', 'alRunnerTest', 'alRunnerCompatibilityTest'].includes(operationId) ? 'OPERATION REPORT:' : 'TERMINAL OUTPUT:';
 }
 
 function getAlRunnerToolFailure(output) {
@@ -1620,7 +1607,7 @@ function getAlRunnerToolFailure(output) {
 }
 
 function hasAlRunnerToolFailure(operationId, output) {
-  return operationId === 'alRunnerTest' && Boolean(getAlRunnerToolFailure(output));
+  return ['alRunnerTest', 'alRunnerCompatibilityTest'].includes(operationId) && Boolean(getAlRunnerToolFailure(output));
 }
 
 function compileAlRunnerTestReport(output) {
@@ -1702,6 +1689,10 @@ function compileInvokeTestsReport(output, operationStatus, operationReport) {
       `Applications tested: ${Number(testReport.applicationCount) || 0}`,
       `Duration: ${Number(testReport.durationSeconds) || 0} seconds`
     );
+
+    for (const target of Array.isArray(testReport.targets) ? testReport.targets : []) {
+      lines.push(`Target ${target.name || target.container}: configured BC ${target.targetPlatform}, actual application ${target.actualApplicationVersion || 'unknown'}; ${target.status}${target.error ? ` (${target.error})` : ''}`);
+    }
 
     const omittedFailureCount = Number(testReport.omittedFailureCount) || 0;
     if (Array.isArray(testReport.testIsolationDisabledCodeunits)) {
@@ -1917,6 +1908,7 @@ module.exports = {
     readResource,
     readHelpContent,
     getOperationPromptAnswers,
+    getServerInstructions,
     getPreflightPromptInputs,
     compileAlRunnerTestReport,
     compileInvokeTestsReport,

@@ -25,6 +25,11 @@ test('container creation callers pass workspace context required for OnPrem app 
   }
 });
 
+test('container artifact version comes from configuration platform or workspace baseline', () => {
+  const source = fs.readFileSync(workspaceMgtPath, 'utf8');
+  assert.match(source, /Get-ContainerArtifactApplicationVersion\s+`?\s*-Configuration \$configuration\s+`?\s*-WorkspaceAppJSON \$appJSON/);
+});
+
 test('launch.json updates honor explicit values and target-based defaults', () => {
   const script = `
     . '${workspaceMgtPath.replaceAll("'", "''")}'
@@ -70,6 +75,44 @@ test('launch.json target follows whether app dependencies identify it as a test 
   `;
 
   runPowerShell(script);
+});
+
+test('BC Data companion and designated test app receive Dev and Test container launches', () => {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdata-launch-'));
+  try {
+    for (const appName of ['BCData', 'BCData.Tests']) {
+      const appFolder = path.join(fixtureRoot, appName);
+      fs.mkdirSync(appFolder);
+      fs.copyFileSync(
+        path.join(repositoryRoot, 'al', appName, 'app.json'),
+        path.join(appFolder, 'app.json')
+      );
+    }
+    const script = `
+      . '${workspaceMgtPath.replaceAll("'", "''")}'
+      $script:bcDevToolsetWorkspaceRootPath = $env:TEST_WORKSPACE
+      $settings = [pscustomobject]@{ configurations = @(
+        [pscustomobject]@{ name = 'BC23'; serverType = 'Container'; targetType = 'Dev'; container = 'bc23'; authentication = 'UserPassword' },
+        [pscustomobject]@{ name = 'BC23'; serverType = 'Container'; targetType = 'Test'; container = 'bc23'; authentication = 'UserPassword' }
+      ) }
+      $workspace = [pscustomobject]@{ folders = @(
+        [pscustomobject]@{ path = 'BCData' },
+        [pscustomobject]@{ path = 'BCData.Tests' }
+      ) }
+      foreach ($app in $workspace.folders.path) {
+        Write-LaunchJSON -scriptPath '${repositoryRoot.replaceAll("'", "''")}' -appPath $app -settingsJSON $settings -workspaceJSON $workspace -replaceJSON $true
+      }
+    `;
+    runPowerShell(script, { TEST_WORKSPACE: fixtureRoot });
+    for (const [appName, target] of [['BCData', 'Dev'], ['BCData.Tests', 'Test']]) {
+      const launch = JSON.parse(fs.readFileSync(path.join(fixtureRoot, appName, '.vscode', 'launch.json'), 'utf8'));
+      assert.equal(launch.configurations.length, 1);
+      assert.equal(launch.configurations[0].name, `BC23 ${target} Container`);
+      assert.equal(launch.configurations[0].server, 'http://bc23');
+    }
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true }); // nosemgrep -- fixtureRoot is a newly created test-owned temporary directory
+  }
 });
 
 test('app.json target determines container launch and artifact type', () => {
@@ -414,29 +457,49 @@ test('Add Test Toolkit operation selects one configured container and aborts inv
     command === 'bcDevToolset.operation.addTestToolkitToBcContainer'));
 });
 
-test('local executeTestsInContainerName is supported and takes priority over the workspace value', () => {
+test('named-container selection is removed and launch files preserve configured target roles', () => {
   const schema = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'schemas', 'bcdevtoolset-settings.schema.json'), 'utf8'));
-  assert.deepEqual(schema.properties.executeTestsInContainerName, {
-    type: 'string',
-    default: '',
-    description: 'Optional container name used by Test operations. Workspace initialization sets it to the generated Local-Test container name. A non-empty local value takes priority over the shared workspace setting.'
-  });
+  assert.equal(Object.hasOwn(schema.properties, 'executeTestsInContainerName'), false);
 
   const source = fs.readFileSync(workspaceMgtPath, 'utf8');
-  assert.match(source, /\$executeTestsInContainerName = \[string\]\$settingsJSONvalue\.executeTestsInContainerName/);
-  assert.match(source, /IsNullOrWhiteSpace\(\$executeTestsInContainerName\)[\s\S]*?workspaceToolsetSettings\.executeTestsInContainerName/);
-  assert.match(source, /Add-Member -MemberType NoteProperty -Name executeTestsInContainerName -Value \$testContainerName/);
+  assert.doesNotMatch(source, /workspaceToolsetSettings\.executeTestsInContainerName/);
+  assert.match(source, /\$_.targetType -eq \$appTargetType -and/);
+  assert.match(source, /\$launchTargetType = \$remote\.targetType/);
 });
 
-test('test operations allow Container configurations of every target type when the test toolkit is included', () => {
-  const testManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
-    path.join(repositoryRoot, 'common', 'TestMgt.ps1'), 'utf8');
-  const configurationSelector = testManagement.match(/function Get-TestContainerConfigurations[\s\S]*?\n}/)?.[0] ?? '';
+test('launch generation keeps Dev and Test app targets on their configured container roles', () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-role-specific-launch-'));
+  const script = `
+    . '${workspaceMgtPath.replaceAll("'", "''")}'
+    $script:bcDevToolsetWorkspaceRootPath = $env:TEST_WORKSPACE
+    $settings = [PSCustomObject]@{ configurations = @(
+      [PSCustomObject]@{ name='BC23'; serverType='Container'; targetType='Dev'; container='bc23'; platform='23.0'; includeTestToolkit='true' },
+      [PSCustomObject]@{ name='BC27.1'; serverType='Container'; targetType='Test'; container='bc271'; platform='27.1'; includeTestToolkit='true' }
+    ) }
+    foreach ($role in @('Dev', 'Test')) {
+      $appPath = Join-Path $env:TEST_WORKSPACE $role
+      $null = [System.IO.Directory]::CreateDirectory($appPath)
+      $dependencies = @()
+      if ($role -eq 'Test') { $dependencies = @([PSCustomObject]@{ id='5d86850b-0d76-4eca-bd7b-951ad998e997' }) }
+      [PSCustomObject]@{ application='23.0.0.0'; dependencies=$dependencies } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $appPath 'app.json')
+      Write-LaunchJSON -scriptPath '${repositoryRoot.replaceAll("'", "''")}' -appPath $role -settingsJSON $settings -replaceJSON:$true
+      $launch = Get-Content -LiteralPath (Join-Path $appPath '.vscode/launch.json') -Raw | ConvertFrom-Json
+      $expected = if ($role -eq 'Test') { 'BC27.1 Test Container' } else { 'BC23 Dev Container' }
+      if ($launch.configurations.Count -ne 1 -or $launch.configurations[0].name -ne $expected) { exit 2 }
+    }
+  `;
+  runPowerShell(script, { TEST_WORKSPACE: workspace });
+});
 
-  assert.match(configurationSelector, /\$_.serverType -eq "Container"/);
-  assert.match(configurationSelector, /\$_.includeTestToolkit -eq "true"/);
-  assert.doesNotMatch(configurationSelector, /targetType/);
-  assert.doesNotMatch(testManagement, /Dev container configurations|Dev Container configurations/);
+test('automated test target selection requires Test-role Container configurations', () => {
+  const targetManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'common', 'TestTargets.ps1'), 'utf8');
+  const configurationSelector = targetManagement.match(/function Get-TestContainerConfigurations[\s\S]*?\n}/)?.[0] ?? '';
+
+  assert.match(configurationSelector, /\$_.serverType -eq 'Container'/);
+  assert.match(configurationSelector, /\$_.targetType -eq 'Test'/);
+  assert.match(configurationSelector, /\$_.includeTestToolkit -eq 'true'/);
+  assert.doesNotMatch(targetManagement, /Dev container configurations|Dev Container configurations/);
 });
 
 test('AL test builds every workspace app before preparing the test container', () => {
@@ -452,7 +515,7 @@ test('AL test builds every workspace app before preparing the test container', (
 
   assert.match(invokeTestsOperation, /BuildAllApps\.ps1'\) -SkipOperationUI[\s\S]*?Initialize-TestExecutionContainer/);
   assert.match(invokeTestsOperation, /Request-TestExecutionContainerSelection[\s\S]*?BuildAllApps\.ps1/);
-  assert.doesNotMatch(pageScriptOperation, /-BuildAppsBeforeDeployment/);
+  assert.match(pageScriptOperation, /Request-TestExecutionContainerSelection[\s\S]*?BuildAllApps\.ps1'\) -SkipOperationUI[\s\S]*?Initialize-TestExecutionContainer/);
   assert.doesNotMatch(invokeTestsOperation, /-BuildAppsBeforeDeployment/);
   assert.match(initializeContainer, /New-TestExecutionContainerIfMissing/);
   assert.match(buildOperation, /\[switch\] \$SkipOperationUI/);
@@ -559,7 +622,8 @@ test('runtime synchronization state includes an explicit content revision', () =
   const extensionSource = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
     path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
 
-  assert.match(extensionSource, /const runtimeToolsetRevision = \d+;/);
+  const revision = Number(extensionSource.match(/const runtimeToolsetRevision = (\d+);/)?.[1]);
+  assert.equal(revision, 39, 'Bundled runtime changes must increment the synchronization revision');
   assert.match(extensionSource, /`\$\{extensionVersion\}\.\$\{runtimeToolsetRevision\}\|\$\{getToolsetPath\(\)\}`/);
 });
 

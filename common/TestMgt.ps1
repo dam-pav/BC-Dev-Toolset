@@ -1,4 +1,5 @@
 . (Join-Path $PSScriptRoot 'ContainerLifecycle.ps1')
+. (Join-Path $PSScriptRoot 'TestTargets.ps1')
 
 function Get-BcConfigurationCredentialValues {
     param(
@@ -24,87 +25,23 @@ function Copy-BcDevToolsetPsObject {
     return $copy
 }
 
-function Get-TestContainerConfigurations {
-    Param (
-        [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON
-    )
-
-    return @($settingsJSON.configurations | Where-Object {
-        $_.serverType -eq "Container" -and $_.includeTestToolkit -eq "true" -and -not [string]::IsNullOrWhiteSpace($_.container)
-    })
-}
-
-function Get-ExecuteTestsInContainerName {
-    Param (
-        [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON
-    )
-
-    if ($settingsJSON.PSObject.Properties['executeTestsInContainerName'] -and -not [string]::IsNullOrWhiteSpace($settingsJSON.executeTestsInContainerName)) {
-        return ([string]$settingsJSON.executeTestsInContainerName).Trim()
-    }
-
-    return ""
-}
-
 function Select-TestContainerConfiguration {
     Param (
-        [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON
+        [Parameter(Mandatory=$true)] [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)] [string] $BaselineApplicationVersion
     )
 
-    $configurations = @(Get-TestContainerConfigurations -settingsJSON $settingsJSON)
-    if ($configurations.Count -eq 0) {
+    $targets = @(Resolve-BcTestTargetConfigurations `
+        -SettingsJSON $settingsJSON `
+        -BaselineApplicationVersion $BaselineApplicationVersion `
+        -Suite Development `
+        -RequireTestToolkit:$true)
+    if ($targets.Count -eq 0) {
         throw "No Container configurations with includeTestToolkit set to true and a non-empty container value found. Cannot execute tests."
     }
-
-    $configuredContainerName = Get-ExecuteTestsInContainerName -settingsJSON $settingsJSON
-    if ($configurations.Count -eq 1) {
-        $configuration = $configurations[0]
-        if ([string]::IsNullOrWhiteSpace($configuredContainerName)) {
-            Write-Host "Only one container configuration is available and executeTestsInContainerName is empty. Tests will run in '$($configuration.container)' without backup restore or app deployment." -ForegroundColor Blue
-            return [PSCustomObject]@{
-                Configuration = $configuration
-                PrepareContainer = $false
-            }
-        }
-
-        if ($configuration.container -ne $configuredContainerName) {
-            Write-Host "The configured executeTestsInContainerName value '$configuredContainerName' was not found among Container configurations with includeTestToolkit set to true." -ForegroundColor Red
-        }
-
-        return [PSCustomObject]@{
-            Configuration = $configuration
-            PrepareContainer = $true
-        }
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($configuredContainerName)) {
-        $matchingConfigurations = @($configurations | Where-Object { $_.container -eq $configuredContainerName })
-        if ($matchingConfigurations.Count -eq 1) {
-            return [PSCustomObject]@{
-                Configuration = $matchingConfigurations[0]
-                PrepareContainer = $true
-            }
-        }
-
-        Write-Host "The configured executeTestsInContainerName value '$configuredContainerName' was not found among Container configurations with includeTestToolkit set to true." -ForegroundColor Red
-    }
-
-    $options = @()
-    foreach ($configuration in $configurations) {
-        $options += "$($configuration.name) ($($configuration.container))"
-    }
-
-    $selectedIndex = Select-IndexFromList `
-        -Title "Select the container configuration to execute tests in:" `
-        -Options $options `
-        -DefaultIndex 0
-
     return [PSCustomObject]@{
-        Configuration = $configurations[$selectedIndex]
-        PrepareContainer = $true
+        Configuration = $targets[0].Configuration
+        Platform = $targets[0].Platform
     }
 }
 
@@ -119,6 +56,30 @@ function New-TestExecutionSettings {
     $testSettings = Copy-BcDevToolsetPsObject -InputObject $settingsJSON
     $testSettings.configurations = @($configuration)
     return $testSettings
+}
+
+function Assert-BcTestContainerPlatform {
+    param(
+        [Parameter(Mandatory=$true)] [PSObject] $Configuration,
+        [Parameter(Mandatory=$true)] [string] $ExpectedApplicationVersion
+    )
+
+    $installedApps = @(Get-BcContainerAppInfo -containerName $Configuration.container -installedOnly)
+    $application = @($installedApps | Where-Object { $_.Publisher -eq 'Microsoft' -and $_.Name -eq 'Application' } | Select-Object -First 1)
+    if ($application.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$application[0].Version)) {
+        throw "Could not determine the installed Microsoft Application version in test container '$($Configuration.container)'. The target will not be modified."
+    }
+
+    $expected = ConvertTo-BcReleaseVersion -Value $ExpectedApplicationVersion -SettingName "Expected platform for '$($Configuration.name)'"
+    $actual = ConvertTo-BcReleaseVersion -Value ([string]$application[0].Version) -SettingName "Installed Microsoft Application version in '$($Configuration.container)'"
+    # A configured major-only release such as 23.0 selects the latest artifact
+    # in that BC major line (for example 23.18), so its cumulative app minor
+    # is not an exact release constraint. Non-zero minors such as 27.1 remain exact.
+    $minorMismatch = $expected.Minor -ne 0 -and $actual.Minor -ne $expected.Minor
+    if ($actual.Major -ne $expected.Major -or $minorMismatch) {
+        throw "Test container '$($Configuration.container)' has Business Central application release '$actual', but configuration '$($Configuration.name)' targets '$expected'. The existing container was left unchanged."
+    }
+    return $actual.ToString()
 }
 
 function Restore-TestContainerBackupIfExists {
@@ -285,22 +246,39 @@ function New-TestExecutionContainerIfMissing {
 function Request-TestExecutionContainerSelection {
     Param (
         [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON
+        [PSObject] $settingsJSON,
+        [Parameter(Mandatory=$true)] [string] $BaselineApplicationVersion,
+        [ValidateSet('Development', 'Compatibility')] [string] $Suite = 'Development'
     )
 
-    $selection = Select-TestContainerConfiguration -settingsJSON $settingsJSON
-    $containerName = $selection.Configuration.container
+    $targets = @(Resolve-BcTestTargetConfigurations `
+        -SettingsJSON $settingsJSON `
+        -BaselineApplicationVersion $BaselineApplicationVersion `
+        -Suite $Suite `
+        -RequireTestToolkit:$true)
+    if ($targets.Count -eq 0) {
+        $description = if ($Suite -eq 'Compatibility') { 'explicitly configured platforms newer than the workspace baseline' } else { "the workspace baseline '$BaselineApplicationVersion'" }
+        throw "No eligible test Container configuration targets $description."
+    }
+    if ($Suite -eq 'Development' -and $targets.Count -ne 1) {
+        throw "Development test target resolution expected exactly one Container configuration for '$BaselineApplicationVersion'; found $($targets.Count)."
+    }
+
+    $selections = @($targets | ForEach-Object {
+        [PSCustomObject]@{ Configuration=$_.Configuration; Platform=$_.Platform }
+    })
+    $targetList = ($selections | ForEach-Object { "$($_.Configuration.name) ($($_.Configuration.container), BC $($_.Platform))" }) -join '; '
     if (-not (Confirm-Option `
-        -question "Do you want to execute tests in the '$containerName' container?" `
+        -question "Do you want to execute the $($Suite.ToLowerInvariant()) test suite on: $targetList?" `
         -PromptId "tests.executeInContainer" `
-        -Risk "Creates the container and an initial backup if missing, restores a configured SQL backup set if present, publishes dependencies and all workspace apps, then executes tests in the selected container." `
+        -Risk "Builds workspace apps, creates missing containers if needed, restores configured SQL backups, publishes dependencies and all workspace apps, then executes tests sequentially on the listed platform targets." `
         -AgentAllowed $true `
         -Destructive $true)) {
         Write-Host "Test execution aborted." -ForegroundColor Yellow
         return $null
     }
 
-    return $selection
+    return [PSCustomObject]@{ Suite=$Suite; Targets=$selections }
 }
 
 function Initialize-TestExecutionContainer {
@@ -312,12 +290,18 @@ function Initialize-TestExecutionContainer {
         [Parameter(Mandatory=$true)]
         [PSObject] $workspaceJSON,
         [switch] $BuildAppsBeforeDeployment,
-        [PSObject] $Selection
+        [PSObject] $Selection,
+        [ValidateSet('Development', 'Compatibility')] [string] $Suite = 'Development'
     )
 
     $selection = $Selection
     if ($null -eq $selection) {
-        $selection = Request-TestExecutionContainerSelection -settingsJSON $settingsJSON
+        $baselineVersion = Get-BcWorkspaceBaselineApplicationVersion -ScriptPath $scriptPath -WorkspaceJSON $workspaceJSON
+        $requestedSelection = Request-TestExecutionContainerSelection `
+            -settingsJSON $settingsJSON `
+            -BaselineApplicationVersion $baselineVersion `
+            -Suite $Suite
+        if ($null -ne $requestedSelection) { $selection = $requestedSelection.Targets[0] }
     }
     if ($null -eq $selection) {
         return $null
@@ -331,6 +315,8 @@ function Initialize-TestExecutionContainer {
         & (Join-Path $scriptPath 'operations/BuildAllApps.ps1') -SkipOperationUI
     }
 
+    Test-DockerProcess
+
     $testSettings = New-TestExecutionSettings `
         -settingsJSON $settingsJSON `
         -configuration $configuration
@@ -342,15 +328,20 @@ function Initialize-TestExecutionContainer {
         -testSettings $testSettings `
         -configuration $configuration
 
-    Ensure-ConfiguredContainers -SettingsJSON $testSettings
+    # Defer companion deployment until target platform verification and any
+    # restore have completed. Container readiness itself must not publish apps.
+    Ensure-ConfiguredContainers -SettingsJSON $testSettings -SkipBcDataProvisioning
 
     if (-not (Test-DockerContainerRunning -containerName $containerName)) {
         throw "Container '$containerName' exists but is not running."
     }
 
-    if (-not $selection.PrepareContainer) {
-        return $testSettings
+    $expectedPlatform = if ($selection.PSObject.Properties['Platform']) { [string]$selection.Platform } else {
+        Get-BcWorkspaceBaselineApplicationVersion -ScriptPath $scriptPath -WorkspaceJSON $workspaceJSON
     }
+    $actualPlatform = Assert-BcTestContainerPlatform -Configuration $configuration -ExpectedApplicationVersion $expectedPlatform
+    $testSettings | Add-Member -MemberType NoteProperty -Name bcDevToolsetActualPlatformVersion -Value $actualPlatform -Force
+    Write-Host "Verified test container application release '$actualPlatform' against target '$expectedPlatform'." -ForegroundColor Gray
 
     if (-not (Test-AutoRestoreBackup -configuration $configuration)) {
         Write-Host "Skipping automatic SQL backup restore because autoRestoreBackup is false for '$containerName'." -ForegroundColor Gray
@@ -364,6 +355,10 @@ function Initialize-TestExecutionContainer {
 
     Write-Host ""
     Write-Host "Deploying dependencies to '$containerName'." -ForegroundColor Green
+    if ($null -ne $configuration.bcData) {
+        . (Join-Path $scriptPath 'common/BcDataMgt.ps1')
+        Sync-ConfiguredBcData -ToolsetRoot $scriptPath -Configuration $configuration
+    }
     Publish-Dependencies `
         -settingsJSON $testSettings
 

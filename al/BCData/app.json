@@ -1,0 +1,16 @@
+{
+  "id": "0f92aea5-4cc0-459b-ae98-ca9e5c2b0304",
+  "name": "BC Dev Toolset Data",
+  "publisher": "dam-pav",
+  "version": "0.1.10.0",
+  "brief": "Agent data access for BC Dev Toolset",
+  "platform": "23.0.0.0",
+  "application": "23.0.0.0",
+  "runtime": "12.0",
+  "internalsVisibleTo": [
+    { "id": "0f2cdb66-8275-41a6-a145-f07d77d0f825", "name": "BC Dev Toolset Data Tests", "publisher": "dam-pav" }
+  ],
+  "target": "OnPrem",
+  "idRanges": [{ "from": 50100, "to": 50149 }],
+  "features": ["NoImplicitWith"]
+}

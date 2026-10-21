@@ -16,7 +16,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  companion:
+    if: >
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release/v')
+    uses: ./.github/workflows/build-bc-data.yml
   publish:
+    needs: companion
     name: Publish merged release PR
     runs-on: ubuntu-latest
     if: >
@@ -27,7 +33,7 @@ jobs:
       - name: Check out released main
         uses: actions/checkout@v5
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
           ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
 
@@ -63,6 +69,10 @@ jobs:
         working-directory: vscode-extension
         run: npm run validate
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: bc-data-companion
+          path: al/BCData
       - name: Package VSIX assets
         shell: bash
         run: |
@@ -70,6 +80,10 @@ jobs:
 
           mkdir -p dist
           (cd vscode-extension && npm run package -- --out "../dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix")
+
+      - name: Verify bundled companion
+        shell: pwsh
+        run: ./vscode-extension/build/verify-bc-data-vsix.ps1 -VsixPath "dist/bc-dev-toolset-${{ steps.version.outputs.version }}.vsix"
 
       - name: Promote stable branch and tag release
         shell: bash

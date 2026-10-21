@@ -131,7 +131,36 @@ function Get-SqlBackupSetEntries {
         }
     })
 
-    $containerPrefix = Get-SqlBackupSetContainerPrefix -classifiedFiles $classifiedFiles
+    # New exports explicitly identify their source. A single filename cannot
+    # distinguish a container prefix from a legitimate dotted SQL database name.
+    # backupRootPath comes from the validated configurable backup-root boundary;
+    # the sidecar path uses a fixed internal filename, never manifest input.
+    $sourcePath = Join-Path $backupRootPath 'bcdevtoolset-backup-source.json'
+    $containerPrefix = ''
+    if (Test-Path -LiteralPath $sourcePath -PathType Leaf) {
+        if ((Get-Item -LiteralPath $sourcePath).Length -gt 4096) { throw 'SQL backup source manifest is too large.' }
+        $source = Get-Content -LiteralPath $sourcePath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        if ($source -isnot [pscustomobject] -or
+            ($source.schemaVersion -isnot [int] -and $source.schemaVersion -isnot [long]) -or
+            $source.schemaVersion -ne 1 -or $source.kind -isnot [string] -or $source.kind -notin @('container', 'service')) {
+            throw 'Unsupported or incomplete SQL backup source manifest; use a successfully completed export.'
+        }
+        if ($source.kind -eq 'container') {
+            if ($source.container -isnot [string] -or $source.container -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_.-]*$') {
+                throw 'Invalid source container in SQL backup source manifest.'
+            }
+            $containerPrefix = "$($source.container)."
+            foreach ($file in $classifiedFiles) {
+                if (-not $file.ExportedDatabaseName.StartsWith($containerPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+                    $file.ExportedDatabaseName.Length -le $containerPrefix.Length) {
+                    throw 'SQL backup filenames do not match the declared source container.'
+                }
+            }
+        }
+    } else {
+        # Preserve legacy service names and the existing multitenant convention.
+        $containerPrefix = Get-SqlBackupSetContainerPrefix -classifiedFiles $classifiedFiles
+    }
     $entries = @()
     foreach ($classifiedFile in $classifiedFiles) {
         $backupFile = $classifiedFile.File
@@ -174,6 +203,22 @@ function Get-SqlBackupSetEntries {
     }
 
     return $entries
+}
+
+function Write-SqlBackupSetSource {
+    Param (
+        [Parameter(Mandatory=$true)][string] $validatedBackupRootPath,
+        [Parameter(Mandatory=$true)][ValidateSet('container', 'service', 'incomplete')][string] $kind,
+        [string] $container = ''
+    )
+    $source = [ordered]@{ schemaVersion = 1; kind = $kind }
+    if ($kind -eq 'container') {
+        if ($container -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_.-]*$') { throw 'Invalid source container for SQL backup export.' }
+        $source.container = $container
+    }
+    # The configurable root is validated by Get-SqlBackupRootPath at the export
+    # boundary; source values affect JSON content only, never filesystem paths.
+    $source | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $validatedBackupRootPath 'bcdevtoolset-backup-source.json') -Encoding utf8 -ErrorAction Stop
 }
 
 function Get-SqlBackupSetContainerPrefix {
@@ -893,6 +938,7 @@ function Export-InitialTestContainerSqlBackupSet {
         [PSObject] $configuration
     )
 
+    $ErrorActionPreference = 'Stop'
     Assert-SqlBackupPath `
         -sqlBackupPath $configuration.sqlBackupPath `
         -operationName "creating an initial test container SQL backup" `
@@ -916,6 +962,7 @@ function Export-InitialTestContainerSqlBackupSet {
         -containerName $configuration.container `
         -bakFolder $sharedBackupPath
 
+    Write-SqlBackupSetSource -validatedBackupRootPath $exportRootPath -kind incomplete
     Get-ChildItem -Path $exportRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue |
         Remove-Item -Force
 
@@ -929,6 +976,7 @@ function Export-InitialTestContainerSqlBackupSet {
         Move-Item -Path $sourceFile -Destination (Join-Path $exportRootPath $backupItem.ExportFileName) -Force
     }
 
+    Write-SqlBackupSetSource -validatedBackupRootPath $exportRootPath -kind container -container $configuration.container
     Remove-Item -Path $sharedBackupPath -Force -Recurse
 
     Write-Host "Initial SQL backup set exported for container '$($configuration.container)'." -ForegroundColor Green
@@ -942,6 +990,7 @@ function Export-BcContainerSqlBackupSet {
         [PSObject] $settingsJSON
     )
 
+    $ErrorActionPreference = 'Stop'
     $selectedConfigurations = @(Select-ContainerSqlBackupConfigurations `
         -scriptPath $scriptPath `
         -settingsJSON $settingsJSON `
@@ -976,6 +1025,7 @@ function Export-BcContainerSqlBackupSet {
             -containerName $configuration.container `
             -bakFolder $sharedBackupPath
 
+        Write-SqlBackupSetSource -validatedBackupRootPath $exportRootPath -kind incomplete
         Get-ChildItem -Path $exportRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue |
             Remove-Item -Force
 
@@ -983,12 +1033,12 @@ function Export-BcContainerSqlBackupSet {
         foreach ($backupItem in $backupMap) {
             $sourceFile = Join-Path $sharedBackupPath $backupItem.HelperFileName
             if (-not (Test-Path -Path $sourceFile -PathType Leaf)) {
-                Write-Host "Expected backup file '$sourceFile' was not created; skipping." -ForegroundColor Yellow
-                continue
+                throw "Expected backup file '$sourceFile' was not created; SQL backup export is incomplete."
             }
             Move-Item -Path $sourceFile -Destination (Join-Path $exportRootPath $backupItem.ExportFileName) -Force
         }
 
+        Write-SqlBackupSetSource -validatedBackupRootPath $exportRootPath -kind container -container $configuration.container
         Remove-Item -Path $sharedBackupPath -Force -Recurse
 
         Write-Host "SQL backup set exported for container '$($configuration.container)'." -ForegroundColor Green
@@ -1729,6 +1779,7 @@ function Export-BcServiceSqlBackupSet {
 
         New-Item -ItemType Directory -Path $exportRootPath -Force | Out-Null
 
+        Write-SqlBackupSetSource -validatedBackupRootPath $exportRootPath -kind incomplete
         while ($true) {
             try {
                 if (Test-IsLocalSqlServer -databaseServer $databaseServer) {
@@ -1770,6 +1821,7 @@ function Export-BcServiceSqlBackupSet {
 
         try { Save-BcDatabaseServerHost -configuration $configuration -databaseServerHost $databaseServer -serviceDatabaseInfo $serviceDatabaseInfo }
         catch { Write-Host "Backup succeeded, but the SQL host could not be saved: $($_.Exception.Message)" -ForegroundColor Yellow }
+        Write-SqlBackupSetSource -validatedBackupRootPath $exportRootPath -kind service
         Write-Host "SQL backup set exported from '$($configuration.name)' to '$($selection.Destination.name)'." -ForegroundColor Green
     } finally {
         $script:backupCredentialContext.Remote = $null

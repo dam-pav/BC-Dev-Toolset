@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { test } = require('node:test');
@@ -203,4 +204,46 @@ test('configured-container operation is exposed through MCP by default and the C
   assert.ok(pkg.contributes.commands.some(command => command.command === 'bcDevToolset.operation.ensureContainers'));
   const schema = require('../schemas/bcdevtoolset-settings.schema.json');
   assert.equal(schema.properties.mcpTools.properties[tool.name].default, true);
+});
+
+test('test preparation can defer opted-in provisioning until platform verification and restore', () => {
+  const calls = run(`
+    $script:states = @{ready=@{Status='running';Health=@{Status='healthy'}}}
+    Ensure-ConfiguredContainers -SettingsJSON @{configurations=@(@{name='Dedicated';serverType='Container';targetType='Test';container='ready';authentication='UserPassword';bcData=@{provisioningEnabled=$true}})} -SkipBcDataProvisioning 6>$null
+    ConvertTo-Json -InputObject $script:calls -Depth 5 -Compress
+  `);
+  assert.ok(calls.every(args => args[0] === 'info' || args[1] === 'inspect'));
+});
+
+test('database recovery admits running unhealthy containers without restart or app provisioning', () => {
+  const calls = run(`
+    $script:states = @{
+      sick=@{Status='running';Health=@{Status='unhealthy'}};
+      starting=@{Status='running';Health=@{Status='starting'}};
+      stopped=@{Status='exited'}
+    }
+    $settings = @{configurations=@('sick','starting','stopped' | ForEach-Object {
+      @{serverType='Container';container=$_;bcData=@{provisioningEnabled=$true}}
+    })}
+    Ensure-ConfiguredContainers $settings -RequireRunningOnly -TimeoutSeconds 0 6>$null
+    ConvertTo-Json -InputObject $script:calls -Depth 5 -Compress
+  `);
+  assert.deepEqual(calls.filter(args => ['start', 'restart'].includes(args[1])), [
+    ['container', 'start', '--', 'stopped']
+  ]);
+  const source = fs.readFileSync(path.resolve(__dirname, '../../operations/RestoreBcContainerDatabases.ps1'), 'utf8');
+  assert.match(source, /Ensure-ConfiguredContainers[^\r\n]*-RequireRunningOnly/);
+});
+
+test('database recovery still rejects missing and paused containers', () => {
+  const result = run(`
+    $script:states = @{paused=@{Status='paused'}}
+    $message = ''
+    try { Ensure-ConfiguredContainers @{configurations=@('missing','paused' | ForEach-Object {
+      @{serverType='Container';container=$_}
+    })} -RequireRunningOnly -TimeoutSeconds 0 6>$null } catch { $message=$_.Exception.Message }
+    @{Message=$message;Calls=$script:calls} | ConvertTo-Json -Depth 5 -Compress
+  `);
+  assert.match(result.Message, /not ready: missing, paused/);
+  assert.ok(result.Calls.every(args => !['start', 'restart'].includes(args[1])));
 });

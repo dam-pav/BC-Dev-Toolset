@@ -3,6 +3,29 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { createConfigurationAccess, affectsToolsetConfiguration } = require('../configuration-settings');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
+test('BC Data discovers either legacy configuration prefix despite contributed current defaults', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../extension.js'), 'utf8');
+  const load = (name, dependencies) => vm.runInNewContext(`(${source.match(new RegExp(`function ${name}\\([^]*?\\n}`))[0]})`, dependencies);
+  for (const prefix of ['dam-pav.bcdevtoolset', 'dam-pav.bcDevToolset']) {
+    const shared = [{ name: 'Legacy' }];
+    const local = [{ name: 'Local' }];
+    const vscode = { workspace: { getConfiguration(section) {
+      return {
+        inspect: key => section === prefix && key === 'configurations' ? { workspaceValue: shared } : undefined,
+        get: () => []
+      };
+    } } };
+    const getConfiguration = load('getConfiguration', {
+      vscode, createConfigurationAccess, configurationPrefix: 'bcDevToolset', legacyConfigurationPrefix: 'dam-pav.bcdevtoolset'
+    });
+    const discover = load('getBcDataConfigurations', { vscode, getConfiguration, getLocalMcpSettings: () => ({ settings: { configurations: local } }) });
+    assert.deepEqual(Array.from(discover()), [...shared, ...local], prefix);
+  }
+});
 
 const config = values => ({ inspect: () => values, get: () => 'default' });
 

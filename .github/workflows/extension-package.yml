@@ -1,12 +1,16 @@
 name: Extension package
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - 'Invoke-BcDevToolsetOperation.ps1'
       - 'common/**'
       - 'operations/**'
       - 'visualization/**'
+      - 'al/BCData/**'
+      - 'bc-data/**'
+      - '.github/workflows/build-bc-data.yml'
       - 'vscode-extension/**'
       - '.github/workflows/extension-package.yml'
       - '.github/workflows/latest-extension.yml'
@@ -17,7 +21,10 @@ permissions:
   contents: read
 
 jobs:
+  companion:
+    uses: ./.github/workflows/build-bc-data.yml
   package:
+    needs: companion
     name: Validate and package on Ubuntu
     runs-on: ubuntu-latest
     steps:
@@ -28,9 +35,16 @@ jobs:
       - name: Validate extension
         working-directory: vscode-extension
         run: npm run validate
+      - uses: actions/download-artifact@v4
+        with:
+          name: bc-data-companion
+          path: al/BCData
       - name: Package VSIX
         working-directory: vscode-extension
         run: npm run package -- --out bc-dev-toolset-ci.vsix
+      - name: Verify bundled companion
+        shell: pwsh
+        run: ./vscode-extension/build/verify-bc-data-vsix.ps1 -VsixPath vscode-extension/bc-dev-toolset-ci.vsix
       - name: Upload package for verification
         uses: actions/upload-artifact@v4
         with:

@@ -24,7 +24,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  companion:
+    uses: ./.github/workflows/build-bc-data.yml
   publish:
+    needs: companion
     name: Publish repository version to Marketplace
     runs-on: ubuntu-latest
 
@@ -59,6 +62,10 @@ jobs:
           cd vscode-extension
           npm run validate
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: bc-data-companion
+          path: al/BCData
       - name: Package VSIX from repository version
         shell: bash
         run: |
@@ -72,6 +79,10 @@ jobs:
           fi
 
           npm run package -- "${package_args[@]}"
+
+      - name: Verify bundled companion
+        shell: pwsh
+        run: ./vscode-extension/build/verify-bc-data-vsix.ps1 -VsixPath "dist/bc-dev-toolset-${{ inputs.release_kind }}-${{ steps.version.outputs.version }}.vsix"
 
       - name: Publish VSIX to VS Code Marketplace
         env:

@@ -32,18 +32,23 @@ let mcpBridgeToken;
 let mcpBridgeStatePath;
 let mcpBridgeInstanceId;
 let mcpBridgeWorkspace;
+let bcDataRuntime;
+let bcDataCredentialProvider;
 const mcpPromptSessions = new Map();
 const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 32;
+const mcpServerDefinitionRevision = 39;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 26;
+const runtimeToolsetRevision = 39;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
-  'invokeTests'
+  'invokeTests',
+  'invokePageScriptTests',
+  'invokeCompatibilityTests',
+  'invokeCompatibilityPageScriptTests'
 ]);
 
 const directOperationIds = [
@@ -51,6 +56,9 @@ const directOperationIds = [
   'invokeTests',
   'invokePageScriptTests',
   'alRunnerTest',
+  'invokeCompatibilityTests',
+  'invokeCompatibilityPageScriptTests',
+  'alRunnerCompatibilityTest',
   'showBcContainerHelperVersions',
   'initPrerequisites',
   'uninstallPrerequisites',
@@ -59,6 +67,7 @@ const directOperationIds = [
   'disableCodexMcp',
   'clearAppArtifacts',
   'buildAllApps',
+  'initializeBcData',
   'newDockerContainer',
   'ensureContainers',
   'extractContainerAssemblies',
@@ -88,13 +97,16 @@ const directOperationIds = [
 const requiredRuntimeFiles = [
   'README.md',
   'Invoke-BcDevToolsetOperation.ps1',
-  'operations/operations.json'
+  'operations/operations.json',
+  'bc-data/manifest.json',
+  'bc-data/BCData.app'
 ];
 
 const runtimeDirectories = [
   'common',
   'operations',
-  'visualization'
+  'visualization',
+  'bc-data'
 ];
 
 async function activate(context) {
@@ -125,6 +137,7 @@ async function activate(context) {
     }),
     startMcpBridgeServer(context),
     startMcpPromptSessionCleanup(),
+    { dispose: resetBcDataCredentials },
     registerMcpServerDefinitionProvider(context),
     vscode.languages.registerCompletionItemProvider(
       [
@@ -266,6 +279,24 @@ async function handleMcpBridgeRequest(request, response) {
 
     if (request.url === '/workspace-context') {
       writeMcpBridgeResponse(response, 200, getMcpWorkspaceContext());
+      return;
+    }
+
+    if (request.url === '/data-call') {
+      // Recheck current settings at the authenticated bridge, even if an MCP
+      // process still advertises an earlier enabled selection.
+      const settings = getEffectiveMcpToolSettings();
+      if (typeof body.name !== 'string' || !body.name.startsWith('bc_dev_toolset_data_') || settings[body.name] !== true) {
+        writeMcpBridgeResponse(response, 403, { error: 'BC Data tool is disabled.' });
+        return;
+      }
+      bcDataRuntime ||= require('./bc-data-runtime').createDataRuntime({
+        getConfigurations: getBcDataConfigurations,
+        getToolSettings: getEffectiveMcpToolSettings,
+        getStoredCredential: readBcDataStoredCredential,
+        invalidateCredentials: resetBcDataCredentials
+      });
+      writeMcpBridgeResponse(response, 200, await bcDataRuntime.call(body.name, body.arguments));
       return;
     }
 
@@ -647,11 +678,12 @@ function getMcpOperationStatus(body) {
       session.capture
     );
     if (result) {
+      if (!session.completedAt) bcDataRuntime?.invalidate();
       session.status = result.status;
       session.completedAt = session.completedAt || new Date().toISOString();
       session.result = result;
       touchMcpPromptSession(session);
-    } else if (session.operationId === 'invokeTests' && (session.status === 'running' || session.status === 'waiting_for_input')) {
+    } else if (['invokeTests', 'invokeCompatibilityTests'].includes(session.operationId) && (session.status === 'running' || session.status === 'waiting_for_input')) {
       session.result = {
         output: cleanPowerShellTranscript(readTextFileIfExists(session.capture.transcriptPath)),
         operationReport: readJsonFileIfExists(session.capture.reportPath)
@@ -807,6 +839,7 @@ function waitForMcpBridgeServer() {
 function registerMcpServerDefinitionProvider(context) {
   const definitionsChanged = new vscode.EventEmitter();
   context.subscriptions.push(definitionsChanged, vscode.workspace.onDidChangeConfiguration((event) => {
+    bcDataRuntime?.invalidate();
     if (affectsToolsetConfiguration(event, 'mcpTools') || affectsToolsetConfiguration(event, 'localSettingsPath')) {
       definitionsChanged.fire();
       queueCodexMcpReconciliation(context, { notifyWhenChanged: false });
@@ -818,7 +851,10 @@ function registerMcpServerDefinitionProvider(context) {
     const changed = uri => {
       const root = authorizeRoot(getWorkspaceBasePath(), 'Workspace root');
       const localPath = resolveWithinRoot(root, getConfiguration().get('localSettingsPath') || '.bcdevtoolset/settings.json');
-      if (path.relative(localPath, uri.fsPath) === '') definitionsChanged.fire();
+      if (path.relative(localPath, uri.fsPath) === '') {
+        bcDataRuntime?.invalidate();
+        definitionsChanged.fire();
+      }
     };
     context.subscriptions.push(watcher, watcher.onDidChange(changed), watcher.onDidCreate(changed), watcher.onDidDelete(changed));
   }
@@ -902,6 +938,29 @@ function getLocalMcpSettings() {
 
 function getEffectiveMcpToolSettings() {
   return readEffectiveToolSettings(getMcpToolConfiguration(), getLocalMcpSettings().settings.mcpTools);
+}
+
+function getBcDataConfigurations() {
+  // Toolset Merge-Settings appends local target entries to shared entries.
+  // Ambiguous names are rejected by the data runtime instead of choosing one.
+  const shared = getConfiguration().get('configurations');
+  const local = getLocalMcpSettings().settings;
+  if ((shared !== undefined && !Array.isArray(shared)) ||
+      (local.configurations !== undefined && !Array.isArray(local.configurations))) throw new Error('Configurations must be arrays.');
+  return [...(shared || []), ...(local.configurations || [])];
+}
+
+function resetBcDataCredentials() {
+  bcDataCredentialProvider?.dispose();
+  bcDataCredentialProvider = undefined;
+}
+
+async function readBcDataStoredCredential({ container }) {
+  bcDataCredentialProvider ||= require('./bc-data-credentials').createCredentialProvider({
+    toolsetRoot: getToolsetPath(),
+    powershellExecutable: getConfiguration().get('powershellExecutable') || 'pwsh'
+  });
+  return bcDataCredentialProvider.read(container);
 }
 
 function getMcpToolConfiguration() {
@@ -1562,7 +1621,6 @@ function getMcpWorkspaceSettings() {
 
 function getDefaultLocalSettings() {
   const localConfiguration = getDefaultLocalConfiguration();
-  const testConfiguration = getDefaultLocalTestConfiguration();
   return {
     licenseFile: '',
     certificateFile: '',
@@ -1571,11 +1629,7 @@ function getDefaultLocalSettings() {
     recordingsPath: '',
     pageScriptTestResultsPath: '',
     pageScriptTestHeaded: 'false',
-    executeTestsInContainerName: testConfiguration.container,
-    configurations: [
-      localConfiguration,
-      testConfiguration
-    ]
+    configurations: [localConfiguration]
   };
 }
 
@@ -1586,7 +1640,7 @@ function getDefaultLocalConfiguration() {
     serverType: 'Container',
     targetType: 'Dev',
     container: workspaceName.replace(/ /g, '-'),
-    includeTestToolkit: 'false',
+    includeTestToolkit: 'true',
     authentication: 'UserPassword',
     bcUser: 'admin',
     bcPassword: 'P@ssw0rd',
@@ -1594,16 +1648,6 @@ function getDefaultLocalConfiguration() {
     network: '',
     hostIP: '',
     updateHosts: true
-  };
-}
-
-function getDefaultLocalTestConfiguration() {
-  return {
-    ...getDefaultLocalConfiguration(),
-    name: 'Local-Test',
-    targetType: 'Test',
-    container: `${getWorkspaceName().replace(/ /g, '-')}-Test`,
-    includeTestToolkit: 'true'
   };
 }
 
@@ -1830,17 +1874,18 @@ function ensureDefaultLocalConfiguration(localPath) {
 
   const localSettings = JSON.parse(fs.readFileSync(localPath, 'utf8'));
   const configurations = Array.isArray(localSettings.configurations) ? localSettings.configurations : [];
+  let changed = Object.prototype.hasOwnProperty.call(localSettings, 'executeTestsInContainerName');
+  delete localSettings.executeTestsInContainerName;
   const hasUsableConfiguration = configurations.some((configuration) => configuration.name && configuration.name !== 'sample');
   if (hasUsableConfiguration) {
+    if (changed) fs.writeFileSync(localPath, `${JSON.stringify(localSettings, null, 2)}\n`, 'utf8');
     return;
   }
 
   localSettings.configurations = [
     getDefaultLocalConfiguration(),
-    getDefaultLocalTestConfiguration(),
     ...configurations.filter((configuration) => configuration.name === 'sample')
   ];
-  localSettings.executeTestsInContainerName = getDefaultLocalTestConfiguration().container;
   fs.writeFileSync(localPath, `${JSON.stringify(localSettings, null, 2)}\n`, 'utf8');
 }
 
@@ -2187,6 +2232,7 @@ async function executeOperation(operation, toolsetPath) {
 
   const { command, powershellExecutable } = buildOperationTerminalCommand(operation, toolsetPath, { nonInteractive: false });
 
+  bcDataRuntime?.invalidate();
   const terminal = getOperationTerminal(powershellExecutable);
   terminal.sendText(command);
 }
@@ -2196,6 +2242,7 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
     throw new Error(`BC Dev Toolset operation '${operation.id}' cannot be run by this extension.`);
   }
 
+  bcDataRuntime?.invalidate();
   const capture = createMcpCapturePaths();
   const session = getOrCreateMcpPromptSession(capture.sessionId);
   session.operationId = operation.id;
@@ -2224,7 +2271,7 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
 
   if (!shellIntegration) {
     terminal.sendText(command);
-    if (operation.id === 'invokeTests') {
+    if (['invokeTests', 'invokeCompatibilityTests'].includes(operation.id)) {
       void monitorMcpTestCapture(operation, terminalName, capture, options, session);
       return getMcpPromptSessionSnapshot(session);
     }
@@ -2239,7 +2286,7 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
   const execution = shellIntegration.executeCommand(command);
   const outputParts = [];
   const readPromise = readTerminalExecutionOutput(execution, outputParts);
-  if (operation.id === 'invokeTests') {
+  if (['invokeTests', 'invokeCompatibilityTests'].includes(operation.id)) {
     void monitorMcpTestCapture(operation, terminalName, capture, { timeoutMs }, session, readPromise);
     return getMcpPromptSessionSnapshot(session);
   }

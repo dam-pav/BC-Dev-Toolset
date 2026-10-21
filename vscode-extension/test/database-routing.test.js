@@ -18,6 +18,7 @@ test('explicit SQL mapping skips BC discovery including multitenant database sel
     function Select-BcServiceSqlBackupConfigurations { @{Source=[pscustomobject]@{name='source';serverType='OnPrem';serverInstance='BC230';databaseServerHost='SQLHOST';databaseInstance='NAMED';databaseName='App';databaseTenants=@([pscustomobject]@{id='one';databaseName='Tenant DB'})};Destination=[pscustomobject]@{name='local';sqlBackupPath='C:\\exports'}} }
     # Path validation has its own Windows tests; these tests exercise routing/credentials.
     function Get-SqlBackupRootPath { [System.IO.Path]::GetTempPath() }
+    function Write-SqlBackupSetSource {} # Source-sidecar IO is covered by backup export round-trip tests.
     function New-Item {}
     function Test-IsLocalSqlServer {$false}
     function Backup-RemoteSqlDatabases { param($computerName,$databaseInstance,$backupRequests) $script:requests=$backupRequests;$script:hostName=$computerName;$script:instance=$databaseInstance }
@@ -54,6 +55,7 @@ test('successful discovery saves full mapping and the next backup bypasses BC',(
       function Get-BcServiceDatabaseInfo { $script:discovery++; [pscustomobject]@{DatabaseServer='SQLHOST';DatabaseInstance='NAMED';DatabaseName='App';Multitenant=$true;Tenants=@([pscustomobject]@{Id='one';DatabaseName='Tenant'})} }
       # Path validation has its own Windows tests; these tests exercise routing/credentials.
       function Get-SqlBackupRootPath { [System.IO.Path]::GetTempPath() }
+      function Write-SqlBackupSetSource {} # This routing test does not export backup files.
       function New-Item {}
       function Test-IsLocalSqlServer {$false}
       function Backup-RemoteSqlDatabases {$script:backups++}
