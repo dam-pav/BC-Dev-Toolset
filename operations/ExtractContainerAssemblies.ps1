@@ -1,5 +1,3 @@
-Clear-Host
-
 $scriptRoot = (Get-Item $PSScriptRoot).Parent
 . $scriptRoot/common/WorkspaceMgt.ps1
 . $scriptRoot/common/ContainerLifecycle.ps1
@@ -21,5 +19,11 @@ if (-not (Invoke-ContainerAssemblyExtraction `
     -workspaceJSON $workspaceJSON)) {
     return
 }
+
+Write-Host ''
+Write-Host '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!' -ForegroundColor Yellow
+Write-Host 'Reload VS Code now (Developer: Reload Window) so the new .netpackages folders are loaded into the workspace.' -ForegroundColor Yellow
+Write-Host '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!' -ForegroundColor Yellow
+Write-Host ''
 
 Write-Done

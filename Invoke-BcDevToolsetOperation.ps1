@@ -102,7 +102,15 @@ try {
         Set-Alias -Name cls -Value Clear-Host -Scope Global -Force
     }
 
-    Write-Host "Running BC Dev Toolset operation: $($selectedOperation.title)" -ForegroundColor Green
+    # Clear once here so scripts (including nested test/build steps) retain the operation title.
+    if (-not $NonInteractive) {
+        Clear-Host
+    }
+    $operationHeading = "!!!!  $($selectedOperation.title)  !!!!"
+    $operationBorder = '!' * $operationHeading.Length
+    Write-Host $operationBorder -ForegroundColor Green
+    Write-Host $operationHeading -ForegroundColor Green
+    Write-Host $operationBorder -ForegroundColor Green
     Write-Host "Operation ID: $($selectedOperation.id)" -ForegroundColor Gray
     Write-Host "Workspace: $($env:BCDEVTOOLSET_WORKSPACE_PATH)" -ForegroundColor Gray
 

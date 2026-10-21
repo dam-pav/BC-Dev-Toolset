@@ -1,5 +1,3 @@
-Clear-Host
-
 $scriptPath = (Get-Item $PSScriptRoot).Parent
 . $scriptPath/common/WorkspaceMgt.ps1
 
