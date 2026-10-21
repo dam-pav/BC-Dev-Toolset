@@ -1,4 +1,4 @@
-codeunit 50106 "BCD Mutation Coordinator"
+codeunit 99106 "BCD Mutation Coordinator"
 {
     Access = Internal;
     // No Permissions elevation. Public permission/exposure integration is pending.

@@ -1,4 +1,4 @@
-codeunit 50102 "BCD Data Install"
+codeunit 99102 "BCD Data Install"
 {
     Subtype = Install;
 

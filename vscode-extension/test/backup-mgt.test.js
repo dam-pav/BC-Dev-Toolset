@@ -35,7 +35,9 @@ test('remoting recovery cancels cleanly or repairs and retries with explicit cre
         @{ Cancelled=$_.Exception.Data['BackupRemotingCancelled']; Repairs=$script:repairs; Attempts=$script:attempts } | ConvertTo-Json -Compress
       }
     `;
-    const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 10000 });
+    // Parallel PowerShell fixtures can exceed ten seconds on the shared Ubuntu runner.
+    const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 30000, windowsHide: true });
+    assert.ifError(result.error);
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(JSON.parse(result.stdout), repair
       ? { Session: 'connected', Repairs: 1, Attempts: 2 }

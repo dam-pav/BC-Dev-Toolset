@@ -41,6 +41,90 @@ codeunit 50202 "BCD Data Service Tests"
 
     [Test]
     [TransactionModel(TransactionModel::AutoRollback)]
+    procedure UpgradeMigratesBothLegacyBindings()
+    var
+        WebService: Record "Tenant Web Service";
+        Registration: Codeunit "BCD Service Registration";
+    begin
+        WebService.SetRange("Service Name", 'BCDData');
+        WebService.FindFirst();
+        WebService."Object ID" := 50100;
+        WebService.Modify();
+        WebService.SetRange("Service Name", 'BCDDataWrite');
+        WebService.FindFirst();
+        WebService."Object ID" := 50107;
+        WebService.Modify();
+
+        Registration.RegisterUpgradedService();
+        Registration.RegisterUpgradedService(); // Repeated registration is idempotent.
+        WebService.SetRange("Service Name", 'BCDData');
+        WebService.FindFirst();
+        WebService.TestField("Object ID", Codeunit::"BCD Data Service");
+        WebService.TestField(Published, true);
+        WebService.SetRange("Service Name", 'BCDDataWrite');
+        WebService.FindFirst();
+        WebService.TestField("Object ID", Codeunit::"BCD Mutation Service");
+        WebService.TestField(Published, true);
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
+    procedure InstallRejectsLegacyBinding()
+    var
+        WebService: Record "Tenant Web Service";
+        Registration: Codeunit "BCD Service Registration";
+        Assert: Codeunit "Library Assert";
+    begin
+        WebService.SetRange("Service Name", 'BCDData');
+        WebService.FindFirst();
+        WebService."Object ID" := 50100;
+        WebService.Modify();
+        asserterror Registration.RegisterService();
+        Assert.ExpectedError('BCD_REGISTRATION_CONFLICT');
+        WebService.FindFirst();
+        WebService.TestField("Object ID", Codeunit::"BCD Data Service");
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
+    procedure UpgradeRejectsUnrelatedBinding()
+    var
+        WebService: Record "Tenant Web Service";
+        Registration: Codeunit "BCD Service Registration";
+        Assert: Codeunit "Library Assert";
+    begin
+        WebService.SetRange("Service Name", 'BCDDataWrite');
+        WebService.FindFirst();
+        WebService."Object ID" := Codeunit::"BCD Transport Probe";
+        WebService.Modify();
+        asserterror Registration.RegisterUpgradedService();
+        Assert.ExpectedError('BCD_REGISTRATION_CONFLICT');
+        WebService.FindFirst();
+        WebService.TestField("Object ID", Codeunit::"BCD Mutation Service");
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
+    procedure UpgradeRejectsLegacyIdWithWrongObjectType()
+    var
+        WebService: Record "Tenant Web Service";
+        Registration: Codeunit "BCD Service Registration";
+        Assert: Codeunit "Library Assert";
+    begin
+        WebService.SetRange("Service Name", 'BCDData');
+        WebService.FindFirst();
+        WebService."Object Type" := WebService."Object Type"::Page;
+        WebService."Object ID" := 50100;
+        WebService.Modify();
+        asserterror Registration.RegisterUpgradedService();
+        Assert.ExpectedError('BCD_REGISTRATION_CONFLICT');
+        WebService.FindFirst();
+        WebService.TestField("Object Type", WebService."Object Type"::Codeunit);
+        WebService.TestField("Object ID", Codeunit::"BCD Data Service");
+    end;
+
+    [Test]
+    [TransactionModel(TransactionModel::AutoRollback)]
     procedure ReadinessAdvertisesSeparateMutationProtocol()
     var
         Service: Codeunit "BCD Data Service";

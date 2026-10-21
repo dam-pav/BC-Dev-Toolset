@@ -1,4 +1,4 @@
-permissionset 50101 "BCD DATA WRITE"
+permissionset 99101 "BCD DATA WRITE"
 {
     Assignable = true;
     Caption = 'BC Data mutation service';

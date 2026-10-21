@@ -1,4 +1,4 @@
-codeunit 50103 "BCD Data Upgrade"
+codeunit 99103 "BCD Data Upgrade"
 {
     Subtype = Upgrade;
 
@@ -6,6 +6,6 @@ codeunit 50103 "BCD Data Upgrade"
     var
         Registration: Codeunit "BCD Service Registration";
     begin
-        Registration.RegisterService();
+        Registration.RegisterUpgradedService();
     end;
 }

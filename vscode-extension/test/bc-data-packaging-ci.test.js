@@ -72,7 +72,7 @@ test('finished VSIX verification rejects missing, altered, duplicate and test ap
       $compatibility=(Get-Content -LiteralPath ${quote(path.join(root,'bc-data/compatibility.json'))} -Raw).Replace("\u0060r\u0060n","\u0060n")
       $expected=$compatibility|ConvertFrom-Json
       $memory=[IO.MemoryStream]::new();$zip=[IO.Compression.ZipArchive]::new($memory,[IO.Compression.ZipArchiveMode]::Create,$true)
-      $writer=[IO.StreamWriter]::new($zip.CreateEntry('NavxManifest.xml').Open());$writer.Write('<Package><App Id="'+$expected.appId+'" Name="'+$expected.name+'" Publisher="'+$expected.publisher+'" Version="'+$expected.version+'" Runtime="12.0" Application="23.0.0.0" Target="OnPrem"/><Dependencies/><IdRanges><IdRange MinObjectId="50100" MaxObjectId="50149"/></IdRanges></Package>');$writer.Dispose();$zip.Dispose()
+      $writer=[IO.StreamWriter]::new($zip.CreateEntry('NavxManifest.xml').Open());$writer.Write('<Package><App Id="'+$expected.appId+'" Name="'+$expected.name+'" Publisher="'+$expected.publisher+'" Version="'+$expected.version+'" Runtime="12.0" Application="23.0.0.0" Target="OnPrem"/><Dependencies/><IdRanges><IdRange MinObjectId="99100" MaxObjectId="99149"/></IdRanges></Package>');$writer.Dispose();$zip.Dispose()
       $header=[byte[]]::new(40);[Text.Encoding]::ASCII.GetBytes('NAVX').CopyTo($header,0);[BitConverter]::GetBytes([int]40).CopyTo($header,4);[Text.Encoding]::ASCII.GetBytes('NAVX').CopyTo($header,36)
       $app=[byte[]]($header+$memory.ToArray());$memory.Dispose()
       $expected|Add-Member NoteProperty sha256 ([Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($app)).ToLowerInvariant())

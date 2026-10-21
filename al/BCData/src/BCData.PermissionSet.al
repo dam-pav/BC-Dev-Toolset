@@ -1,4 +1,4 @@
-permissionset 50100 "BCD DATA EXECUTE"
+permissionset 99100 "BCD DATA EXECUTE"
 {
     Assignable = true;
     Caption = 'BC Data service execution';

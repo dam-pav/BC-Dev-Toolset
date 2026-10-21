@@ -252,7 +252,7 @@ codeunit 50223 "BCD Mutation Receipt Tests"
     var
         Request: JsonObject;
     begin
-        Request.ReadFrom('{"operation":"insert","tableId":50100,"fields":[{"fieldId":1,"value":"00000000-0000-0000-0000-000000000000"}]}');
+        Request.ReadFrom('{"operation":"insert","tableId":99100,"fields":[{"fieldId":1,"value":"00000000-0000-0000-0000-000000000000"}]}');
         asserterror Core.Execute(ToText(Request));
         Assert.ExpectedError('companion request state cannot be a mutation target');
     end;
