@@ -1,0 +1,53 @@
+name: Build BC Data companion
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  companion:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Install isolated pinned Microsoft AL extension
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $inputs = Get-Content bc-data/build-inputs.json -Raw | ConvertFrom-Json
+          $codeRoot = Join-Path $env:RUNNER_TEMP 'bcdata-code'
+          $archive = Join-Path $env:RUNNER_TEMP 'bcdata-code.zip'
+          Invoke-WebRequest -Uri 'https://update.code.visualstudio.com/latest/win32-x64-archive/stable' -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $codeRoot
+          $extensions = Join-Path $env:RUNNER_TEMP 'bcdata-al-extensions'
+          & (Join-Path $codeRoot 'bin/code.cmd') --user-data-dir (Join-Path $env:RUNNER_TEMP 'bcdata-code-user') --extensions-dir $extensions --install-extension "ms-dynamics-smb.al@$($inputs.alExtensionVersion)" --force
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned AL extension installation failed.' }
+          $installed = @(Get-ChildItem -LiteralPath $extensions -Directory -Filter 'ms-dynamics-smb.al-*')
+          if ($installed.Count -ne 1) { throw 'Expected exactly one isolated AL installation.' }
+          "BCDATA_CI_AL_EXTENSION=$($installed[0].FullName)" >> $env:GITHUB_ENV
+      - name: Prepare verified BC23 baseline symbols
+        shell: pwsh
+        run: ./vscode-extension/build/prepare-bc-data-symbols.ps1
+      - name: Compile companion from this checkout
+        shell: pwsh
+        run: |
+          node vscode-extension/build/build-bc-data-ci.js $env:BCDATA_CI_AL_EXTENSION
+          if ($LASTEXITCODE -ne 0) { throw 'Companion build failed.' }
+          ./vscode-extension/build/prepare-bc-data-package.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bc-data-companion
+          path: al/BCData/*.app
+          if-no-files-found: error
+          retention-days: 7

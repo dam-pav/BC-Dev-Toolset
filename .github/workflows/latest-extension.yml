@@ -9,6 +9,9 @@ on:
       - common/**
       - operations/**
       - visualization/**
+      - al/BCData/**
+      - bc-data/**
+      - .github/workflows/build-bc-data.yml
       - vscode-extension/**
       - .github/scripts/publish-vsix-with-retry.sh
       - .github/workflows/latest-extension.yml
@@ -27,7 +30,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  companion:
+    uses: ./.github/workflows/build-bc-data.yml
   package-latest-vsix:
+    needs: companion
     name: Package latest VSIX
     runs-on: ubuntu-latest
 
@@ -36,7 +42,7 @@ jobs:
         if: ${{ github.event_name == 'push' }}
         uses: actions/checkout@v5
         with:
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Check out main for dispatch version bump
         if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -96,6 +102,11 @@ jobs:
         working-directory: vscode-extension
         run: npm run validate
 
+      - uses: actions/download-artifact@v4
+        if: ${{ github.event_name == 'push' }}
+        with:
+          name: bc-data-companion
+          path: al/BCData
       - name: Package latest VSIX
         if: ${{ github.event_name == 'push' }}
         shell: bash
@@ -104,6 +115,11 @@ jobs:
 
           mkdir -p dist
           (cd vscode-extension && npm run package -- --pre-release --out "../dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix")
+
+      - name: Verify bundled companion
+        if: ${{ github.event_name == 'push' }}
+        shell: pwsh
+        run: ./vscode-extension/build/verify-bc-data-vsix.ps1 -VsixPath "dist/bc-dev-toolset-latest-${{ steps.version.outputs.version }}.vsix"
 
       - name: Create or update latest package release
         if: ${{ github.event_name == 'push' }}
