@@ -97,12 +97,21 @@ try {
     $env:BCDEVTOOLSET_NON_INTERACTIVE = if ($NonInteractive) { 'true' } else { '' }
 
     if ($NonInteractive) {
-        function global:Clear-Host {}
-        Set-Alias -Name clear -Value Clear-Host -Scope Global -Force
-        Set-Alias -Name cls -Value Clear-Host -Scope Global -Force
+        # Child operation scripts inherit these overrides; the caller's commands remain intact.
+        function local:Clear-Host {}
+        Set-Alias -Name clear -Value Clear-Host -Scope Local -Force
+        Set-Alias -Name cls -Value Clear-Host -Scope Local -Force
     }
 
-    Write-Host "Running BC Dev Toolset operation: $($selectedOperation.title)" -ForegroundColor Green
+    # Clear once here so scripts (including nested test/build steps) retain the operation title.
+    if (-not $NonInteractive) {
+        Clear-Host
+    }
+    $operationHeading = "!!!!  $($selectedOperation.title)  !!!!"
+    $operationBorder = '!' * $operationHeading.Length
+    Write-Host $operationBorder -ForegroundColor Green
+    Write-Host $operationHeading -ForegroundColor Green
+    Write-Host $operationBorder -ForegroundColor Green
     Write-Host "Operation ID: $($selectedOperation.id)" -ForegroundColor Gray
     Write-Host "Workspace: $($env:BCDEVTOOLSET_WORKSPACE_PATH)" -ForegroundColor Gray
 

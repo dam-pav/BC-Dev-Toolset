@@ -49,16 +49,20 @@ Implement assertions in AL test codeunits for database semantics and bridge inte
 
 ## Result ledger
 
+Current summary (2026-10-21), reconciled with the completed qualification runs recorded below. These results qualify the selected W1 OnPrem builds with UserPassword authentication and companion **0.1.10.0**. They do not qualify the later **0.1.11.0** object-ID migration build described at the top of this document, every cumulative update, BC27.0, additional rename/FlowField paths or HTTPS.
+
 | Target | Compile | Runtime experiments | Outcome |
 | --- | --- | --- | --- |
-| BC23 | Expanded batch build/deployment succeeded; Application 23.18.32409.0 | 9/9 AL tests; E01 HTTP small/large/error checks passed | Partial evidence; no full compatibility claim |
-| BC24 | Not run | Not run | Pending |
-| BC25 | Not run | Not run | Pending |
-| BC26 | Not run | Not run | Pending |
+| BC23 | Build/deployment succeeded; Application 23.18.32409.0 | 118/118 AL tests; 64 authorization checks; 10 live client scenarios; 4/4 MCP writes; E01 HTTP/1.0 passed | Passed for the qualified scope |
+| BC24 | Build/deployment succeeded; Application 24.18.40043.0 | 118/118 AL tests; 64 authorization checks; 8/8 concurrency/receipt scenarios; 10/10 live client scenarios; 4/4 MCP writes; E01 HTTP/1.0 passed | Passed for the qualified scope |
+| BC25 | Build/deployment succeeded; Application 25.18.48229.0 | Each locking mode: 118/118 AL tests; 64 authorization checks; 8/8 concurrency/receipt scenarios; 10/10 live client scenarios; 4/4 MCP writes; E01 HTTP/1.0 passed | Passed under both tri-state and legacy locking for the qualified scope |
+| BC26 | Build/deployment succeeded; Application 26.18.55014.0 | 118/118 AL tests; 64 authorization checks; 8/8 concurrency/receipt scenarios; 10/10 live client scenarios; 4/4 MCP writes; E01 HTTP/1.0 passed | Passed for the qualified scope |
 | BC27.0 | Not run | Not run | Pending |
-| BC27.1 | Expanded batch build/deployment succeeded; Application 27.1.41698.41776 | 9/9 AL tests; E01 small/error HTTP checks passed, large-payload transport failed | Partial E01/E02/E03/E05/E13; no full compatibility claim |
+| BC27.1 | Build/deployment succeeded; Application 27.1.41698.41776 | 118/118 AL tests; 64 authorization checks; 10 live client scenarios; 4/4 MCP writes; E01 HTTP/1.0 passed | Passed for the qualified scope; original chunked-response failure remains documented below |
 
-Reconciled 2026-10-15 from `feature/platform-test-suites` / `documentation/PlatformTestSuitesPlan.md`:
+### Historical checkpoint (2026-10-15)
+
+The following checkpoint from `feature/platform-test-suites` / `documentation/PlatformTestSuitesPlan.md` predates the completed HTTP and intermediate-version qualification runs. Its pending gates are historical, not the current result ledger:
 
 - Six fixture tests cover composite rename identity/trigger behavior, field validation order, FlowFilter calculation, typed and generic Sum FlowField validation without persisted write-through in these fixtures, and child writes leaving the parent version unchanged. These results do not establish general FlowField writability or safe concurrency.
 - The BC23 baseline run was confirmed successful by the user after the MCP connection reset; do not invent exact runtime versions or detailed result counts.

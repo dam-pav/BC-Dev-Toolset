@@ -1,5 +1,4 @@
 # for comprehensive Keyname list see: https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/administration/configure-server-instance
-Clear-Host
 
 $scriptRoot = (get-item $PSScriptRoot).Parent
 . $scriptRoot/common/WorkspaceMgt.ps1
