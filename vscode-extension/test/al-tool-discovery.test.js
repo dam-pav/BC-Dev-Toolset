@@ -8,6 +8,7 @@ const vm = require('node:vm');
 const { createRequire } = require('node:module');
 const { discoverAlTool } = require('../al-tool-discovery');
 const { resolveWithinRoot } = require('../path-security');
+const inputs = require('../../bc-data/build-inputs.json');
 
 function fixture(t, files) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'al-discovery-'));
@@ -20,6 +21,13 @@ function fixture(t, files) {
   return root;
 }
 const help = () => 'Microsoft AL CLI tools\ncompile <args>';
+
+test('pinned build inputs use a literal module import instead of a constructed filesystem path', () => {
+  const filename = resolveWithinRoot(path.resolve(__dirname, '..'), 'test/al-tool-discovery.test.js');
+  const source = fs.readFileSync(filename, 'utf8'); // nosemgrep -- fixed test file contained in the repository extension root
+  assert.match(source, /const inputs = require\('\.\.\/\.\.\/bc-data\/build-inputs\.json'\);/);
+  assert.doesNotMatch(source, /fs\.readFileSync\([^\n]*path\.join\([^\n]*build-inputs/);
+});
 
 function loadWithDependencies(relative, dependencies) {
   const filename = resolveWithinRoot(path.resolve(__dirname, '..'), relative);
@@ -56,7 +64,6 @@ test('cold ALTool startup can use a longer bounded probe without changing the in
 
 test('CI companion discovery tolerates cold startup before attempting compilation', t => {
   const root = fixture(t, ['bin/altool.exe']);
-  const inputs = JSON.parse(fs.readFileSync(path.join(__dirname, '../../bc-data/build-inputs.json'), 'utf8'));
   fs.writeFileSync(resolveWithinRoot(root, 'package.json'), JSON.stringify({ // nosemgrep -- contained test-owned extension fixture
     publisher: 'ms-dynamics-smb', name: 'al', version: inputs.alExtensionVersion
   }));
