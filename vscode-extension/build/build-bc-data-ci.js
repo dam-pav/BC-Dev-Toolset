@@ -13,7 +13,8 @@ function buildCompanion(extensionPath) {
   const extensionRoot = authorizeRoot(extensionPath, 'Isolated Microsoft AL extension installation');
   const extension = JSON.parse(fs.readFileSync(resolveWithinRoot(extensionRoot, 'package.json'), 'utf8'));
   if (extension.publisher !== 'ms-dynamics-smb' || extension.name !== 'al' || extension.version !== inputs.alExtensionVersion) throw new Error('CI requires the pinned Microsoft AL extension.');
-  const tool = discoverAlTool(extensionRoot);
+  // A fresh hosted Windows runner can need more than five seconds for ALTool's first startup.
+  const tool = discoverAlTool(extensionRoot, { probeTimeoutMs: 60000 });
   const sourceRoot = resolveWithinRoot(repositoryRoot, 'al/BCData');
   const manifest = JSON.parse(fs.readFileSync(resolveWithinRoot(sourceRoot, 'app.json'), 'utf8'));
   const fileName = `${manifest.publisher}_${manifest.name}_${manifest.version}.app`;
