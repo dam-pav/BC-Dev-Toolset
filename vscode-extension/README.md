@@ -311,7 +311,7 @@ The default endpoint is `http://<container>:7048/BC/ODataV4`, tenant `default`. 
 
 #### Enable record changes
 
-Enable `bc_dev_toolset_data_mutate_records` in **Configure MCP Tools** and explicitly allow operations on each target, for example `"bcData": { "allowedMutationOperations": ["insert", "modify", "rename"] }`. An omitted or empty list permits no writes. Include `"delete"` separately to allow deletion. Each call specifies exactly one operation on one record.
+Enable `bc_dev_toolset_data_mutate_records` in **Configure MCP Tools** and allow operations on each target. Set `"bcData": { "allowedAllMutationOperations": true }` to permit insert, modify, rename and delete. This boolean defaults to false; when true it takes priority over `allowedMutationOperations`, whose value is ignored. When false or omitted, use the list to allow a subset, for example `"bcData": { "allowedMutationOperations": ["insert", "modify", "rename"] }`; an omitted or empty list permits no writes, and adding `"delete"` permits deletion. The override requires a JSON boolean, not a string. Each call specifies exactly one operation on one record; the tool switch and native BC permissions are still required.
 
 Writes require companion 0.1.10.0 mutation protocol 1, published `BCDDataWrite`, **BCD DATA WRITE** (or equivalent grants) and the user's native business/related-table permissions. Initialization does not assign these rights. **BCD DATA EXECUTE** only grants read-service execution. A readiness mutation capability describes server support, not permission to write.
 

@@ -26,15 +26,17 @@ function createDataRuntime({ getConfigurations, getToolSettings, createClient, g
       throw error('invalid_configuration', 'This BC Data slice requires a named development container with UserPassword authentication.');
     }
     const settings = value.bcData || {};
-    if (!settings || typeof settings !== 'object' || Array.isArray(settings) || Object.keys(settings).some(key => !['baseUrl', 'tenant', 'provisioningEnabled', 'allowedMutationOperations'].includes(key)) ||
-        (settings.provisioningEnabled !== undefined && typeof settings.provisioningEnabled !== 'boolean')) {
-      throw error('invalid_configuration', 'bcData accepts baseUrl, tenant, boolean provisioningEnabled and allowedMutationOperations.');
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings) || Object.keys(settings).some(key => !['baseUrl', 'tenant', 'provisioningEnabled', 'allowedAllMutationOperations', 'allowedMutationOperations'].includes(key)) ||
+        (settings.provisioningEnabled !== undefined && typeof settings.provisioningEnabled !== 'boolean') ||
+        (settings.allowedAllMutationOperations !== undefined && typeof settings.allowedAllMutationOperations !== 'boolean')) {
+      throw error('invalid_configuration', 'bcData accepts baseUrl, tenant, boolean provisioningEnabled, boolean allowedAllMutationOperations and allowedMutationOperations.');
     }
-    const permitted = settings.allowedMutationOperations === undefined ? [] : settings.allowedMutationOperations;
+    const permitted = settings.allowedAllMutationOperations === true ? Object.keys(mutationMethods)
+      : settings.allowedMutationOperations === undefined ? [] : settings.allowedMutationOperations;
     if (!Array.isArray(permitted) || new Set(permitted).size !== permitted.length || permitted.some(item => typeof item !== 'string' || !Object.hasOwn(mutationMethods, item))) {
       throw error('invalid_configuration', 'bcData.allowedMutationOperations must be a unique list of insert, modify, rename and delete.');
     }
-    if (operation !== undefined && !permitted.includes(operation)) throw error('disabled', 'This mutation operation is not enabled in the connection bcData.allowedMutationOperations.');
+    if (operation !== undefined && !permitted.includes(operation)) throw error('disabled', 'This mutation operation is not enabled by the connection bcData.allowedAllMutationOperations or bcData.allowedMutationOperations.');
     // Custom endpoint is explicit configuration, never a tool argument. Retain
     // configured endpoint/tenant/principal in cursor scope, not filesystem data.
     const baseUrl = settings.baseUrl ?? `http://${value.container}:7048/BC/ODataV4`;

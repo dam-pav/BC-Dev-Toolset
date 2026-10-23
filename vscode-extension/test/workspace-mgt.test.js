@@ -623,7 +623,7 @@ test('runtime synchronization state includes an explicit content revision', () =
     path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
 
   const revision = Number(extensionSource.match(/const runtimeToolsetRevision = (\d+);/)?.[1]);
-  assert.equal(revision, 42, 'Bundled runtime changes must increment the synchronization revision');
+  assert.equal(revision, 43, 'Bundled runtime changes must increment the synchronization revision');
   assert.match(extensionSource, /`\$\{extensionVersion\}\.\$\{runtimeToolsetRevision\}\|\$\{getToolsetPath\(\)\}`/);
 });
 

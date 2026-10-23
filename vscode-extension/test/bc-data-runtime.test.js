@@ -265,6 +265,52 @@ test('operation policy reaches the real mutation client and is rechecked for eac
   assert.equal((await f.runtime.call('bc_dev_toolset_data_list_companies', { connectionId: 'Test A' })).isError, false);
 });
 
+test('allowedAllMutationOperations admits all four operations and overrides any operation list', async () => {
+  const base = { connectionId: 'Test A', companyId, tableId: 50221 };
+  const existing = { ...base, systemId: companyId, expectedVersion: '1' };
+  const fields = [{ fieldId: 4, value: '4' }];
+  const requests = { insert: { ...base, fields }, modify: { ...existing, fields }, rename: { ...existing, primaryKey: fields }, delete: existing };
+  for (const allowedMutationOperations of [undefined, [], ['modify'], ['insert', 'modify', 'rename', 'delete'], null, 'ignored', ['upsert']]) {
+    for (const [operation, request] of Object.entries(requests)) {
+      const f = fixture();
+      f.configurations[0].bcData = { allowedAllMutationOperations: true, allowedMutationOperations };
+      const result = await f.runtime.call('bc_dev_toolset_data_mutate_records', { ...request, operation });
+      // Reaching the read-only companion proves connection policy admitted the operation.
+      assert.equal(result.structuredContent.error.category, 'incompatible_app');
+      assert.equal(f.requests.length, 1);
+    }
+  }
+});
+
+test('all-operations override requires a boolean and is rechecked before credentials or HTTP', async () => {
+  let credentials = 0;
+  const f = fixture({ getStoredCredential: () => { credentials++; return { username: 'fixture', password: 'secret' }; } });
+  f.configurations[0].bcCredential = true;
+  const request = { operation: 'delete', connectionId: 'Test A', companyId, tableId: 50221, systemId: companyId, expectedVersion: '1' };
+  for (const allowedAllMutationOperations of [null, 'true', 'false', 1, 0, [], {}]) {
+    f.configurations[0].bcData = { allowedAllMutationOperations, allowedMutationOperations: ['delete'] };
+    assert.equal((await f.runtime.call('bc_dev_toolset_data_mutate_records', request)).structuredContent.error.category, 'invalid_configuration');
+  }
+  assert.equal(credentials, 0);
+  assert.equal(f.requests.length, 0);
+  f.configurations[0].bcData = { allowedAllMutationOperations: true, allowedMutationOperations: ['modify'] };
+  assert.equal((await f.runtime.call('bc_dev_toolset_data_mutate_records', request)).structuredContent.error.category, 'incompatible_app');
+  for (const allowedAllMutationOperations of [false, undefined]) {
+    f.configurations[0].bcData.allowedAllMutationOperations = allowedAllMutationOperations;
+    assert.equal((await f.runtime.call('bc_dev_toolset_data_mutate_records', request)).structuredContent.error.category, 'disabled');
+    f.configurations[0].bcData.allowedMutationOperations = ['delete'];
+    assert.equal((await f.runtime.call('bc_dev_toolset_data_mutate_records', request)).structuredContent.error.category, 'incompatible_app');
+    f.configurations[0].bcData.allowedMutationOperations = ['modify'];
+  }
+  assert.equal(credentials, 3);
+  assert.equal(f.requests.length, 3);
+  f.configurations[0].bcData.allowedAllMutationOperations = true;
+  f.setSettings({ bc_dev_toolset_data_mutate_records: false });
+  assert.equal((await f.runtime.call('bc_dev_toolset_data_mutate_records', request)).structuredContent.error.category, 'disabled');
+  assert.equal(credentials, 3);
+  assert.equal(f.requests.length, 3);
+});
+
 test('real MCP process dispatches all four mutations through one plural tool and rejects mixed inputs before forwarding', { timeout: 10000 }, async t => {
   const calls = [];
   const methods = { insert: 'insertRecord', modify: 'modifyRecord', rename: 'renameRecord', delete: 'deleteRecord' };

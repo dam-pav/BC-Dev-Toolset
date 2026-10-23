@@ -185,17 +185,55 @@ test('explicit initialization and automatic provisioning accept valid mutation a
   assert.equal(result.published, 0);
 });
 
-test('invalid mutation allowlists fail before initialization or automatic provisioning accesses the container', () => {
+test('initialization and provisioning accept the all-operations override and ignore redundant lists', () => {
+  const result = run(fixture + `
+    $results=@()
+    foreach($json in @('{}','{"allowedMutationOperations":[]}','{"allowedMutationOperations":["modify"]}',
+      '{"allowedMutationOperations":["insert","modify","rename","delete"]}',
+      '{"allowedMutationOperations":null}','{"allowedMutationOperations":"ignored"}','{"allowedMutationOperations":["upsert"]}')) {
+      $data=ConvertFrom-Json $json
+      $data|Add-Member NoteProperty allowedAllMutationOperations $true
+      $data|Add-Member NoteProperty provisioningEnabled $true
+      $config|Add-Member NoteProperty bcData $data -Force
+      $results+=Initialize-BcDataCompanion -ToolsetRoot 'fixed' -Configuration $config 6>$null
+      Sync-ConfiguredBcData -ToolsetRoot 'fixed' -Configuration $config 6>$null
+    }
+    @{actions=@($results.Action);reads=$script:reads;published=$script:published.Count}|ConvertTo-Json -Compress
+  `);
+  assert.deepEqual(result.actions, Array(7).fill('unchanged'));
+  assert.equal(result.reads, 14);
+  assert.equal(result.published, 0);
+});
+
+test('nonboolean all-operations overrides fail before initialization or provisioning accesses the container', () => {
   const result = run(fixture + `
     $errors=@()
-    foreach($json in @('null','true','"delete"','["upsert"]','["delete","delete"]','[1]','[{}]','["Delete"]')) {
-      $config|Add-Member NoteProperty bcData (ConvertFrom-Json ('{"provisioningEnabled":true,"allowedMutationOperations":'+$json+'}')) -Force
+    foreach($json in @('null','"true"','"false"','1','0','[]','{}')) {
+      $config|Add-Member NoteProperty bcData (ConvertFrom-Json ('{"provisioningEnabled":true,"allowedMutationOperations":["delete"],"allowedAllMutationOperations":'+$json+'}')) -Force
       try{Initialize-BcDataCompanion -ToolsetRoot 'fixed' -Configuration $config|Out-Null}catch{$errors+=$_.Exception.Message}
       try{Sync-ConfiguredBcData -ToolsetRoot 'fixed' -Configuration $config}catch{$errors+=$_.Exception.Message}
     }
     @{errors=$errors;reads=$script:reads;published=$script:published.Count}|ConvertTo-Json -Compress
   `);
-  assert.equal(result.errors.length, 16);
+  assert.equal(result.errors.length, 14);
+  assert.ok(result.errors.every(message => /allowedAllMutationOperations must be a boolean/.test(message)));
+  assert.equal(result.reads, 0);
+  assert.equal(result.published, 0);
+});
+
+test('invalid mutation allowlists fail before initialization or automatic provisioning accesses the container', () => {
+  const result = run(fixture + `
+    $errors=@()
+    foreach($override in @('', ',"allowedAllMutationOperations":false')) {
+      foreach($json in @('null','true','"delete"','["upsert"]','["delete","delete"]','[1]','[{}]','["Delete"]')) {
+        $config|Add-Member NoteProperty bcData (ConvertFrom-Json ('{"provisioningEnabled":true,"allowedMutationOperations":'+$json+$override+'}')) -Force
+        try{Initialize-BcDataCompanion -ToolsetRoot 'fixed' -Configuration $config|Out-Null}catch{$errors+=$_.Exception.Message}
+        try{Sync-ConfiguredBcData -ToolsetRoot 'fixed' -Configuration $config}catch{$errors+=$_.Exception.Message}
+      }
+    }
+    @{errors=$errors;reads=$script:reads;published=$script:published.Count}|ConvertTo-Json -Compress
+  `);
+  assert.equal(result.errors.length, 32);
   assert.ok(result.errors.every(message => /allowedMutationOperations must be a unique list/.test(message)));
   assert.equal(result.reads, 0);
   assert.equal(result.published, 0);
@@ -364,4 +402,8 @@ test('initialization metadata, command, switches and scopes are aligned', () => 
   const container = config => config.allOf.find(rule => rule.if?.properties?.serverType?.const === 'Container').then.properties.bcData;
   assert.deepEqual(container(shared.configurations.items), container(local.definitions.configuration));
   assert.equal(container(local.definitions.configuration).properties.provisioningEnabled.default, false);
+  assert.deepEqual(container(local.definitions.configuration).properties.allowedAllMutationOperations, {
+    type: 'boolean', default: false,
+    description: 'Permit insert, modify, rename and delete on this connection when true, overriding allowedMutationOperations. False or omitted uses that list. Also requires the mutation MCP tool switch and native BC permissions.'
+  });
 });

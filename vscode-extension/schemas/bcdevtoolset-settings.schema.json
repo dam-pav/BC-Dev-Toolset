@@ -355,7 +355,7 @@
         "bc_dev_toolset_data_mutate_records": {
           "type": "boolean",
           "default": false,
-          "description": "Single-record development-container mutation. Explicitly enable this tool; initialize companion mutation protocol1/service BCDDataWrite and grant BCD DATA WRITE plus native target/trigger table permissions. Native validation and triggers always run. One call owns one five-minute request scope and permits one identical in-call retry after uncertain transport; commands are never queued across calls. An unknown outcome requires reconciliation, never blind repetition or a fresh version. Receipt guarantees cover this database transaction and uninterrupted history, not external trigger effects or restore/copy. Execute exactly one insert, modify, rename or delete, explicitly allowed by the connection bcData.allowedMutationOperations list (empty by default). Insert requires1-50 ordered fields and generates SystemId. Modify requires SystemId, expectedVersion and1-50 ordered fields; omitted fields remain unchanged. Rename requires SystemId, expectedVersion and every primaryKey field in key order (up to16; only three-part GUID/Code/Integer fixture qualified). Delete requires SystemId and expectedVersion and returns minimal acknowledgement without deleted values or post-delete version. Other successes return persisted requested values/SystemId/version. Decimal/BigInteger are strings; enum/option are integer ordinals. Null, system/content assignments and unqualified FlowField writes are rejected. Native relation/trigger permissions apply; arbitrary cascades and other key arities remain unqualified. Reject arguments belonging to another operation."
+          "description": "Single-record development-container mutation. Explicitly enable this tool; initialize companion mutation protocol1/service BCDDataWrite and grant BCD DATA WRITE plus native target/trigger table permissions. Native validation and triggers always run. One call owns one five-minute request scope and permits one identical in-call retry after uncertain transport; commands are never queued across calls. An unknown outcome requires reconciliation, never blind repetition or a fresh version. Receipt guarantees cover this database transaction and uninterrupted history, not external trigger effects or restore/copy. Execute exactly one insert, modify, rename or delete, permitted by bcData.allowedAllMutationOperations=true or the connection bcData.allowedMutationOperations list (empty by default). The boolean defaults to false; true overrides the list and permits all four operations. Insert requires1-50 ordered fields and generates SystemId. Modify requires SystemId, expectedVersion and1-50 ordered fields; omitted fields remain unchanged. Rename requires SystemId, expectedVersion and every primaryKey field in key order (up to16; only three-part GUID/Code/Integer fixture qualified). Delete requires SystemId and expectedVersion and returns minimal acknowledgement without deleted values or post-delete version. Other successes return persisted requested values/SystemId/version. Decimal/BigInteger are strings; enum/option are integer ordinals. Null, system/content assignments and unqualified FlowField writes are rejected. Native relation/trigger permissions apply; arbitrary cascades and other key arities remain unqualified. Reject arguments belonging to another operation."
         }
       },
       "additionalProperties": {
@@ -656,6 +656,11 @@
                     "default": false,
                     "description": "Maintain the bundled companion during container creation/start and test preparation. Does not expose data tools. Disabling preserves the installed app."
                   },
+                  "allowedAllMutationOperations": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Permit insert, modify, rename and delete on this connection when true, overriding allowedMutationOperations. False or omitted uses that list. Also requires the mutation MCP tool switch and native BC permissions."
+                  },
                   "allowedMutationOperations": {
                     "type": "array",
                     "uniqueItems": true,
@@ -669,7 +674,7 @@
                         "delete"
                       ]
                     },
-                    "description": "Explicitly permitted mutation operations for this connection. Empty or omitted disables all writes. Also requires the mutation MCP tool switch and native BC permissions."
+                    "description": "Explicitly permitted mutation operations for this connection. Ignored when allowedAllMutationOperations is true; otherwise empty or omitted disables all writes. Also requires the mutation MCP tool switch and native BC permissions."
                   }
                 }
               }
