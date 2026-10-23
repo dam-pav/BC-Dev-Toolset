@@ -379,8 +379,8 @@
       {
         "promptId": "bcData.connectionId",
         "inputName": "connectionId",
-        "type": "text",
-        "question": "Exact configuration name of the Dev/Test container to initialize",
+        "type": "choice",
+        "question": "Select the Dev container configuration to initialize",
         "inputSchema": {
           "type": "string",
           "minLength": 1,

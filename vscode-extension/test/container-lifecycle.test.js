@@ -56,6 +56,41 @@ test('starts stopped containers, restarts unhealthy containers once, and leaves 
   assert.ok(calls.every(args => !args.includes('unrelated')));
 });
 
+test('announces each container before inspection and retains ready, skipped, and failure reports', () => {
+  const result = run(`
+    $script:events = @()
+    function Write-Host { param($Object) $script:events += [string]$Object }
+    function Get-ConfiguredContainerState {
+      param($ContainerName)
+      $script:events += "inspect:$ContainerName"
+      if (-not $script:states.ContainsKey($ContainerName)) { throw 'No such container' }
+      return $script:states[$ContainerName]
+    }
+    $script:states = @{
+      ready=@{Status='running';Health=@{Status='healthy'}};
+      stopped=@{Status='exited'}; sick=@{Status='running';Health=@{Status='unhealthy'}};
+      paused=@{Status='paused'}
+    }
+    $settings = @{configurations=@('ready','ready','stopped','sick','missing','paused' | ForEach-Object {
+      @{serverType='Container';container=$_}
+    })}
+    $message = ''
+    try { Ensure-ConfiguredContainers $settings -SkipMissing } catch { $message=$_.Exception.Message }
+    @{Events=$script:events;Message=$message} | ConvertTo-Json -Depth 5 -Compress
+  `);
+  for (const name of ['ready', 'stopped', 'sick', 'missing', 'paused']) {
+    const announcement = `Checking container '${name}'...`;
+    assert.equal(result.Events.filter(event => event === announcement).length, 1);
+    assert.equal(result.Events[result.Events.indexOf(announcement) + 1], `inspect:${name}`);
+  }
+  assert.ok(result.Events.some(event => /Container 'ready':.*action=None;.*ready\./.test(event)));
+  assert.ok(result.Events.some(event => /Container 'stopped':.*action=Start;.*ready\./.test(event)));
+  assert.ok(result.Events.some(event => /Container 'sick':.*action=Restart;.*ready\./.test(event)));
+  assert.ok(result.Events.includes("Container 'missing': missing; skipped."));
+  assert.ok(result.Events.some(event => /Container 'paused':.*failed:/.test(event)));
+  assert.match(result.Message, /not ready: paused/);
+});
+
 test('missing, paused, and timed-out containers fail overall while remaining targets are recovered', () => {
   const result = run(`
     $script:states = @{paused=@{Status='paused'}; pending=@{Status='running';Health=@{Status='starting'}};

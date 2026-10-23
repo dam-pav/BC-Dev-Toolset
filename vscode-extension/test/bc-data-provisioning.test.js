@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const http = require('node:http');
 const { spawnSync, spawn } = require('node:child_process');
+const { authorizeRoot, resolveWithinRoot } = require('../path-security');
 const helper = path.resolve(__dirname, '../../common/BcDataMgt.ps1');
 const quote = value => "'" + value.replaceAll("'", "''") + "'";
 test('companion objects reserve 99100..99149 independently of the test app range', () => {
@@ -51,6 +52,93 @@ const fixture = `
   }
   function Get-BcDataInitializationReadiness { param($Configuration,$Credential,$Expected) [pscustomobject]@{contractVersion=1;appVersion=$script:readinessVersion} }
 `;
+const selectionFixture = `
+  . ${quote(path.resolve(__dirname, '../../common/WorkspaceMgt.ps1'))}
+  $settings = @{configurations=@(
+    @{name='First';serverType='Container';targetType='Dev';container='bc-first'},
+    @{name='Tests';serverType='Container';targetType='Test';container='bc-tests'},
+    @{name='Production';serverType='Container';targetType='Production';container='bc-prod'},
+    @{name='Remote';serverType='OnPrem';targetType='Dev';container='bc-remote'},
+    @{name='Cloud';serverType='Cloud';targetType='Dev';container='bc-cloud'},
+    @{name='Blank';serverType='Container';targetType='Dev';container=' '},
+    @{name='Second';serverType='Container';targetType='Dev';container='bc-second'}
+  )}
+  $script:prompts=@(); $script:output=@()
+  function Write-Host { param($Object,$ForegroundColor) $script:output += [string]$Object }
+  function Request-BcDevToolsetMcpPrompt {
+    param($PromptId,$Type,$Question,$Choices,$DefaultValue,$Risk,$AgentAllowed)
+    $script:prompts += @{id=$PromptId;type=$Type;choices=$Choices}
+    return $script:answer
+  }
+`;
+
+test('BC Data initialization selection never assigns to the automatic Matches variable', () => {
+  const result = run(`
+    $assignments=@(
+      \${function:Select-BcDataInitializationConfiguration}.Ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $node.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+        $node.Left.VariablePath.UserPath -ieq 'Matches'
+      }, $true)
+    )
+    @{assignments=$assignments.Count}|ConvertTo-Json -Compress
+  `);
+  assert.equal(result.assignments, 0);
+});
+
+test('BC Data initialization presents numbered Dev containers and selects without typing a name', () => {
+  const result = run(selectionFixture + `
+    $script:answer=$null; $script:inputs=@('invalid','3','2'); $script:inputIndex=0
+    function Read-Host { param($Prompt) $script:inputs[$script:inputIndex++] }
+    $selected=Select-BcDataInitializationConfiguration $settings
+    @{name=$selected.name;container=$selected.container;output=$script:output;prompts=$script:prompts}|ConvertTo-Json -Depth 6 -Compress
+  `);
+  assert.equal(result.name, 'Second');
+  assert.equal(result.container, 'bc-second');
+  assert.ok(result.output.some(line => line.startsWith('[1] First (bc-first)')));
+  assert.ok(result.output.some(line => line.startsWith('[2] Second (bc-second)')));
+  assert.ok(!result.output.some(line => /Tests|Production|Remote|Cloud|Blank/.test(line)));
+  assert.deepEqual(result.prompts[0], { id: 'bcData.connectionId', type: 'choice', choices: ['First', 'Second'] });
+});
+
+test('BC Data initialization MCP choices reject Test, Production, remote, missing and inexact targets', () => {
+  const result = run(selectionFixture + `
+    function Select-IndexFromList { throw 'Unexpected terminal selection' }
+    $results=@()
+    foreach($answer in @('First','Second','Tests','Production','Remote','Cloud','Blank','Missing','first','')) {
+      $script:answer=$answer
+      try { $selected=Select-BcDataInitializationConfiguration $settings; $results+=@{name=$selected.name} }
+      catch { $results+=@{error=$_.Exception.Message} }
+    }
+    ConvertTo-Json -InputObject $results -Depth 5 -Compress
+  `);
+  assert.deepEqual(result.slice(0, 2), [{ name: 'First' }, { name: 'Second' }]);
+  assert.ok(result.slice(2).every(item => /unique Dev Container configuration name/.test(item.error)));
+});
+
+test('BC Data initialization handles a single Dev choice and rejects absent or ambiguous choices before prompting', () => {
+  const result = run(selectionFixture + `
+    $script:answer=$null
+    function Read-Host { param($Prompt) '' }
+    $single=Select-BcDataInitializationConfiguration @{configurations=@($settings.configurations[0])}
+    $script:prompts=@(); $errors=@()
+    foreach($configurations in @(
+      @($settings.configurations[1]),
+      @($settings.configurations[0],$settings.configurations[0]),
+      @($settings.configurations[0],@{name='first';serverType='Container';targetType='Test';container='other'})
+    )) {
+      try { Select-BcDataInitializationConfiguration @{configurations=$configurations}|Out-Null }
+      catch { $errors+=$_.Exception.Message }
+    }
+    @{single=$single.name;errors=$errors;prompts=$script:prompts.Count}|ConvertTo-Json -Depth 5 -Compress
+  `);
+  assert.equal(result.single, 'First');
+  assert.match(result.errors[0], /No Dev Container configurations/);
+  assert.ok(result.errors.slice(1).every(error => /unique configuration name/.test(error)));
+  assert.equal(result.prompts, 0);
+});
+
 test('explicit initialization installs absent, upgrades older and preserves compatible equal/newer companions', () => {
   const result = run(fixture + `
     $results=@()
@@ -113,17 +201,55 @@ test('explicit initialization and automatic provisioning accept valid mutation a
   assert.equal(result.published, 0);
 });
 
-test('invalid mutation allowlists fail before initialization or automatic provisioning accesses the container', () => {
+test('initialization and provisioning accept the all-operations override and ignore redundant lists', () => {
+  const result = run(fixture + `
+    $results=@()
+    foreach($json in @('{}','{"allowedMutationOperations":[]}','{"allowedMutationOperations":["modify"]}',
+      '{"allowedMutationOperations":["insert","modify","rename","delete"]}',
+      '{"allowedMutationOperations":null}','{"allowedMutationOperations":"ignored"}','{"allowedMutationOperations":["upsert"]}')) {
+      $data=ConvertFrom-Json $json
+      $data|Add-Member NoteProperty allowedAllMutationOperations $true
+      $data|Add-Member NoteProperty provisioningEnabled $true
+      $config|Add-Member NoteProperty bcData $data -Force
+      $results+=Initialize-BcDataCompanion -ToolsetRoot 'fixed' -Configuration $config 6>$null
+      Sync-ConfiguredBcData -ToolsetRoot 'fixed' -Configuration $config 6>$null
+    }
+    @{actions=@($results.Action);reads=$script:reads;published=$script:published.Count}|ConvertTo-Json -Compress
+  `);
+  assert.deepEqual(result.actions, Array(7).fill('unchanged'));
+  assert.equal(result.reads, 14);
+  assert.equal(result.published, 0);
+});
+
+test('nonboolean all-operations overrides fail before initialization or provisioning accesses the container', () => {
   const result = run(fixture + `
     $errors=@()
-    foreach($json in @('null','true','"delete"','["upsert"]','["delete","delete"]','[1]','[{}]','["Delete"]')) {
-      $config|Add-Member NoteProperty bcData (ConvertFrom-Json ('{"provisioningEnabled":true,"allowedMutationOperations":'+$json+'}')) -Force
+    foreach($json in @('null','"true"','"false"','1','0','[]','{}')) {
+      $config|Add-Member NoteProperty bcData (ConvertFrom-Json ('{"provisioningEnabled":true,"allowedMutationOperations":["delete"],"allowedAllMutationOperations":'+$json+'}')) -Force
       try{Initialize-BcDataCompanion -ToolsetRoot 'fixed' -Configuration $config|Out-Null}catch{$errors+=$_.Exception.Message}
       try{Sync-ConfiguredBcData -ToolsetRoot 'fixed' -Configuration $config}catch{$errors+=$_.Exception.Message}
     }
     @{errors=$errors;reads=$script:reads;published=$script:published.Count}|ConvertTo-Json -Compress
   `);
-  assert.equal(result.errors.length, 16);
+  assert.equal(result.errors.length, 14);
+  assert.ok(result.errors.every(message => /allowedAllMutationOperations must be a boolean/.test(message)));
+  assert.equal(result.reads, 0);
+  assert.equal(result.published, 0);
+});
+
+test('invalid mutation allowlists fail before initialization or automatic provisioning accesses the container', () => {
+  const result = run(fixture + `
+    $errors=@()
+    foreach($override in @('', ',"allowedAllMutationOperations":false')) {
+      foreach($json in @('null','true','"delete"','["upsert"]','["delete","delete"]','[1]','[{}]','["Delete"]')) {
+        $config|Add-Member NoteProperty bcData (ConvertFrom-Json ('{"provisioningEnabled":true,"allowedMutationOperations":'+$json+$override+'}')) -Force
+        try{Initialize-BcDataCompanion -ToolsetRoot 'fixed' -Configuration $config|Out-Null}catch{$errors+=$_.Exception.Message}
+        try{Sync-ConfiguredBcData -ToolsetRoot 'fixed' -Configuration $config}catch{$errors+=$_.Exception.Message}
+      }
+    }
+    @{errors=$errors;reads=$script:reads;published=$script:published.Count}|ConvertTo-Json -Compress
+  `);
+  assert.equal(result.errors.length, 32);
   assert.ok(result.errors.every(message => /allowedMutationOperations must be a unique list/.test(message)));
   assert.equal(result.reads, 0);
   assert.equal(result.published, 0);
@@ -279,6 +405,17 @@ test('initialization metadata, command, switches and scopes are aligned', () => 
   const local = require('../schemas/bcdevtoolset-settings.schema.json');
   const shared = pkg.contributes.configuration.find(group => group.properties.bcDevToolset).properties.bcDevToolset.properties;
   assert.equal(metadata.script, 'operations/InitializeBcData.ps1');
+  const selection = metadata.promptInputs.find(input => input.promptId === 'bcData.connectionId');
+  assert.equal(selection.type, 'choice');
+  assert.match(selection.question, /Dev container/);
+  const repositoryRoot = authorizeRoot(path.resolve(__dirname, '../..'), 'Repository root');
+  const operationPath = resolveWithinRoot(repositoryRoot, 'operations', 'InitializeBcData.ps1');
+  assert.throws(() => resolveWithinRoot(repositoryRoot, '..', 'InitializeBcData.ps1'), /escapes its authorized root/);
+  // Fixed repository source; resolveWithinRoot enforces path.relative containment before this read.
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed source path validated within the authorized repository root
+  const operation = fs.readFileSync(operationPath, 'utf8'); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
+  assert.match(operation, /Select-BcDataInitializationConfiguration -SettingsJSON \$settingsJSON/);
+  assert.doesNotMatch(operation, /Read-Host/);
   assert.ok(pkg.activationEvents.includes('onCommand:bcDevToolset.operation.initializeBcData'));
   assert.ok(pkg.contributes.commands.some(command => command.command === 'bcDevToolset.operation.initializeBcData'));
   assert.equal(shared.mcpTools.properties.bc_dev_toolset_initialize_bc_data.default, false);
@@ -286,4 +423,8 @@ test('initialization metadata, command, switches and scopes are aligned', () => 
   const container = config => config.allOf.find(rule => rule.if?.properties?.serverType?.const === 'Container').then.properties.bcData;
   assert.deepEqual(container(shared.configurations.items), container(local.definitions.configuration));
   assert.equal(container(local.definitions.configuration).properties.provisioningEnabled.default, false);
+  assert.deepEqual(container(local.definitions.configuration).properties.allowedAllMutationOperations, {
+    type: 'boolean', default: false,
+    description: 'Permit insert, modify, rename and delete on this connection when true, overriding allowedMutationOperations. False or omitted uses that list. Also requires the mutation MCP tool switch and native BC permissions.'
+  });
 });

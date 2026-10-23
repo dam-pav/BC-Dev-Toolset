@@ -51,6 +51,7 @@ function Ensure-ConfiguredContainers {
 
     $failed = @()
     foreach ($name in $names) {
+        Write-Host "Checking container '$name'..."
         $action = 'None'
         try {
             try {
