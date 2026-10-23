@@ -24,11 +24,11 @@ function Select-BcDataInitializationConfiguration {
             -Options @($configurations | ForEach-Object { "$($_.name) ($($_.container))" })
         return $configurations[$index]
     }
-    $matches = @($configurations | Where-Object { $_.name -ceq $connectionId })
-    if ($matches.Count -ne 1) {
+    $selectedConfigurations = @($configurations | Where-Object { $_.name -ceq $connectionId })
+    if ($selectedConfigurations.Count -ne 1) {
         throw 'Choose an exact unique Dev Container configuration name from the available options. No target was changed.'
     }
-    return $matches[0]
+    return $selectedConfigurations[0]
 }
 
 function Assert-BcDataConfiguration {

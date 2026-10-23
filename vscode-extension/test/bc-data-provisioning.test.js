@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const http = require('node:http');
 const { spawnSync, spawn } = require('node:child_process');
+const { authorizeRoot, resolveWithinRoot } = require('../path-security');
 const helper = path.resolve(__dirname, '../../common/BcDataMgt.ps1');
 const quote = value => "'" + value.replaceAll("'", "''") + "'";
 test('companion objects reserve 99100..99149 independently of the test app range', () => {
@@ -70,6 +71,21 @@ const selectionFixture = `
     return $script:answer
   }
 `;
+
+test('BC Data initialization selection never assigns to the automatic Matches variable', () => {
+  const result = run(`
+    $assignments=@(
+      \${function:Select-BcDataInitializationConfiguration}.Ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $node.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+        $node.Left.VariablePath.UserPath -ieq 'Matches'
+      }, $true)
+    )
+    @{assignments=$assignments.Count}|ConvertTo-Json -Compress
+  `);
+  assert.equal(result.assignments, 0);
+});
 
 test('BC Data initialization presents numbered Dev containers and selects without typing a name', () => {
   const result = run(selectionFixture + `
@@ -392,7 +408,12 @@ test('initialization metadata, command, switches and scopes are aligned', () => 
   const selection = metadata.promptInputs.find(input => input.promptId === 'bcData.connectionId');
   assert.equal(selection.type, 'choice');
   assert.match(selection.question, /Dev container/);
-  const operation = fs.readFileSync(path.resolve(__dirname, '../../operations/InitializeBcData.ps1'), 'utf8');
+  const repositoryRoot = authorizeRoot(path.resolve(__dirname, '../..'), 'Repository root');
+  const operationPath = resolveWithinRoot(repositoryRoot, 'operations', 'InitializeBcData.ps1');
+  assert.throws(() => resolveWithinRoot(repositoryRoot, '..', 'InitializeBcData.ps1'), /escapes its authorized root/);
+  // Fixed repository source; resolveWithinRoot enforces path.relative containment before this read.
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed source path validated within the authorized repository root
+  const operation = fs.readFileSync(operationPath, 'utf8'); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
   assert.match(operation, /Select-BcDataInitializationConfiguration -SettingsJSON \$settingsJSON/);
   assert.doesNotMatch(operation, /Read-Host/);
   assert.ok(pkg.activationEvents.includes('onCommand:bcDevToolset.operation.initializeBcData'));
