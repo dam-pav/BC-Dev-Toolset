@@ -1,5 +1,36 @@
 . (Join-Path $PSScriptRoot 'BcDataPackage.ps1')
 
+function Select-BcDataInitializationConfiguration {
+    param($SettingsJSON)
+
+    $configurations = @($SettingsJSON.configurations | Where-Object {
+        $_.serverType -eq 'Container' -and $_.targetType -eq 'Dev' -and
+        -not [string]::IsNullOrWhiteSpace($_.name) -and
+        -not [string]::IsNullOrWhiteSpace($_.container)
+    })
+    if ($configurations.Count -eq 0) {
+        throw 'No Dev Container configurations with a name and container found. No target was changed.'
+    }
+    foreach ($configuration in $configurations) {
+        if (@($SettingsJSON.configurations | Where-Object name -eq $configuration.name).Count -ne 1) {
+            throw 'Choose an exact unique configuration name. No target was changed.'
+        }
+    }
+
+    $connectionId = Request-BcDevToolsetMcpPrompt -PromptId 'bcData.connectionId' -Type 'choice' `
+        -Question 'Select the Dev container configuration to initialize' -Choices @($configurations.name)
+    if ($null -eq $connectionId) {
+        $index = Select-IndexFromList -Title 'Select the Dev container to initialize BC Data on:' `
+            -Options @($configurations | ForEach-Object { "$($_.name) ($($_.container))" })
+        return $configurations[$index]
+    }
+    $matches = @($configurations | Where-Object { $_.name -ceq $connectionId })
+    if ($matches.Count -ne 1) {
+        throw 'Choose an exact unique Dev Container configuration name from the available options. No target was changed.'
+    }
+    return $matches[0]
+}
+
 function Assert-BcDataConfiguration {
     param($Configuration)
     if ($Configuration.serverType -ne 'Container' -or $Configuration.targetType -notin @('Dev','Test') -or

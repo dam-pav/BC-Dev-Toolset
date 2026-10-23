@@ -51,6 +51,78 @@ const fixture = `
   }
   function Get-BcDataInitializationReadiness { param($Configuration,$Credential,$Expected) [pscustomobject]@{contractVersion=1;appVersion=$script:readinessVersion} }
 `;
+const selectionFixture = `
+  . ${quote(path.resolve(__dirname, '../../common/WorkspaceMgt.ps1'))}
+  $settings = @{configurations=@(
+    @{name='First';serverType='Container';targetType='Dev';container='bc-first'},
+    @{name='Tests';serverType='Container';targetType='Test';container='bc-tests'},
+    @{name='Production';serverType='Container';targetType='Production';container='bc-prod'},
+    @{name='Remote';serverType='OnPrem';targetType='Dev';container='bc-remote'},
+    @{name='Cloud';serverType='Cloud';targetType='Dev';container='bc-cloud'},
+    @{name='Blank';serverType='Container';targetType='Dev';container=' '},
+    @{name='Second';serverType='Container';targetType='Dev';container='bc-second'}
+  )}
+  $script:prompts=@(); $script:output=@()
+  function Write-Host { param($Object,$ForegroundColor) $script:output += [string]$Object }
+  function Request-BcDevToolsetMcpPrompt {
+    param($PromptId,$Type,$Question,$Choices,$DefaultValue,$Risk,$AgentAllowed)
+    $script:prompts += @{id=$PromptId;type=$Type;choices=$Choices}
+    return $script:answer
+  }
+`;
+
+test('BC Data initialization presents numbered Dev containers and selects without typing a name', () => {
+  const result = run(selectionFixture + `
+    $script:answer=$null; $script:inputs=@('invalid','3','2'); $script:inputIndex=0
+    function Read-Host { param($Prompt) $script:inputs[$script:inputIndex++] }
+    $selected=Select-BcDataInitializationConfiguration $settings
+    @{name=$selected.name;container=$selected.container;output=$script:output;prompts=$script:prompts}|ConvertTo-Json -Depth 6 -Compress
+  `);
+  assert.equal(result.name, 'Second');
+  assert.equal(result.container, 'bc-second');
+  assert.ok(result.output.some(line => line.startsWith('[1] First (bc-first)')));
+  assert.ok(result.output.some(line => line.startsWith('[2] Second (bc-second)')));
+  assert.ok(!result.output.some(line => /Tests|Production|Remote|Cloud|Blank/.test(line)));
+  assert.deepEqual(result.prompts[0], { id: 'bcData.connectionId', type: 'choice', choices: ['First', 'Second'] });
+});
+
+test('BC Data initialization MCP choices reject Test, Production, remote, missing and inexact targets', () => {
+  const result = run(selectionFixture + `
+    function Select-IndexFromList { throw 'Unexpected terminal selection' }
+    $results=@()
+    foreach($answer in @('First','Second','Tests','Production','Remote','Cloud','Blank','Missing','first','')) {
+      $script:answer=$answer
+      try { $selected=Select-BcDataInitializationConfiguration $settings; $results+=@{name=$selected.name} }
+      catch { $results+=@{error=$_.Exception.Message} }
+    }
+    ConvertTo-Json -InputObject $results -Depth 5 -Compress
+  `);
+  assert.deepEqual(result.slice(0, 2), [{ name: 'First' }, { name: 'Second' }]);
+  assert.ok(result.slice(2).every(item => /unique Dev Container configuration name/.test(item.error)));
+});
+
+test('BC Data initialization handles a single Dev choice and rejects absent or ambiguous choices before prompting', () => {
+  const result = run(selectionFixture + `
+    $script:answer=$null
+    function Read-Host { param($Prompt) '' }
+    $single=Select-BcDataInitializationConfiguration @{configurations=@($settings.configurations[0])}
+    $script:prompts=@(); $errors=@()
+    foreach($configurations in @(
+      @($settings.configurations[1]),
+      @($settings.configurations[0],$settings.configurations[0]),
+      @($settings.configurations[0],@{name='first';serverType='Container';targetType='Test';container='other'})
+    )) {
+      try { Select-BcDataInitializationConfiguration @{configurations=$configurations}|Out-Null }
+      catch { $errors+=$_.Exception.Message }
+    }
+    @{single=$single.name;errors=$errors;prompts=$script:prompts.Count}|ConvertTo-Json -Depth 5 -Compress
+  `);
+  assert.equal(result.single, 'First');
+  assert.match(result.errors[0], /No Dev Container configurations/);
+  assert.ok(result.errors.slice(1).every(error => /unique configuration name/.test(error)));
+  assert.equal(result.prompts, 0);
+});
+
 test('explicit initialization installs absent, upgrades older and preserves compatible equal/newer companions', () => {
   const result = run(fixture + `
     $results=@()
@@ -279,6 +351,12 @@ test('initialization metadata, command, switches and scopes are aligned', () => 
   const local = require('../schemas/bcdevtoolset-settings.schema.json');
   const shared = pkg.contributes.configuration.find(group => group.properties.bcDevToolset).properties.bcDevToolset.properties;
   assert.equal(metadata.script, 'operations/InitializeBcData.ps1');
+  const selection = metadata.promptInputs.find(input => input.promptId === 'bcData.connectionId');
+  assert.equal(selection.type, 'choice');
+  assert.match(selection.question, /Dev container/);
+  const operation = fs.readFileSync(path.resolve(__dirname, '../../operations/InitializeBcData.ps1'), 'utf8');
+  assert.match(operation, /Select-BcDataInitializationConfiguration -SettingsJSON \$settingsJSON/);
+  assert.doesNotMatch(operation, /Read-Host/);
   assert.ok(pkg.activationEvents.includes('onCommand:bcDevToolset.operation.initializeBcData'));
   assert.ok(pkg.contributes.commands.some(command => command.command === 'bcDevToolset.operation.initializeBcData'));
   assert.equal(shared.mcpTools.properties.bc_dev_toolset_initialize_bc_data.default, false);
