@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.10.6",
+  "version": "1.10.7",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -72,20 +72,14 @@
     "onCommand:bcDevToolset.operation.configureWinRm",
     "onCommand:bcDevToolset.operation.configureStoredCredentials",
     "onCommand:bcDevToolset.operation.restoreBcContainerDatabases",
-    "onCommand:bcDevToolset.operation.publishDependencies2Docker",
-    "onCommand:bcDevToolset.operation.publishDependencies2Test",
-    "onCommand:bcDevToolset.operation.publishApps2Docker",
-    "onCommand:bcDevToolset.operation.publishApps2Production",
-    "onCommand:bcDevToolset.operation.publishApps2Test",
     "onCommand:bcDevToolset.operation.createRuntimePackage",
-    "onCommand:bcDevToolset.operation.publishRuntimeApps2Docker",
-    "onCommand:bcDevToolset.operation.publishRuntimeApps2Production",
-    "onCommand:bcDevToolset.operation.publishRuntimeApps2Test",
-    "onCommand:bcDevToolset.operation.unpublishDockerApps",
-    "onCommand:bcDevToolset.operation.unpublishTestApps",
     "onCommand:bcDevToolset.operation.prepareObjectIdRangeVisualizationData",
     "onCommand:bcDevToolset.configureMcpTools",
-    "onCommand:bcDevToolset.operation.initializeBcData"
+    "onCommand:bcDevToolset.operation.initializeBcData",
+    "onCommand:bcDevToolset.operation.publishApps",
+    "onCommand:bcDevToolset.operation.publishDependencies",
+    "onCommand:bcDevToolset.operation.publishRuntimeApps",
+    "onCommand:bcDevToolset.operation.unpublishApps"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -847,60 +841,10 @@
                     "default": false,
                     "description": "Run AL Runner tests sequentially for every configured newer release."
                   },
-                  "bc_dev_toolset_publish_dependencies2_docker": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Publish configured dependencies to an existing container."
-                  },
-                  "bc_dev_toolset_publish_dependencies2_test": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Publish configured dependencies to test environments."
-                  },
-                  "bc_dev_toolset_publish_apps2_docker": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Publish all workspace apps to a container."
-                  },
-                  "bc_dev_toolset_publish_apps2_production": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Publish all workspace apps to production environments."
-                  },
-                  "bc_dev_toolset_publish_apps2_test": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Publish all workspace apps to test environments."
-                  },
                   "bc_dev_toolset_create_runtime_package": {
                     "type": "boolean",
                     "default": false,
                     "description": "Create deployment runtime packages for workspace apps."
-                  },
-                  "bc_dev_toolset_publish_runtime_apps2_docker": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Publish stored runtime packages to an existing container."
-                  },
-                  "bc_dev_toolset_publish_runtime_apps2_production": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Publish stored runtime packages to production environments."
-                  },
-                  "bc_dev_toolset_publish_runtime_apps2_test": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Publish stored runtime packages to test environments."
-                  },
-                  "bc_dev_toolset_unpublish_docker_apps": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Unpublish workspace apps from a container."
-                  },
-                  "bc_dev_toolset_unpublish_test_apps": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Unpublish workspace apps from test environments."
                   },
                   "bc_dev_toolset_prepare_object_id_range_visualization_data": {
                     "type": "boolean",
@@ -981,6 +925,26 @@
                     "type": "boolean",
                     "default": false,
                     "description": "Single-record development-container mutation. Explicitly enable this tool; initialize companion mutation protocol1/service BCDDataWrite and grant BCD DATA WRITE plus native target/trigger table permissions. Native validation and triggers always run. One call owns one five-minute request scope and permits one identical in-call retry after uncertain transport; commands are never queued across calls. An unknown outcome requires reconciliation, never blind repetition or a fresh version. Receipt guarantees cover this database transaction and uninterrupted history, not external trigger effects or restore/copy. Execute exactly one insert, modify, rename or delete, permitted by bcData.allowedAllMutationOperations=true or the connection bcData.allowedMutationOperations list (empty by default). The boolean defaults to false; true overrides the list and permits all four operations. Insert requires1-50 ordered fields and generates SystemId. Modify requires SystemId, expectedVersion and1-50 ordered fields; omitted fields remain unchanged. Rename requires SystemId, expectedVersion and every primaryKey field in key order (up to16; only three-part GUID/Code/Integer fixture qualified). Delete requires SystemId and expectedVersion and returns minimal acknowledgement without deleted values or post-delete version. Other successes return persisted requested values/SystemId/version. Decimal/BigInteger are strings; enum/option are integer ordinals. Null, system/content assignments and unqualified FlowField writes are rejected. Native relation/trigger permissions apply; arbitrary cascades and other key arities remain unqualified. Reject arguments belonging to another operation."
+                  },
+                  "bc_dev_toolset_publish_apps": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Publish workspace apps (excluding test apps) to a selected configuration."
+                  },
+                  "bc_dev_toolset_publish_dependencies": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Publish dependencies to a selected configuration."
+                  },
+                  "bc_dev_toolset_publish_runtime_apps": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Publish stored runtime packages (excluding test apps) to a selected configuration."
+                  },
+                  "bc_dev_toolset_unpublish_apps": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Unpublish all workspace apps from a selected configuration."
                   }
                 },
                 "additionalProperties": {
@@ -1182,48 +1146,8 @@
         "title": "BC Dev Toolset: Restore SQL backup set to Docker container"
       },
       {
-        "command": "bcDevToolset.operation.publishDependencies2Docker",
-        "title": "BC Dev Toolset: Publish dependencies from the configuration to the existing container"
-      },
-      {
-        "command": "bcDevToolset.operation.publishDependencies2Test",
-        "title": "BC Dev Toolset: Publish dependencies from the configuration to test environments"
-      },
-      {
-        "command": "bcDevToolset.operation.publishApps2Docker",
-        "title": "BC Dev Toolset: Publish all apps in the workspace to Docker container"
-      },
-      {
-        "command": "bcDevToolset.operation.publishApps2Production",
-        "title": "BC Dev Toolset: Publish all apps in the workspace to production environments"
-      },
-      {
-        "command": "bcDevToolset.operation.publishApps2Test",
-        "title": "BC Dev Toolset: Publish all apps in the workspace to test environments"
-      },
-      {
         "command": "bcDevToolset.operation.createRuntimePackage",
         "title": "BC Dev Toolset: Create deployment runtime packages for all apps in the workspace (not compile/build validation)"
-      },
-      {
-        "command": "bcDevToolset.operation.publishRuntimeApps2Docker",
-        "title": "BC Dev Toolset: Publish runtime packages (stored) to the existing container"
-      },
-      {
-        "command": "bcDevToolset.operation.publishRuntimeApps2Production",
-        "title": "BC Dev Toolset: Publish runtime packages (stored) to production environments"
-      },
-      {
-        "command": "bcDevToolset.operation.publishRuntimeApps2Test",
-        "title": "BC Dev Toolset: Publish runtime packages (stored) to test environments"
-      },
-      {
-        "command": "bcDevToolset.operation.unpublishDockerApps",
-        "title": "BC Dev Toolset: Unpublish all workspace apps from Docker container"
-      },
-      {
-        "command": "bcDevToolset.operation.unpublishTestApps",
-        "title": "BC Dev Toolset: Unpublish all workspace apps from test environments"
       },
       {
         "command": "bcDevToolset.operation.prepareObjectIdRangeVisualizationData",
@@ -1236,6 +1160,26 @@
       {
         "command": "bcDevToolset.operation.initializeBcData",
         "title": "BC Dev Toolset: Initialize BC Data Access"
+      },
+      {
+        "command": "bcDevToolset.operation.publishApps",
+        "title": "Publish workspace apps (excluding test apps) to a selected configuration",
+        "category": "BC Dev Toolset"
+      },
+      {
+        "command": "bcDevToolset.operation.publishDependencies",
+        "title": "Publish dependencies to a selected configuration",
+        "category": "BC Dev Toolset"
+      },
+      {
+        "command": "bcDevToolset.operation.publishRuntimeApps",
+        "title": "Publish stored runtime packages (excluding test apps) to a selected configuration",
+        "category": "BC Dev Toolset"
+      },
+      {
+        "command": "bcDevToolset.operation.unpublishApps",
+        "title": "Unpublish all workspace apps from a selected configuration",
+        "category": "BC Dev Toolset"
       }
     ]
   }

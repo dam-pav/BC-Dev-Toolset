@@ -12,16 +12,10 @@ When working with Business Central AL projects, use the **BC Dev Toolset** MCP s
 | **Container** | `bc_dev_toolset_add_test_toolkit_to_bc_container` — Add Test Toolkit to an existing container |
 | **Container** | `bc_dev_toolset_show_active_licenses` — Show active container licenses |
 | **Container** | `bc_dev_toolset_update_launch_json` — Update launch.json files |
-| **Publishing** | `bc_dev_toolset_publish_apps2_docker` — Publish apps to Docker |
-| **Publishing** | `bc_dev_toolset_publish_apps2_test` — Publish apps to test environments |
-| **Publishing** | `bc_dev_toolset_publish_apps2_production` — Publish apps to production |
-| **Publishing** | `bc_dev_toolset_publish_dependencies2_docker` — Publish dependencies to Docker |
-| **Publishing** | `bc_dev_toolset_publish_dependencies2_test` — Publish dependencies to test |
-| **Publishing** | `bc_dev_toolset_publish_runtime_apps2_docker` — Publish runtime packages to Docker |
-| **Publishing** | `bc_dev_toolset_publish_runtime_apps2_test` — Publish runtime packages to test |
-| **Publishing** | `bc_dev_toolset_publish_runtime_apps2_production` — Publish runtime packages to production |
-| **Publishing** | `bc_dev_toolset_unpublish_docker_apps` — Unpublish apps from Docker |
-| **Publishing** | `bc_dev_toolset_unpublish_test_apps` — Unpublish apps from test |
+| **Publishing** | `bc_dev_toolset_publish_apps` � Publish workspace apps excluding test apps to a selected configuration |
+| **Publishing** | `bc_dev_toolset_publish_dependencies` � Publish dependencies to a selected configuration |
+| **Publishing** | `bc_dev_toolset_publish_runtime_apps` � Publish stored runtime packages excluding test apps to a selected configuration |
+| **Publishing** | `bc_dev_toolset_unpublish_apps` � Unpublish workspace apps from a selected configuration |
 | **Testing** | `bc_dev_toolset_invoke_tests` — Run AL test tool tests |
 | **Testing** | `bc_dev_toolset_invoke_page_script_tests` — Run page script tests |
 | **Testing** | `bc_dev_toolset_al_runner_test` — Run standalone tests with AL Runner |

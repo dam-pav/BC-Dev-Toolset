@@ -33,8 +33,9 @@ if ($global:failPreparationBuild) { throw 'build failed' }
     function Restore-TestContainerBackupIfExists { $global:preparationCalls.Add('restore') }
     function Publish-Dependencies { $global:preparationCalls.Add('dependencies') }
     function Publish-Apps {
-        param($scriptPath, $settingsJSON, $workspaceJSON, $publishAsDev)
+        param($scriptPath, $settingsJSON, $workspaceJSON, $publishAsDev, [switch]$IncludeTestApps)
         Assert ($settingsJSON.configurations.Count -eq 1 -and $settingsJSON.configurations[0].container -eq 'bc-test') 'Wrong deployment target'
+        Assert $IncludeTestApps 'Test preparation must publish test apps'
         $global:preparationCalls.Add('deploy')
     }
     function Invoke-Tests {

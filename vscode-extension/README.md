@@ -163,20 +163,21 @@ If an extension blocks CLI User table validation/events, for example because no 
 
 ### Publish
 
-- `Publish dependencies from the configuration to the existing container`: Publishes dependency apps to a configured container target.
-- `Publish dependencies from the configuration to test environments`: Publishes dependency apps to configured test targets.
-- `Publish all apps in the workspace to Docker container`: Publishes all workspace apps to a configured container target.
-- `Publish all apps in the workspace to production environments`: Publishes all workspace apps to configured production targets.
-- `Publish all apps in the workspace to test environments`: Publishes all workspace apps to configured test targets.
-- `Unpublish all workspace apps from Docker container`: Unpublishes workspace apps from a configured container target.
-- `Unpublish all workspace apps from test environments`: Unpublishes workspace apps from configured test targets.
+- `Publish dependencies to a selected configuration`: Publishes dependency apps to one selected Container, Cloud, or OnPrem configuration.
+- `Publish workspace apps (excluding test apps) to a selected configuration`: Publishes workspace apps to one selected Container, Cloud, or OnPrem configuration.
+- `Unpublish all workspace apps from a selected configuration`: Unpublishes workspace apps from one selected Container or OnPrem configuration.
+
+Workspace app and runtime publishing exclude test apps identified by Microsoft Test Toolkit dependencies, using the same rule as launch configuration generation. Test execution workflows explicitly include test apps when preparing their test targets.
+
+Each operation offers eligible named configurations across Dev, Test, and Production. MCP callers supply the exact `configurationName`. Only the selected target is prepared or changed. Production apps always use normal publishing; Dev and Test targets offer the normal/Dev endpoint choice. Extension data removal retains its explicit user prompt.
+
+OnPrem Dev publishing uses `server`, the developer-services `port`, `serverInstance`, and optional `tenant` without requiring administration tools. Windows authentication uses stored `bcCredential` when enabled, otherwise stored `remoteCredential` when enabled, otherwise the current Windows identity; UserPassword requires HTTPS and the configured BC credential. If credential lookup fails during manual publishing, the user can enter credentials in the local secure prompt. They are reused for the run, with an optional offer to save them only after all uploads succeed. Cancellation stops publishing; failed uploads never trigger a save offer. MCP and noninteractive runs do not prompt and retain the credential lookup error. Normal OnPrem publishing and local unpublishing require management cmdlets on the service host, loaded already or through an absolute `loadOnPremMgtModule` path to `NavAdminTool.ps1`. Remote OnPrem unpublishing uses PowerShell remoting to `managementServer` or the host in `server`, reuses remote credentials and manual remoting recovery, and automatically loads the selected service's administration tools. It removes matching workspace app IDs in reverse dependency order for the selected tenant (default `default`), preserving extension data.
 
 ### Runtime
 
+- `Publish stored runtime packages (excluding test apps) to a selected configuration`: Publishes existing runtime packages to one selected Container or OnPrem configuration across Dev, Test, and Production. Cloud targets are excluded.
+
 - `Create deployment runtime packages for all apps in the workspace (not compile/build validation)`: Builds deployment runtime packages for all workspace apps. This is not a substitute for ordinary AL compile/build validation.
-- `Publish runtime packages (stored) to the existing container`: Publishes stored runtime packages to a configured container target.
-- `Publish runtime packages (stored) to production environments`: Publishes stored runtime packages to configured production targets.
-- `Publish runtime packages (stored) to test environments`: Publishes stored runtime packages to configured test targets.
 
 ### Visualization
 
@@ -326,3 +327,5 @@ Reads support ordinary physical application tables, native filters, selected Flo
 Continuation tokens expire after 30 minutes and are bound to the target, company, query and extension-host session. Settings changes and extension-host reloads invalidate them. Reload the extension host after external app/container changes. Stored credentials are resolved afresh, so password rotation and removal are observed without a persistent credential cache.
 
 See the [BC Data design](../documentation/BCDataDesign.md) and [compatibility evidence and qualification limits](../documentation/BCDataCompatibilityExperiments.md) for details.
+
+Remote OnPrem dependency publishing uses PowerShell remoting to `managementServer` (or the host from `server`), reuses remote credentials and the manual remoting recovery flow, and automatically loads the selected BC service's administration tools. It copies configured `.app` files and ZIP archives into a temporary server folder, publishes prerequisites first using the newest supplied version per app ID, skips already installed versions, and synchronizes or upgrades without uninstalling apps or deleting extension data. It uses the configured tenant (default `default`) and cleans up staging and sessions on success or failure. Local dependency publishing continues to use locally loaded administration tools or `loadOnPremMgtModule`.

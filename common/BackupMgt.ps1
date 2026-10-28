@@ -1395,7 +1395,9 @@ function New-RemoteBackupSession {
         [Parameter(Mandatory=$true)]
         [string] $computerName,
         [Parameter(Mandatory=$true)]
-        [PSObject] $configuration
+        [PSObject] $configuration,
+        [ValidateSet('Backup', 'Unpublish', 'Dependency publishing')]
+        [string] $OperationName = 'Backup'
     )
 
     $sessionParameters = @{
@@ -1419,12 +1421,12 @@ function New-RemoteBackupSession {
         if (Test-RemotingAgentWorkflow) {
             if ($resolvingCredential) { throw }
             $reason = if ($connectionError -match 'TrustedHosts|Kerberos') { 'WinRM trust/authentication failed' } elseif ($connectionError -match 'Access is denied|AccessDenied|logon failure') { 'Windows credentials or remoting permissions were rejected' } else { 'the WinRM endpoint could not be reached; check server remoting, DNS and firewall access' }
-            throw "Backup stopped: PowerShell remoting to '$computerName' failed. Use bc_dev_toolset_configure_win_rm with computerName='$computerName' and addTrustedHost=true for trust errors (false for local WinRM only), execute=true, confirm=true; then retry the backup. Ensure remoteUser/remotePassword are configured for non-domain authentication. Cause: $reason."
+            throw "$OperationName stopped: PowerShell remoting to '$computerName' failed. Use bc_dev_toolset_configure_win_rm with computerName='$computerName' and addTrustedHost=true for trust errors (false for local WinRM only), execute=true, confirm=true; then retry the $($OperationName.ToLowerInvariant()). Ensure remoteUser/remotePassword are configured for non-domain authentication. Cause: $reason."
         }
         :recovery while ($true) {
             Write-Host "Cannot connect to '$computerName' through PowerShell remoting." -ForegroundColor Yellow
             Write-Host "[T] Trust this host  [W] Configure local WinRM  [C] Enter Windows credentials"
-            Write-Host "[R] Retry  [D] Error details  [Enter] Cancel backup"
+            Write-Host "[R] Retry  [D] Error details  [Enter] Cancel $($OperationName.ToLowerInvariant())"
             try { $choice = Read-Host -Prompt 'Remoting recovery' } catch { $choice = '' }
             try {
                 switch ($choice.Trim().ToUpperInvariant()) {
@@ -1453,7 +1455,7 @@ function New-RemoteBackupSession {
                         }
                     }
                     default {
-                        $cancelled = [System.OperationCanceledException]::new("Backup cancelled: remoting to '$computerName' is unavailable.")
+                        $cancelled = [System.OperationCanceledException]::new("$OperationName cancelled: remoting to '$computerName' is unavailable.")
                         $cancelled.Data['BackupRemotingCancelled'] = $true
                         throw $cancelled
                     }
