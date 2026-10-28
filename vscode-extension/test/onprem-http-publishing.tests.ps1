@@ -11,7 +11,7 @@ if ($StoredCredential) {
         param($configuration,$kind)
         if ($kind -ne 'remote') { throw 'Unexpected credential kind' }
         # The loopback fixture does not challenge for credentials or contact an external server.
-        [pscredential]::new('fixture',(ConvertTo-SecureString 'fixture' -AsPlainText -Force))
+        [pscredential]::new('fixture',[Security.SecureString]::new())
     }
 }
 Publish-OnPremDevelopmentApps -Configuration $configuration -Packages @(

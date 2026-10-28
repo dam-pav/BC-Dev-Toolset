@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
+const { authorizeRoot, resolveWithinRoot } = require('../path-security');
 
 test('remote dependencies use selected-service tools, order packages, upgrade safely and clean staging', { skip: process.platform !== 'win32' }, () => {
   const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File',
@@ -41,16 +42,17 @@ test('publishing operations select exactly one eligible target across environmen
 });
 
 test('unified publishing operations replace target-specific commands and MCP settings', () => {
-  const root = path.resolve(__dirname, '../..');
-  const operations = JSON.parse(fs.readFileSync(path.join(root, 'operations/operations.json'), 'utf8'));
+  const root = authorizeRoot(path.resolve(__dirname, '../..'), 'Test repository root');
+  const operations = require('../../operations/operations.json');
   const pkg = require('../package.json');
   const schema = require('../schemas/bcdevtoolset-settings.schema.json');
-  const extension = fs.readFileSync(path.join(root, 'vscode-extension/extension.js'), 'utf8');
+  const extension = fs.readFileSync(resolveWithinRoot(root, 'vscode-extension', 'extension.js'), 'utf8'); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- fixed segments are confined to the authorized repository root
   const { __test: mcpServer } = require('../mcp-server');
   for (const id of ['publishApps', 'publishDependencies', 'publishRuntimeApps', 'unpublishApps']) {
     const operation = operations.find(item => item.id === id);
     assert.ok(operation);
-    assert.ok(fs.existsSync(path.join(root, operation.script)));
+    const validatedScript = resolveWithinRoot(root, operation.script);
+    assert.ok(fs.existsSync(validatedScript)); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- metadata path is normalized and checked for containment in the authorized repository root
     assert.ok(operation.promptInputs.some(input => input.inputName === 'configurationName'));
     assert.ok(pkg.contributes.commands.some(command => command.command === `bcDevToolset.operation.${id}`));
     assert.ok(pkg.activationEvents.includes(`onCommand:bcDevToolset.operation.${id}`));
@@ -64,4 +66,11 @@ test('unified publishing operations replace target-specific commands and MCP set
   }
   const serialized = JSON.stringify({ operations, pkg, schema });
   assert.doesNotMatch(serialized, /publishApps2|publishDependencies2|publishRuntimeApps2|unpublishDockerApps|unpublishTestApps|publish_apps2|publish_dependencies2|publish_runtime_apps2|unpublish_docker_apps|unpublish_test_apps/);
+});
+
+test('operation metadata script paths cannot escape the authorized repository root', () => {
+  const root = authorizeRoot(path.resolve(__dirname, '../..'), 'Test repository root');
+  for (const script of ['../outside.ps1', path.resolve(root, '..', 'outside.ps1')]) {
+    assert.throws(() => resolveWithinRoot(root, script), /escapes its authorized root/);
+  }
 });

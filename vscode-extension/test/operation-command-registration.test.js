@@ -8,7 +8,7 @@ const pkg = require('../package.json');
 
 test('activation registers every contributed operation command and dispatches credential setup and WinRM', async () => {
   const extensionRoot = authorizeRoot(path.resolve(__dirname, '..'), 'Extension source root');
-  const source = fs.readFileSync(resolveWithinRoot(extensionRoot, 'extension.js'), 'utf8');
+  const source = fs.readFileSync(resolveWithinRoot(extensionRoot, 'extension.js'), 'utf8'); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- fixed filename is confined to the authorized extension source root
   const ids = source.match(/const directOperationIds = (\[[\s\S]*?\]);/)[1];
   const activation = source.match(/async function activate\([^]*?\n}/)[0];
   const commands = new Map();

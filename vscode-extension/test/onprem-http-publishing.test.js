@@ -9,9 +9,9 @@ const { authorizeRoot, resolveWithinRoot } = require('../path-security');
 for (const storedCredential of [false, true]) {
   test(`Windows HTTP publishing sends multipart data with ${storedCredential ? 'stored' : 'default'} credentials`, { timeout: 20000 }, async (t) => {
     const temporaryRoot = authorizeRoot(os.tmpdir(), 'Test temporary root');
-    const fixtureRoot = fs.mkdtempSync(resolveWithinRoot(temporaryRoot, 'bc-onprem-http-'));
+    const fixtureRoot = resolveWithinRoot(temporaryRoot, fs.mkdtempSync(resolveWithinRoot(temporaryRoot, 'bc-onprem-http-')));
     const fixtureFile = resolveWithinRoot(fixtureRoot, 'fixture.app');
-    fs.writeFileSync(fixtureFile, 'multipart regression fixture');
+    fs.writeFileSync(fixtureFile, 'multipart regression fixture'); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- fixed filename is confined to the newly allocated test-owned fixture directory
     const requests = [];
     const server = http.createServer((request, response) => {
       let body = '';
@@ -26,8 +26,8 @@ for (const storedCredential of [false, true]) {
     t.after(async () => {
       server.closeAllConnections();
       await new Promise(resolve => server.close(resolve));
-      fs.unlinkSync(fixtureFile);
-      fs.rmdirSync(fixtureRoot);
+      fs.unlinkSync(fixtureFile); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- fixed filename is confined to the newly allocated test-owned fixture directory
+      fs.rmdirSync(fixtureRoot); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- newly allocated test-owned directory is confined to the authorized temp root; deletion is nonrecursive
     });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const args = ['-NoLogo', '-NoProfile', '-NonInteractive', '-File',

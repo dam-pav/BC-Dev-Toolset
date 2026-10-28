@@ -14,23 +14,23 @@ try {
     function Get-ConfigurationCredential {
         param($configuration,$kind)
         if ($script:missing) { throw 'Stored credential is missing' }
-        [pscredential]::new('stored',(ConvertTo-SecureString 'fixture' -AsPlainText -Force))
+        [pscredential]::new('stored',[Security.SecureString]::new())
     }
     function Get-Credential {
         $script:prompts++
         if ($script:cancel) { return $null }
-        [pscredential]::new('entered',(ConvertTo-SecureString 'fixture' -AsPlainText -Force))
+        [pscredential]::new('entered',[Security.SecureString]::new())
     }
     function Read-Host { $script:storagePrompts++; $script:storageDecision }
     function Invoke-WebRequest {
-        param($Credential)
+        param([pscredential]$Credential)
         $script:uploads++
         if ($script:failUpload) { throw 'Upload failed' }
         $expected = if ($script:missing) { 'entered' } else { 'stored' }
         Assert ($Credential.UserName -eq $expected) 'Publishing did not reuse the resolved credential'
     }
     function Save-ConfigurationCredential {
-        param($configuration,$kind,$credential)
+        param($configuration,$kind,[pscredential]$credential)
         Assert ($script:uploads -eq 2) 'Storage was offered before all apps were published'
         Assert ($kind -eq $script:expectedKind -and $credential.UserName -eq 'entered') 'Wrong credential was offered for storage'
         $script:saves++
@@ -85,7 +85,7 @@ try {
     function Test-DockerContainerExists { $true }
     function Test-BcContainerTenantAccessible { $true }
     function Publish-BcContainerApp {
-        param($Credential,$appFile)
+        param([pscredential]$Credential,$appFile)
         if ($script:failUpload) { throw 'Container publish failed' }
         Assert ($Credential.UserName -eq 'entered') 'Container did not use the entered credential'
         $script:uploads += @($appFile).Count

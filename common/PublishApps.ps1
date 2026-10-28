@@ -748,12 +748,12 @@ function Unpublish-RemoteOnPremWorkspaceApps {
 
             $publishedApps = @(Get-NAVAppInfo -ServerInstance $serverInstance -Tenant $tenant -TenantSpecificProperties -ErrorAction Stop)
             foreach ($workspaceApp in @($workspaceApps | Sort-Object ProcessOrder -Descending)) {
-                $matches = @($publishedApps | Where-Object { [string]$_.AppId -eq [string]$workspaceApp.AppId -and $_.Name -eq $workspaceApp.Name })
-                if ($matches.Count -eq 0) {
+                $matchingApps = @($publishedApps | Where-Object { [string]$_.AppId -eq [string]$workspaceApp.AppId -and $_.Name -eq $workspaceApp.Name })
+                if ($matchingApps.Count -eq 0) {
                     [pscustomobject]@{Status='notPublished';Name=$workspaceApp.Name;Version=''}
                     continue
                 }
-                foreach ($app in $matches) {
+                foreach ($app in $matchingApps) {
                     $identity = @{ServerInstance=$serverInstance;Name=$app.Name;Publisher=$app.Publisher;Version=$app.Version;ErrorAction='Stop'}
                     if ($app.IsInstalled) {
                         # The default uninstall saves extension data. Do not use

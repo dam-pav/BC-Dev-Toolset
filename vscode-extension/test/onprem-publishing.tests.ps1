@@ -34,7 +34,7 @@ try {
         if ([string]$Object -like 'Successfully published*') { $script:successMessages += [string]$Object }
     }
     function Invoke-WebRequest {
-        param($Uri,$Method,$Form,[switch]$UseDefaultCredentials,$Authentication,$Credential,$MaximumRedirection,[switch]$AllowUnencryptedAuthentication)
+        param($Uri,$Method,$Form,[switch]$UseDefaultCredentials,$Authentication,[pscredential]$Credential,$MaximumRedirection,[switch]$AllowUnencryptedAuthentication)
         if ($script:failUpload) { throw 'mock HTTP publish failure' }
         $script:requests += [pscustomobject]@{Uri=$Uri;Method=$Method;Form=$Form;Windows=$UseDefaultCredentials;Authentication=$Authentication;Credential=$Credential;Redirects=$MaximumRedirection;AllowHttp=$AllowUnencryptedAuthentication}
     }
@@ -58,7 +58,7 @@ try {
         param($configuration,$kind)
         if ($script:missingCredential) { throw 'Stored credential is missing' }
         $script:credentialKind=$kind
-        [pscredential]::new("stored-$kind",(ConvertTo-SecureString 'fixture' -AsPlainText -Force))
+        [pscredential]::new("stored-$kind",[Security.SecureString]::new())
     }
     $configuration | Add-Member remoteCredential $true
     Publish-OnPremDevelopmentApps $configuration @(@{Root=$fixtureRoot;Path=$appFile})
@@ -88,7 +88,7 @@ try {
     $configuration.server='http://bc-host'; $configuration.authentication='UserPassword'
     Assert-Throws { Publish-OnPremDevelopmentApps $configuration @(@{Root=$fixtureRoot;Path=$appFile}) } 'HTTPS'
     $configuration.server='https://bc-host'
-    function Get-BcConfigurationCredential { [pscredential]::new('bcuser',(ConvertTo-SecureString 'fixture' -AsPlainText -Force)) }
+    function Get-BcConfigurationCredential { [pscredential]::new('bcuser',[Security.SecureString]::new()) }
     Publish-OnPremDevelopmentApps $configuration @(@{Root=$fixtureRoot;Path=$appFile})
     Assert ($script:requests[-1].Authentication -eq 'Basic' -and $script:requests[-1].Credential.UserName -eq 'bcuser') 'Configured BC credential was not used'
     Assert (-not $script:requests[-1].AllowHttp) 'UserPassword must not enable unencrypted authentication'
