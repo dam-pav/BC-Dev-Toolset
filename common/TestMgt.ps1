@@ -368,7 +368,8 @@ function Initialize-TestExecutionContainer {
         -scriptPath $scriptPath `
         -settingsJSON $testSettings `
         -workspaceJSON $workspaceJSON `
-        -publishAsDev $true
+        -publishAsDev $true `
+        -IncludeTestApps
 
     return $testSettings
 }

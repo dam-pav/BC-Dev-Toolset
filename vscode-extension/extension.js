@@ -39,9 +39,9 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 41;
+const mcpServerDefinitionRevision = 43;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 44;
+const runtimeToolsetRevision = 52;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -78,18 +78,14 @@ const directOperationIds = [
   'updateBcContainerServerConfiguration',
   'backupBcContainerDatabases',
   'backupBcServiceDatabases',
+  'configureStoredCredentials',
+  'configureWinRm',
   'restoreBcContainerDatabases',
-  'publishDependencies2Docker',
-  'publishDependencies2Test',
-  'publishApps2Docker',
-  'publishApps2Production',
-  'publishApps2Test',
+  'publishApps',
+  'publishDependencies',
+  'publishRuntimeApps',
+  'unpublishApps',
   'createRuntimePackage',
-  'publishRuntimeApps2Docker',
-  'publishRuntimeApps2Production',
-  'publishRuntimeApps2Test',
-  'unpublishDockerApps',
-  'unpublishTestApps',
   'prepareObjectIdRangeVisualizationData',
   'showObjectIdRangeVisualizationData'
 ];

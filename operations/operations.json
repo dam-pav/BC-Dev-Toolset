@@ -205,49 +205,55 @@
     "category": "Tests"
   },
   {
-    "id": "publishDependencies2Docker",
-    "title": "Publish dependencies from the configuration to the existing container",
-    "script": "operations/PublishDependencies2Docker.ps1",
-    "category": "Publish"
-  },
-  {
-    "id": "publishDependencies2Test",
-    "title": "Publish dependencies from the configuration to test environments",
-    "script": "operations/PublishDependencies2Test.ps1",
-    "category": "Publish"
-  },
-  {
-    "id": "publishApps2Docker",
-    "title": "Publish all apps in the workspace to Docker container",
-    "script": "operations/PublishApps2Docker.ps1",
+    "id": "publishDependencies",
+    "title": "Publish dependencies to a selected configuration",
+    "script": "operations/PublishDependencies.ps1",
     "category": "Publish",
     "promptInputs": [
-      { "promptId": "publishApps2Docker.publishAsNormalApps", "inputName": "publishAsNormalApps", "type": "confirm", "question": "Do you want to publish apps as normal apps (not Dev)?" },
-      { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
-    ]
-  },
-  {
-    "id": "publishApps2Production",
-    "title": "Publish all apps in the workspace to production environments",
-    "script": "operations/PublishApps2Production.ps1",
-    "category": "Publish",
-    "promptInputs": [
-      { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
+      {
+        "promptId": "publishing.configurationName",
+        "inputName": "configurationName",
+        "type": "choice",
+        "question": "Exact name of the eligible target configuration."
+      },
+      {
+        "promptId": "publishApps.renewAuthenticationContext",
+        "inputName": "renewAuthenticationContext",
+        "type": "confirm",
+        "question": "Request a new authentication context?",
+        "conditional": true
+      }
     ],
     "requiresConfirmation": true
   },
   {
-    "id": "publishApps2Test",
-    "title": "Publish all apps in the workspace to test environments",
-    "script": "operations/PublishApps2Test.ps1",
+    "id": "publishApps",
+    "title": "Publish workspace apps (excluding test apps) to a selected configuration",
+    "script": "operations/PublishApps.ps1",
     "category": "Publish",
     "promptInputs": [
-      { "promptId": "publishApps2Test.publishAsNormalApps", "inputName": "publishAsNormalApps", "type": "confirm", "question": "Do you want to publish apps as normal apps (not Dev)?" },
-      { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
-    ]
+      {
+        "promptId": "publishing.configurationName",
+        "inputName": "configurationName",
+        "type": "choice",
+        "question": "Exact name of the eligible target configuration."
+      },
+      {
+        "promptId": "publishing.publishAsNormalApps",
+        "inputName": "publishAsNormalApps",
+        "type": "confirm",
+        "question": "Publish as normal apps instead of using the Dev endpoint? Production always uses normal publishing.",
+        "conditional": true
+      },
+      {
+        "promptId": "publishApps.renewAuthenticationContext",
+        "inputName": "renewAuthenticationContext",
+        "type": "confirm",
+        "question": "Request a new authentication context?",
+        "conditional": true
+      }
+    ],
+    "requiresConfirmation": true
   },
   {
     "id": "createRuntimePackage",
@@ -256,49 +262,48 @@
     "category": "Runtime"
   },
   {
-    "id": "publishRuntimeApps2Docker",
-    "title": "Publish runtime packages (stored) to the existing container",
-    "script": "operations/PublishRuntimeApps2Docker.ps1",
+    "id": "publishRuntimeApps",
+    "title": "Publish stored runtime packages (excluding test apps) to a selected configuration",
+    "script": "operations/PublishRuntimeApps.ps1",
     "category": "Runtime",
     "promptInputs": [
-      { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
-    ]
-  },
-  {
-    "id": "publishRuntimeApps2Production",
-    "title": "Publish runtime packages (stored) to production environments",
-    "script": "operations/PublishRuntimeApps2Production.ps1",
-    "category": "Runtime",
-    "promptInputs": [
-      { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
+      {
+        "promptId": "publishing.configurationName",
+        "inputName": "configurationName",
+        "type": "choice",
+        "question": "Exact name of the eligible target configuration."
+      },
+      {
+        "promptId": "publishApps.renewAuthenticationContext",
+        "inputName": "renewAuthenticationContext",
+        "type": "confirm",
+        "question": "Request a new authentication context?",
+        "conditional": true
+      }
     ],
     "requiresConfirmation": true
   },
   {
-    "id": "publishRuntimeApps2Test",
-    "title": "Publish runtime packages (stored) to test environments",
-    "script": "operations/PublishRuntimeApps2Test.ps1",
-    "category": "Runtime",
+    "id": "unpublishApps",
+    "title": "Unpublish all workspace apps from a selected configuration",
+    "script": "operations/UnpublishApps.ps1",
+    "category": "Publish",
+    "requiresConfirmation": true,
     "promptInputs": [
-      { "promptId": "publishApps.renewAuthenticationContext", "inputName": "renewAuthenticationContext", "type": "confirm", "question": "Request a new authentication context if the current context fails?", "conditional": true },
-      { "promptId": "publishApps.removeExtensionData", "type": "confirm", "question": "Confirm removal of all extension data and schema if forced cleanup is required. This destructive decision requires an explicit user answer; non-sensitive answers may be relayed through MCP.", "conditional": true, "agentAllowed": false }
+      {
+        "promptId": "publishing.configurationName",
+        "inputName": "configurationName",
+        "type": "choice",
+        "question": "Exact name of the eligible target configuration."
+      },
+      {
+        "promptId": "publishApps.removeExtensionData",
+        "type": "confirm",
+        "question": "Remove all extension data and schema? Requires an explicit user answer.",
+        "conditional": true,
+        "agentAllowed": false
+      }
     ]
-  },
-  {
-    "id": "unpublishDockerApps",
-    "title": "Unpublish all workspace apps from Docker container",
-    "script": "operations/UnpublishDockerApps.ps1",
-    "category": "Publish",
-    "requiresConfirmation": true
-  },
-  {
-    "id": "unpublishTestApps",
-    "title": "Unpublish all workspace apps from test environments",
-    "script": "operations/UnpublishTestApps.ps1",
-    "category": "Publish",
-    "requiresConfirmation": true
   },
   {
     "id": "prepareObjectIdRangeVisualizationData",

@@ -222,60 +222,10 @@
           "default": false,
           "description": "Run AL Runner tests sequentially for every configured newer release."
         },
-        "bc_dev_toolset_publish_dependencies2_docker": {
-          "type": "boolean",
-          "default": false,
-          "description": "Publish configured dependencies to an existing container."
-        },
-        "bc_dev_toolset_publish_dependencies2_test": {
-          "type": "boolean",
-          "default": false,
-          "description": "Publish configured dependencies to test environments."
-        },
-        "bc_dev_toolset_publish_apps2_docker": {
-          "type": "boolean",
-          "default": false,
-          "description": "Publish all workspace apps to a container."
-        },
-        "bc_dev_toolset_publish_apps2_production": {
-          "type": "boolean",
-          "default": false,
-          "description": "Publish all workspace apps to production environments."
-        },
-        "bc_dev_toolset_publish_apps2_test": {
-          "type": "boolean",
-          "default": false,
-          "description": "Publish all workspace apps to test environments."
-        },
         "bc_dev_toolset_create_runtime_package": {
           "type": "boolean",
           "default": false,
           "description": "Create deployment runtime packages for workspace apps."
-        },
-        "bc_dev_toolset_publish_runtime_apps2_docker": {
-          "type": "boolean",
-          "default": false,
-          "description": "Publish stored runtime packages to an existing container."
-        },
-        "bc_dev_toolset_publish_runtime_apps2_production": {
-          "type": "boolean",
-          "default": false,
-          "description": "Publish stored runtime packages to production environments."
-        },
-        "bc_dev_toolset_publish_runtime_apps2_test": {
-          "type": "boolean",
-          "default": false,
-          "description": "Publish stored runtime packages to test environments."
-        },
-        "bc_dev_toolset_unpublish_docker_apps": {
-          "type": "boolean",
-          "default": false,
-          "description": "Unpublish workspace apps from a container."
-        },
-        "bc_dev_toolset_unpublish_test_apps": {
-          "type": "boolean",
-          "default": false,
-          "description": "Unpublish workspace apps from test environments."
         },
         "bc_dev_toolset_prepare_object_id_range_visualization_data": {
           "type": "boolean",
@@ -356,6 +306,26 @@
           "type": "boolean",
           "default": false,
           "description": "Single-record development-container mutation. Explicitly enable this tool; initialize companion mutation protocol1/service BCDDataWrite and grant BCD DATA WRITE plus native target/trigger table permissions. Native validation and triggers always run. One call owns one five-minute request scope and permits one identical in-call retry after uncertain transport; commands are never queued across calls. An unknown outcome requires reconciliation, never blind repetition or a fresh version. Receipt guarantees cover this database transaction and uninterrupted history, not external trigger effects or restore/copy. Execute exactly one insert, modify, rename or delete, permitted by bcData.allowedAllMutationOperations=true or the connection bcData.allowedMutationOperations list (empty by default). The boolean defaults to false; true overrides the list and permits all four operations. Insert requires1-50 ordered fields and generates SystemId. Modify requires SystemId, expectedVersion and1-50 ordered fields; omitted fields remain unchanged. Rename requires SystemId, expectedVersion and every primaryKey field in key order (up to16; only three-part GUID/Code/Integer fixture qualified). Delete requires SystemId and expectedVersion and returns minimal acknowledgement without deleted values or post-delete version. Other successes return persisted requested values/SystemId/version. Decimal/BigInteger are strings; enum/option are integer ordinals. Null, system/content assignments and unqualified FlowField writes are rejected. Native relation/trigger permissions apply; arbitrary cascades and other key arities remain unqualified. Reject arguments belonging to another operation."
+        },
+        "bc_dev_toolset_publish_apps": {
+          "type": "boolean",
+          "default": false,
+          "description": "Publish workspace apps (excluding test apps) to a selected configuration."
+        },
+        "bc_dev_toolset_publish_dependencies": {
+          "type": "boolean",
+          "default": false,
+          "description": "Publish dependencies to a selected configuration."
+        },
+        "bc_dev_toolset_publish_runtime_apps": {
+          "type": "boolean",
+          "default": false,
+          "description": "Publish stored runtime packages (excluding test apps) to a selected configuration."
+        },
+        "bc_dev_toolset_unpublish_apps": {
+          "type": "boolean",
+          "default": false,
+          "description": "Unpublish all workspace apps from a selected configuration."
         }
       },
       "additionalProperties": {
