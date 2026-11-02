@@ -1,7 +1,9 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const fs = require('node:fs/promises');
+const nativeFs = require('node:fs/promises');
+const { BcQualityFiles } = require('../bcquality-files');
+const { authorizeRoot, assertWithinRoot, resolveWithinRoot } = require('../path-security');
 const path = require('node:path');
 const os = require('node:os');
 const { promisify } = require('node:util');
@@ -12,16 +14,21 @@ const { BcQualityIntegration, validateClonePath, acquireLock } = require('../bcq
 const { registerBcQualityIntegration } = require('../bcquality-vscode');
 
 async function fixture(t, options = {}) {
-  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'bcquality-test-'));
-  t.after(() => fs.rm(temporary, { recursive: true, force: true }));
+  const tempRoot = authorizeRoot(os.tmpdir(), 'Temporary fixture parent');
+  const prefix = resolveWithinRoot(tempRoot, 'bcquality-test-');
+  // Fixed prefix is confined to the explicitly authorized OS temporary directory.
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is checked against its explicit authorization root above.
+  const temporary = assertWithinRoot(tempRoot, await nativeFs.mkdtemp(prefix)); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
+  const files = new BcQualityFiles(temporary);
+  t.after(() => files.rm(temporary, { recursive: true, force: true }));
   const home = path.join(temporary, 'home');
   const root = path.join(temporary, 'knowledge with spaces');
-  await fs.mkdir(home);
+  await files.mkdir(home);
   const calls = [];
   const git = async args => {
     calls.push(args);
     if (args[0] === 'clone') {
-      await content(root);
+      await content(root, files);
       return '';
     }
     if (args.includes('--show-toplevel')) return options.top || root;
@@ -33,16 +40,16 @@ async function fixture(t, options = {}) {
     return '';
   };
   const manager = new BcQualityIntegration({ homeDirectory: home, git });
-  return { temporary, home, root, calls, manager };
+  return { temporary, home, root, calls, manager, files };
 }
 
-async function content(root) {
-  await fs.mkdir(path.join(root, 'skills'), { recursive: true });
-  await fs.writeFile(path.join(root, 'plugin.json'), '{"name":"bcquality"}');
-  await fs.writeFile(path.join(root, 'skills', 'entry.md'), 'upstream router');
+async function content(root, files) {
+  await files.mkdir(path.join(root, 'skills'), { recursive: true });
+  await files.writeFile(path.join(root, 'plugin.json'), '{"name":"bcquality"}');
+  await files.writeFile(path.join(root, 'skills', 'entry.md'), 'upstream router');
   for (const capability of ['al-code-review', 'al-plan-guidance', 'al-knowledge']) {
-    await fs.mkdir(path.join(root, 'skills', capability));
-    await fs.writeFile(path.join(root, 'skills', capability, 'SKILL.md'), 'upstream skill');
+    await files.mkdir(path.join(root, 'skills', capability));
+    await files.writeFile(path.join(root, 'skills', capability, 'SKILL.md'), 'upstream skill');
   }
 }
 
@@ -51,7 +58,7 @@ function adapter(home, agent = '.agents', capability = 'al-code-review') {
 }
 
 test('initialization clones with argument arrays and registers every public skill for all agents', async t => {
-  const { root, home, calls, manager } = await fixture(t);
+  const { root, home, calls, manager, files } = await fixture(t);
   const status = await manager.reconcile(root);
   assert.equal(status.state, 'ready');
   assert.equal(status.commit, 'fixture-commit');
@@ -59,18 +66,18 @@ test('initialization clones with argument arrays and registers every public skil
   assert.deepEqual(calls[0], ['clone', '--', 'https://github.com/microsoft/BCQuality.git', root]);
   assert.ok(calls.some(args => args.join(' ').endsWith('pull --ff-only origin main')));
   for (const agent of ['.copilot', '.agents', '.claude']) {
-    const text = await fs.readFile(adapter(home, agent), 'utf8');
+    const text = await files.readFile(adapter(home, agent), 'utf8');
     assert.match(text, /name: bcdevtoolset-al-code-review/);
     assert.ok(text.includes(JSON.stringify(root)));
     assert.match(text, /skills\/al-code-review\/SKILL.md/);
     assert.match(text, /do not derive it from this adapter/);
     assert.match(text, /registration does not grant filesystem permissions/);
   }
-  assert.equal(await fs.readFile(path.join(root, 'skills', 'entry.md'), 'utf8'), 'upstream router');
+  assert.equal(await files.readFile(path.join(root, 'skills', 'entry.md'), 'utf8'), 'upstream router');
 });
 
 test('each reload updates an existing clean checkout without cloning again', async t => {
-  const { root, calls, manager } = await fixture(t);
+  const { root, calls, manager, files } = await fixture(t);
   await manager.reconcile(root);
   await manager.reconcile(root);
   assert.equal(calls.filter(args => args[0] === 'clone').length, 1);
@@ -79,7 +86,7 @@ test('each reload updates an existing clean checkout without cloning again', asy
 
 test('offline and non-fast-forward updates preserve usable content and register adapters', async t => {
   for (const pullError of ['Network unreachable', 'Not possible to fast-forward']) {
-    const { root, manager } = await fixture(t, { pullError });
+    const { root, manager, files } = await fixture(t, { pullError });
     const status = await manager.reconcile(root);
     assert.equal(status.state, 'warning');
     assert.equal(status.adapters.length, 9);
@@ -89,7 +96,7 @@ test('offline and non-fast-forward updates preserve usable content and register 
 
 test('local edits and a pinned checkout are never pulled or reset', async t => {
   for (const options of [{ dirty: ' M custom/knowledge.md' }, { branch: '' }, { branch: 'my-local-branch' }]) {
-    const { root, calls, manager } = await fixture(t, options);
+    const { root, calls, manager, files } = await fixture(t, options);
     assert.equal((await manager.reconcile(root)).state, 'warning');
     assert.ok(!calls.some(args => args.includes('pull')));
     assert.ok(!calls.some(args => args.includes('reset') || args.includes('checkout')));
@@ -98,27 +105,27 @@ test('local edits and a pinned checkout are never pulled or reset', async t => {
 
 test('unrelated repos and nested project directories are rejected before update or registration', async t => {
   for (const options of [{ remote: 'https://github.com/other/repo.git' }, { top: os.tmpdir() }]) {
-    const { root, calls, home, manager } = await fixture(t, options);
+    const { root, calls, home, manager, files } = await fixture(t, options);
     const status = await manager.reconcile(root);
     assert.equal(status.state, 'error');
     assert.ok(!calls.some(args => args.includes('pull')));
-    await assert.rejects(fs.stat(adapter(home)), { code: 'ENOENT' });
+    await assert.rejects(files.stat(adapter(home)), { code: 'ENOENT' });
   }
 });
 
 test('a nonempty non-repository directory is not cloned into', async t => {
-  const { root, calls, manager } = await fixture(t);
-  await fs.mkdir(root);
-  await fs.writeFile(path.join(root, 'keep.txt'), 'user content');
+  const { root, calls, manager, files } = await fixture(t);
+  await files.mkdir(root);
+  await files.writeFile(path.join(root, 'keep.txt'), 'user content');
   manager.git = async args => { calls.push(args); throw new Error('not a git repository'); };
   assert.equal((await manager.reconcile(root)).state, 'error');
   assert.ok(!calls.some(args => args[0] === 'clone'));
-  assert.equal(await fs.readFile(path.join(root, 'keep.txt'), 'utf8'), 'user content');
+  assert.equal(await files.readFile(path.join(root, 'keep.txt'), 'utf8'), 'user content');
 });
 
 test('invalid paths fail at the boundary and do not invoke Git', async t => {
-  const { manager, calls } = await fixture(t);
-  for (const value of ['relative/path', path.parse(os.tmpdir()).root, '/tmp/bad\npath', '/tmp/bad`path']) {
+  const { manager, calls, files } = await fixture(t);
+  for (const value of ['relative/path', path.parse(os.tmpdir()).root, '/tmp/bad\npath', '/tmp/bad`path', '/tmp/bad\u0000path', '/tmp/bad\tpath']) {
     assert.throws(() => validateClonePath(value));
     assert.equal((await manager.reconcile(value)).state, 'error');
   }
@@ -126,98 +133,102 @@ test('invalid paths fail at the boundary and do not invoke Git', async t => {
 });
 
 test('clearing the path removes only unchanged managed adapters and retains the checkout', async t => {
-  const { root, home, manager } = await fixture(t);
+  const { root, home, manager, files } = await fixture(t);
   await manager.reconcile(root);
   const edited = adapter(home, '.claude');
-  await fs.appendFile(edited, '\nUser customization');
+  await files.appendFile(edited, '\nUser customization');
   const extra = path.join(path.dirname(adapter(home, '.copilot')), 'my-notes.txt');
-  await fs.writeFile(extra, 'keep');
+  await files.writeFile(extra, 'keep');
   const status = await manager.reconcile('');
   assert.equal(status.state, 'disabled');
   assert.ok(status.warnings.some(message => message.includes('modified')));
-  await assert.rejects(fs.stat(adapter(home)), { code: 'ENOENT' });
-  assert.match(await fs.readFile(edited, 'utf8'), /User customization/);
-  assert.equal(await fs.readFile(extra, 'utf8'), 'keep');
-  assert.ok((await fs.stat(path.join(root, 'plugin.json'))).isFile());
+  await assert.rejects(files.stat(adapter(home)), { code: 'ENOENT' });
+  assert.match(await files.readFile(edited, 'utf8'), /User customization/);
+  assert.equal(await files.readFile(extra, 'utf8'), 'keep');
+  assert.ok((await files.stat(path.join(root, 'plugin.json'))).isFile());
   // Cleanup also works after an extension reload when in-memory state is lost.
   const fresh = new BcQualityIntegration({ homeDirectory: home });
   assert.equal((await fresh.reconcile('')).state, 'disabled');
 });
 
 test('opt-out after reload cleans adapters and a never-enabled installation creates no files', async t => {
-  const { root, home, manager } = await fixture(t);
+  const { root, home, manager, files } = await fixture(t);
   await manager.reconcile('');
-  assert.deepEqual(await fs.readdir(home), []);
+  assert.deepEqual(await files.readdir(home), []);
   await manager.reconcile(root);
   const fresh = new BcQualityIntegration({ homeDirectory: home });
   await fresh.reconcile('');
-  await assert.rejects(fs.stat(adapter(home)), { code: 'ENOENT' });
+  await assert.rejects(files.stat(adapter(home)), { code: 'ENOENT' });
 });
 
 test('changing paths refreshes managed wrappers while user-owned collisions are preserved', async t => {
-  const { root, home, manager } = await fixture(t);
+  const { root, home, manager, files } = await fixture(t);
   const collision = adapter(home, '.claude', 'al-knowledge');
-  await fs.mkdir(path.dirname(collision), { recursive: true });
-  await fs.writeFile(collision, 'my skill');
+  await files.mkdir(path.dirname(collision), { recursive: true });
+  await files.writeFile(collision, 'my skill');
   await manager.reconcile(root);
   const nextRoot = path.join(path.dirname(root), 'second checkout');
-  await content(nextRoot);
+  await content(nextRoot, files);
   manager.git = async args => args.includes('--show-toplevel') ? nextRoot
     : args.includes('get-url') ? 'git@github.com:microsoft/BCQuality.git'
       : args.includes('--show-current') ? 'main' : '';
   const status = await manager.reconcile(nextRoot);
   assert.equal(status.state, 'warning');
-  assert.ok((await fs.readFile(adapter(home), 'utf8')).includes(JSON.stringify(nextRoot)));
-  assert.equal(await fs.readFile(collision, 'utf8'), 'my skill');
+  assert.ok((await files.readFile(adapter(home), 'utf8')).includes(JSON.stringify(nextRoot)));
+  assert.equal(await files.readFile(collision, 'utf8'), 'my skill');
 });
 
 test('absent optional upstream capabilities are not advertised and obsolete adapters are removed', async t => {
-  const { root, home, manager } = await fixture(t);
+  const { root, home, manager, files } = await fixture(t);
   await manager.reconcile(root);
-  await fs.rm(path.join(root, 'skills', 'al-knowledge'), { recursive: true });
+  await files.rm(path.join(root, 'skills', 'al-knowledge'), { recursive: true });
   assert.equal((await manager.reconcile(root)).adapters.length, 6);
-  await assert.rejects(fs.stat(adapter(home, '.agents', 'al-knowledge')), { code: 'ENOENT' });
+  await assert.rejects(files.stat(adapter(home, '.agents', 'al-knowledge')), { code: 'ENOENT' });
 });
 
 test('two windows cannot update the checkout or adapters concurrently and release locks on failure', async t => {
-  const { root, home, calls, manager } = await fixture(t);
+  const { root, home, calls, manager, files } = await fixture(t);
   await manager.reconcile(root);
   const lockFile = path.join(home, '.bcdevtoolset', 'bcquality.lock');
-  const release = await acquireLock(lockFile);
+  const release = await acquireLock(files, lockFile);
   const count = calls.length;
   assert.equal((await manager.reconcile(root)).state, 'busy');
   assert.equal(calls.length, count);
   await release();
-  const cloneRelease = await acquireLock(`${root}.bcdevtoolset.lock`);
+  const cloneRelease = await acquireLock(files, `${root}.bcdevtoolset.lock`);
   assert.equal((await manager.reconcile(root)).state, 'error');
   await cloneRelease();
   assert.equal((await manager.reconcile(root)).state, 'ready');
 });
 
 test('stale process locks are reclaimed without evicting live owners', async t => {
-  const { home } = await fixture(t);
+  const { home, files } = await fixture(t);
   const lock = path.join(home, 'fixture.lock');
   const execute = promisify(execFile);
   const { stdout } = await execute(process.execPath, ['-e', 'process.stdout.write(String(process.pid))']);
-  await fs.writeFile(lock, JSON.stringify({ pid: Number(stdout) }));
-  const unlock = await acquireLock(lock);
+  await files.writeFile(lock, JSON.stringify({ pid: Number(stdout) }));
+  const unlock = await acquireLock(files, lock);
   assert.equal(typeof unlock, 'function');
-  assert.equal(await acquireLock(lock), undefined);
+  assert.equal(await acquireLock(files, lock), undefined);
   await unlock();
 });
 
 test('agent directory junctions cannot redirect adapter writes outside the selected home', async t => {
-  const { root, home, temporary, manager } = await fixture(t);
+  const { root, home, temporary, manager, files } = await fixture(t);
   const outside = path.join(temporary, 'outside');
-  await fs.mkdir(outside);
-  await fs.symlink(outside, path.join(home, '.agents'), process.platform === 'win32' ? 'junction' : 'dir');
+  await files.mkdir(outside);
+  const link = resolveWithinRoot(home, '.agents');
+  const target = assertWithinRoot(temporary, outside);
+  // Both link and target are inside this test's owned temporary fixture.
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is checked against its explicit authorization root above.
+  await nativeFs.symlink(target, link, process.platform === 'win32' ? 'junction' : 'dir'); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
   const status = await manager.reconcile(root);
   assert.equal(status.state, 'warning');
-  assert.deepEqual(await fs.readdir(outside), []);
+  assert.deepEqual(await files.readdir(outside), []);
   assert.ok(status.warnings.some(message => message.includes('symlink')));
   const disabled = await manager.reconcile('');
   assert.equal(disabled.state, 'disabled');
-  await assert.rejects(fs.stat(adapter(home, '.copilot')), { code: 'ENOENT' });
+  await assert.rejects(files.stat(adapter(home, '.copilot')), { code: 'ENOENT' });
 });
 
 test('setting is machine-scoped, commands are contributed, and development activation never touches personal files', async () => {
@@ -283,4 +294,41 @@ test('production lifecycle starts maintenance, responds to path changes, and exp
   configured = '';
   listener({ affectsConfiguration: () => true });
   assert.equal(calls.at(-1), '');
+});
+
+test('every filesystem operation rejects relative traversal and absolute paths outside its authorization root', async t => {
+  const { home, temporary, files: fixtureFiles } = await fixture(t);
+  const files = new BcQualityFiles(home);
+  const outside = path.join(temporary, 'outside.txt');
+  await fixtureFiles.writeFile(outside, 'preserve outside content');
+  for (const candidate of [outside, path.join(home, '..', 'outside.txt')]) {
+    const attempts = [
+      () => files.lstat(candidate), () => files.stat(candidate), () => files.open(candidate, 'wx'),
+      () => files.mkdir(candidate), () => files.readdir(candidate), () => files.readFile(candidate, 'utf8'),
+      () => files.writeFile(candidate, 'overwrite'), () => files.appendFile(candidate, 'append'),
+      () => files.unlink(candidate), () => files.rmdir(candidate), () => files.rm(candidate, { recursive: true }),
+      () => acquireLock(files, candidate)
+    ];
+    for (const attempt of attempts) await assert.rejects(attempt(), /escapes its authorized root/);
+  }
+  assert.equal(await fixtureFiles.readFile(outside, 'utf8'), 'preserve outside content');
+});
+
+test('filesystem reads, writes, cleanup, and lock creation reject nested directory links', async t => {
+  const { home, temporary, files: fixtureFiles } = await fixture(t);
+  const target = resolveWithinRoot(temporary, 'external-content');
+  await fixtureFiles.mkdir(target);
+  const marker = resolveWithinRoot(target, 'marker.txt');
+  await fixtureFiles.writeFile(marker, 'preserve external content');
+  const link = resolveWithinRoot(home, 'linked');
+  // The malicious link and target are both confined to this test's owned fixture.
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is checked against its explicit authorization root above.
+  await nativeFs.symlink(target, link, process.platform === 'win32' ? 'junction' : 'dir'); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
+  const files = new BcQualityFiles(home);
+  const throughLink = resolveWithinRoot(link, 'marker.txt');
+  for (const attempt of [() => files.readFile(throughLink), () => files.writeFile(throughLink, 'overwrite'),
+    () => files.rm(throughLink), () => acquireLock(files, throughLink)]) {
+    await assert.rejects(attempt(), /symlink/);
+  }
+  assert.equal(await fixtureFiles.readFile(marker, 'utf8'), 'preserve external content');
 });
