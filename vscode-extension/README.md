@@ -20,6 +20,8 @@ It offers operations in functional areas:
   * publish or unpublish apps
   * create and deploy runtime packages
 * Run/Verify standard and page scripting tests
+* Exposes container data to agents for full read and mutation operations through MCP, using a companion extension
+* Manages and updates BCQuality skills for major agentic frameworks
 
 ## Getting started
 
@@ -67,6 +69,27 @@ This opens a two-step picker: choose a category first, then pick an operation fr
 All operations are available directly as well.
 
 Run `BC Dev Toolset: Show Help` at any time to open the full repository README in VS Code's rendered Markdown preview.
+
+## BCQuality across agents
+
+Set `bcDevToolset.bcQualityPath` in **User settings** to an absolute path for a dedicated [microsoft/BCQuality](https://github.com/microsoft/BCQuality) checkout, for example:
+
+```json
+"bcDevToolset.bcQualityPath": "C:\\Knowledge\\BCQuality"
+```
+
+This machine-scoped setting is not synchronized between machines and cannot be overridden by workspace settings. It is separate from `.bcdevtoolset/settings.json`. Setting a path opts into background initialization and maintenance on every extension activation/reload and whenever the setting changes. Git must be available on PATH. An absent or empty directory is cloned; an existing directory must be the root of a BCQuality checkout with its origin pointing to Microsoft's repository. Clean checkouts on `main` are updated with `git pull --ff-only origin main`. Local changes and other branches or detached revisions are preserved without pulling. Offline or failed updates retain the existing usable checkout and report a warning. Multiple VS Code windows serialize maintenance through locks; a busy window can retry using the update command.
+
+The extension maintains wrapper skills named `bcdevtoolset-al-code-review`, `bcdevtoolset-al-plan-guidance`, and `bcdevtoolset-al-knowledge` when their upstream public skills exist. They live in personal skill directories: `~/.copilot/skills` for Copilot, `~/.agents/skills` for Codex, and `~/.claude/skills` for Claude Code. Each adapter delegates to the current upstream instructions using the explicit content root and the user's project as input. The clone does not need to be open in VS Code or included in any development workspace. The extension does not change project instructions or agent permission settings.
+
+Start a new agent session after initial setup if the skills have not appeared. Ask the agent to use the corresponding `bcdevtoolset-*` skill. Discovery makes the capability available; it does not force it into every task or grant permission to read external directories. Restricted agents may need access to the configured directory, including BCQuality's own generated knowledge index. Local clones and personal skills must be on the same host as the agent; remote or cloud sessions do not inherit files from another machine.
+
+Commands:
+
+- **BC Dev Toolset: Update BCQuality** retries initialization/update and adapter registration, then opens the status report.
+- **BC Dev Toolset: Show BCQuality Status** shows the configured path, maintenance state, resolved commit, last attempt/success, installed adapters, and warnings or errors. Maintenance results also appear in the BC Dev Toolset output channel.
+
+Changing the path refreshes unchanged managed adapters. Clearing it disables maintenance and removes unchanged managed adapters while retaining the clone. User-created or edited adapters are left untouched and reported in status. Extension Development Hosts skip maintenance of personal BCQuality content and adapters; automated tests use isolated homes and checkouts.
 
 ## MCP server
 
@@ -176,7 +199,6 @@ OnPrem Dev publishing uses `server`, the developer-services `port`, `serverInsta
 ### Runtime
 
 - `Publish stored runtime packages (excluding test apps) to a selected configuration`: Publishes existing runtime packages to one selected Container or OnPrem configuration across Dev, Test, and Production. Cloud targets are excluded.
-
 - `Create deployment runtime packages for all apps in the workspace (not compile/build validation)`: Builds deployment runtime packages for all workspace apps. This is not a substitute for ordinary AL compile/build validation.
 
 ### Visualization
@@ -224,7 +246,6 @@ These are stored in the workspace file. AL settings such as `al.symbolsCountryRe
 
 - `al.symbolsCountryRegion`: Business Central artifact region. Default: `w1`.
 - `al.assemblyProbingPaths`: Workspace initialization and assembly extraction add `"./.netpackages"` if that exact path is absent, preserving other entries. The path resolves from each app folder and points to the DLLs extracted for OnPrem apps. Remove older folder-level `al.assemblyProbingPaths` overrides from app `.vscode/settings.json` files to use the workspace setting.
-
 - `selectArtifact`: Artifact selection strategy. Default: `Latest`. Another common value is `Closest`.
 - `testBuildWarningsAsErrors`: Boolean, `false` by default. Set to `true` in shared workspace `bcDevToolset` settings or local `.bcdevtoolset/settings.json` to block **Run AL test tool tests** when its build emits compiler warnings. An explicit local value (including `false`) overrides the workspace setting. The operation stops before container preparation and test execution; the MCP report includes the warnings and instructs the agent to resolve them before rerunning. Standalone builds, page script tests, and AL Runner tests are unaffected.
 - `configurations`: Shared target definitions for the workspace. These are useful when a team wants common environment entries available to everyone.

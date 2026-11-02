@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.11.1",
+  "version": "1.11.2",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -12,7 +12,7 @@
     "directory": "vscode-extension"
   },
   "scripts": {
-    "validate": "node --check extension.js && node --check mcp-server.js && node --check mcp-bridge-identity.js && node --check codex-mcp-config.js && node --check mcp-tool-settings.js && node --check configuration-settings.js && node --check settings-migration.js && node --test",
+    "validate": "node --check extension.js && node --check bcquality-files.js && node --check bcquality-integration.js && node --check bcquality-vscode.js && node --check mcp-server.js && node --check mcp-bridge-identity.js && node --check codex-mcp-config.js && node --check mcp-tool-settings.js && node --check configuration-settings.js && node --check settings-migration.js && node --test",
     "test": "node --test test",
     "prepare:runtime": "node ./build/prepare-runtime-package.js",
     "package": "npm run prepare:runtime && npx @vscode/vsce package --no-dependencies",
@@ -38,6 +38,8 @@
   ],
   "activationEvents": [
     "onStartupFinished",
+    "onCommand:bcDevToolset.updateBcQuality",
+    "onCommand:bcDevToolset.showBcQualityStatus",
     "onCommand:bcDevToolset.initializeWorkspace",
     "onCommand:bcDevToolset.openLocalSettingsJson",
     "onCommand:bcDevToolset.configureCodexMcp",
@@ -120,6 +122,7 @@
               "toolsetPath": "",
               "powershellExecutable": "pwsh",
               "localSettingsPath": ".bcdevtoolset/settings.json",
+              "bcQualityPath": "",
               "codexMcpIntegration": {
                 "enabled": false
               },
@@ -968,6 +971,12 @@
             "default": ".bcdevtoolset/settings.json",
             "description": "Workspace-relative local settings file passed to PowerShell operations when it exists."
           },
+          "bcDevToolset.bcQualityPath": {
+            "type": "string",
+            "scope": "machine",
+            "default": "",
+            "description": "Absolute path to a dedicated microsoft/BCQuality checkout. Setting a path opts into cloning or fast-forward updating it on extension startup/reload and registering managed personal skills for Copilot, Codex, and Claude Code. Empty disables maintenance and removes unchanged managed adapters; the checkout is retained."
+          },
           "bcDevToolset.codexMcpIntegration.enabled": {
             "type": "boolean",
             "scope": "machine",
@@ -1013,6 +1022,14 @@
       }
     ],
     "commands": [
+      {
+        "command": "bcDevToolset.updateBcQuality",
+        "title": "BC Dev Toolset: Update BCQuality"
+      },
+      {
+        "command": "bcDevToolset.showBcQualityStatus",
+        "title": "BC Dev Toolset: Show BCQuality Status"
+      },
       {
         "command": "bcDevToolset.initializeWorkspace",
         "title": "BC Dev Toolset: Initialize Workspace"
