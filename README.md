@@ -19,6 +19,12 @@ The things that the toolset will enable you to do once it is set up:
 * Batch deployment to environments both local and remote.
 * Batch deployment of dependency apps into containers.
 
+## BCQuality integration
+
+The VS Code extension can maintain one shared [BCQuality](https://github.com/microsoft/BCQuality) checkout and register personal skills for Copilot, Codex, and Claude Code across development projects. Set the machine-specific User setting `bcDevToolset.bcQualityPath` to an absolute path such as `C:\Knowledge\BCQuality`. On activation/reload, the extension clones an absent or empty directory, or fast-forward updates an existing clean checkout on `main`. Local edits, pinned revisions, and usable offline content are preserved. BCQuality does not need to be a workspace folder.
+
+Run **BC Dev Toolset: Update BCQuality** to retry maintenance or **BC Dev Toolset: Show BCQuality Status** to inspect the current commit, agent adapters, and maintenance results. Clearing the setting removes unchanged extension-owned adapters and retains the checkout. Agent discovery and filesystem permissions are separate: a restricted agent may still need access to the content directory. See the [extension's BCQuality setup guide](vscode-extension/README.md#bcquality-across-agents) for skill locations, supported capabilities, and remote-session limitations.
+
 ## Introduction
 
 The purpose of this toolset is the management of local Windows or Windows Server development environments for Business Central projects. The goal is to make quick work of preparation of local Docker environments, as well as other routinely executed management procedures, such as editing of *launch.json*.

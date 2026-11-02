@@ -18,6 +18,7 @@ const { migrateSettingsOnStartup } = require('./settings-migration');
 const { configurationPrefix, legacyConfigurationPrefix, createConfigurationAccess, affectsToolsetConfiguration } = require('./configuration-settings');
 const { discoverAlTool } = require('./al-tool-discovery');
 const { assertWithinRoot, authorizeRoot, resolveWithinRoot } = require('./path-security');
+const { registerBcQualityIntegration } = require('./bcquality-vscode');
 
 let extensionContext;
 let runtimeSyncPromise;
@@ -110,6 +111,11 @@ async function activate(context) {
   outputChannel = vscode.window.createOutputChannel('BC Dev Toolset');
   context.subscriptions.push(outputChannel);
   await migrateSettingsOnStartup(vscode, context, writeOutput);
+  registerBcQualityIntegration(vscode, context, {
+    getPath: () => getConfiguration().inspect('bcQualityPath')?.globalValue ?? '',
+    log: writeOutput,
+    isDevelopment: isExtensionDevelopmentMode
+  });
 
   context.subscriptions.push(
     vscode.window.onDidCloseTerminal((terminal) => {

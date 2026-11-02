@@ -26,6 +26,8 @@ test('activation registers every contributed operation command and dispatches cr
       languages: { registerCompletionItemProvider: disposable }
     },
     migrateSettingsOnStartup: async () => {},
+    registerBcQualityIntegration() {},
+    isExtensionDevelopmentMode() { return false; },
     runOperationById: async id => { invoked.push(id); },
     syncRuntimeToolsetAfterExtensionUpdate: async () => {},
     queueCodexMcpReconciliation() {}
