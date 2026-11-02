@@ -245,6 +245,33 @@ test('live recovery owners block reclamation of a dead primary owner', async t =
   await release();
 });
 
+test('Windows recovery read contention leaves locks untouched and permits a later retry', {
+  skip: process.platform !== 'win32'
+}, async t => {
+  const { home, files } = await fixture(t);
+  const lock = path.join(home, 'fixture.lock');
+  const recovery = `${lock}.recovery`;
+  const { stdout } = await promisify(execFile)(process.execPath, ['-e', 'process.stdout.write(String(process.pid))']);
+  const deadOwner = JSON.stringify({ pid: Number(stdout) });
+  await files.writeFile(lock, deadOwner);
+  await files.writeFile(recovery, deadOwner);
+  const readFile = files.readFile.bind(files);
+  for (const code of ['EPERM', 'EACCES']) {
+    files.readFile = async (candidate, encoding) => {
+      if (candidate === recovery) throw Object.assign(new Error('Lock is being deleted'), { code });
+      return readFile(candidate, encoding);
+    };
+    assert.equal(await acquireLock(files, lock), undefined);
+    assert.equal(await readFile(lock, 'utf8'), deadOwner);
+    assert.equal(await readFile(recovery, 'utf8'), deadOwner);
+  }
+  files.readFile = readFile;
+  const release = await acquireLock(files, lock);
+  assert.equal(typeof release, 'function');
+  await release();
+  assert.deepEqual(await files.readdir(home), []);
+});
+
 test('legacy empty recovery locks wait for initialization then become reclaimable', async t => {
   const { home, files } = await fixture(t);
   const lock = path.join(home, 'fixture.lock');

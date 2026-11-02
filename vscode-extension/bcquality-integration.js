@@ -84,6 +84,9 @@ async function acquireLock(files, lockFile) {
     try { pid = JSON.parse(await files.readFile(lockFile, 'utf8'))?.pid; }
     catch (error) {
       if (error.code === 'ENOENT') return 'missing';
+      // Windows can reject opens while another contender deletes the lock.
+      // Fail closed for this attempt: never reclaim an owner we could not read.
+      if (process.platform === 'win32' && ['EPERM', 'EACCES'].includes(error.code)) return false;
       if (!(error instanceof SyntaxError)) throw error;
     }
     // Older versions created empty recovery files. Allow time for their writer
