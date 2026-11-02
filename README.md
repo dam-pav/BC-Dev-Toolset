@@ -19,12 +19,6 @@ The things that the toolset will enable you to do once it is set up:
 * Batch deployment to environments both local and remote.
 * Batch deployment of dependency apps into containers.
 
-## BCQuality integration
-
-The VS Code extension can maintain one shared [BCQuality](https://github.com/microsoft/BCQuality) checkout and register personal skills for Copilot, Codex, and Claude Code across development projects. Set the machine-specific User setting `bcDevToolset.bcQualityPath` to an absolute path such as `C:\Knowledge\BCQuality`. On activation/reload, the extension clones an absent or empty directory, or fast-forward updates an existing clean checkout on `main`. Local edits, pinned revisions, and usable offline content are preserved. BCQuality does not need to be a workspace folder.
-
-Run **BC Dev Toolset: Update BCQuality** to retry maintenance or **BC Dev Toolset: Show BCQuality Status** to inspect the current commit, agent adapters, and maintenance results. Clearing the setting removes unchanged extension-owned adapters and retains the checkout. Agent discovery and filesystem permissions are separate: a restricted agent may still need access to the content directory. See the [extension's BCQuality setup guide](vscode-extension/README.md#bcquality-across-agents) for skill locations, supported capabilities, and remote-session limitations.
-
 ## Introduction
 
 The purpose of this toolset is the management of local Windows or Windows Server development environments for Business Central projects. The goal is to make quick work of preparation of local Docker environments, as well as other routinely executed management procedures, such as editing of *launch.json*.
@@ -117,6 +111,12 @@ Codex does not automatically discover MCP servers contributed through the VS Cod
 The Codex MCP server uses the VS Code terminal bridge belonging to the current workspace for PowerShell-backed operations. Multiple VS Code windows are supported concurrently: each extension host publishes an isolated, authenticated instance, and a Codex MCP process binds once to the live instance that owns its startup working directory. Keep the extension active in each workspace where Codex should run operations in that window's visible terminal. Cross-workspace bridge requests fail closed.
 
 PowerShell-backed operations clear the interactive terminal and display their operation title in an exclamation-mark banner before execution. Non-interactive runs retain earlier output and print the same banner.
+
+## BCQuality integration
+
+The VS Code extension can maintain one shared [BCQuality](https://github.com/microsoft/BCQuality) checkout and register personal skills for Copilot, Codex, and Claude Code across development projects. Set the machine-specific User setting `bcDevToolset.bcQualityPath` to an absolute path such as `C:\Knowledge\BCQuality`. On activation/reload, the extension clones an absent or empty directory, or fast-forward updates an existing clean checkout on `main`. Local edits, pinned revisions, and usable offline content are preserved. BCQuality does not need to be a workspace folder.
+
+Run **BC Dev Toolset: Update BCQuality** to retry maintenance or **BC Dev Toolset: Show BCQuality Status** to inspect the current commit, agent adapters, and maintenance results. Clearing the setting removes unchanged extension-owned adapters and retains the checkout. Agent discovery and filesystem permissions are separate: a restricted agent may still need access to the content directory. See the [extension's BCQuality setup guide](vscode-extension/README.md#bcquality-across-agents) for skill locations, supported capabilities, and remote-session limitations.
 
 ## Prerequisites
 

@@ -20,6 +20,8 @@ It offers operations in functional areas:
   * publish or unpublish apps
   * create and deploy runtime packages
 * Run/Verify standard and page scripting tests
+* Exposes container data to agents for full read and mutation operations through MCP, using a companion extension
+* Manages and updates BCQuality skills for major agentic frameworks
 
 ## Getting started
 
@@ -197,7 +199,6 @@ OnPrem Dev publishing uses `server`, the developer-services `port`, `serverInsta
 ### Runtime
 
 - `Publish stored runtime packages (excluding test apps) to a selected configuration`: Publishes existing runtime packages to one selected Container or OnPrem configuration across Dev, Test, and Production. Cloud targets are excluded.
-
 - `Create deployment runtime packages for all apps in the workspace (not compile/build validation)`: Builds deployment runtime packages for all workspace apps. This is not a substitute for ordinary AL compile/build validation.
 
 ### Visualization
@@ -245,7 +246,6 @@ These are stored in the workspace file. AL settings such as `al.symbolsCountryRe
 
 - `al.symbolsCountryRegion`: Business Central artifact region. Default: `w1`.
 - `al.assemblyProbingPaths`: Workspace initialization and assembly extraction add `"./.netpackages"` if that exact path is absent, preserving other entries. The path resolves from each app folder and points to the DLLs extracted for OnPrem apps. Remove older folder-level `al.assemblyProbingPaths` overrides from app `.vscode/settings.json` files to use the workspace setting.
-
 - `selectArtifact`: Artifact selection strategy. Default: `Latest`. Another common value is `Closest`.
 - `testBuildWarningsAsErrors`: Boolean, `false` by default. Set to `true` in shared workspace `bcDevToolset` settings or local `.bcdevtoolset/settings.json` to block **Run AL test tool tests** when its build emits compiler warnings. An explicit local value (including `false`) overrides the workspace setting. The operation stops before container preparation and test execution; the MCP report includes the warnings and instructs the agent to resolve them before rerunning. Standalone builds, page script tests, and AL Runner tests are unaffected.
 - `configurations`: Shared target definitions for the workspace. These are useful when a team wants common environment entries available to everyone.
