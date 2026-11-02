@@ -213,6 +213,73 @@ test('stale process locks are reclaimed without evicting live owners', async t =
   await unlock();
 });
 
+test('abandoned recovery locks are reclaimed with only one concurrent winner', async t => {
+  const { home, files } = await fixture(t);
+  const lock = path.join(home, 'fixture.lock');
+  const { stdout } = await promisify(execFile)(process.execPath, ['-e', 'process.stdout.write(String(process.pid))']);
+  const deadOwner = JSON.stringify({ pid: Number(stdout) });
+  for (const suffix of ['', '.recovery', '.recovery.recovery']) {
+    await files.writeFile(`${lock}${suffix}`, deadOwner);
+  }
+  const results = await Promise.all(Array.from({ length: 8 }, () => acquireLock(files, lock)));
+  const winners = results.filter(Boolean);
+  assert.equal(winners.length, 1);
+  assert.equal(JSON.parse(await files.readFile(lock, 'utf8')).pid, process.pid);
+  assert.equal(await acquireLock(files, lock), undefined);
+  await winners[0]();
+  assert.deepEqual(await files.readdir(home), []);
+});
+
+test('live recovery owners block reclamation of a dead primary owner', async t => {
+  const { home, files } = await fixture(t);
+  const lock = path.join(home, 'fixture.lock');
+  const { stdout } = await promisify(execFile)(process.execPath, ['-e', 'process.stdout.write(String(process.pid))']);
+  const deadOwner = JSON.stringify({ pid: Number(stdout) });
+  await files.writeFile(lock, deadOwner);
+  const releaseRecovery = await acquireLock(files, `${lock}.recovery`);
+  assert.equal(await acquireLock(files, lock), undefined);
+  assert.equal(await files.readFile(lock, 'utf8'), deadOwner);
+  await releaseRecovery();
+  const release = await acquireLock(files, lock);
+  assert.equal(typeof release, 'function');
+  await release();
+});
+
+test('legacy empty recovery locks wait for initialization then become reclaimable', async t => {
+  const { home, files } = await fixture(t);
+  const lock = path.join(home, 'fixture.lock');
+  const { stdout } = await promisify(execFile)(process.execPath, ['-e', 'process.stdout.write(String(process.pid))']);
+  await files.writeFile(lock, JSON.stringify({ pid: Number(stdout) }));
+  const recovery = resolveWithinRoot(home, 'fixture.lock.recovery');
+  await files.writeFile(recovery, '');
+  assert.equal(await acquireLock(files, lock), undefined);
+  const validatedRecovery = await files.checked(recovery);
+  const old = new Date(Date.now() - 180000);
+  // The recovery file is contained in this test's authorized temporary fixture.
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- checked enforces containment and rejects symlinks above.
+  await nativeFs.utimes(validatedRecovery, old, old); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
+  const release = await acquireLock(files, lock);
+  assert.equal(typeof release, 'function');
+  await release();
+  assert.deepEqual(await files.readdir(home), []);
+});
+
+test('lock publication exposes complete ownership and cleans up after failures', async t => {
+  const { home, files } = await fixture(t);
+  const lock = path.join(home, 'fixture.lock');
+  const link = files.link.bind(files);
+  files.link = async (source, destination) => {
+    assert.equal(JSON.parse(await files.readFile(source, 'utf8')).pid, process.pid);
+    await assert.rejects(files.lstat(destination), { code: 'ENOENT' });
+    throw new Error('publication failed');
+  };
+  await assert.rejects(acquireLock(files, lock), /publication failed/);
+  assert.deepEqual(await files.readdir(home), []);
+  files.link = link;
+  const release = await acquireLock(files, lock);
+  await release();
+});
+
 test('agent directory junctions cannot redirect adapter writes outside the selected home', async t => {
   const { root, home, temporary, manager, files } = await fixture(t);
   const outside = path.join(temporary, 'outside');
@@ -307,6 +374,8 @@ test('every filesystem operation rejects relative traversal and absolute paths o
       () => files.mkdir(candidate), () => files.readdir(candidate), () => files.readFile(candidate, 'utf8'),
       () => files.writeFile(candidate, 'overwrite'), () => files.appendFile(candidate, 'append'),
       () => files.unlink(candidate), () => files.rmdir(candidate), () => files.rm(candidate, { recursive: true }),
+      () => files.link(candidate, path.join(home, 'copy.txt')),
+      () => files.link(path.join(home, 'copy.txt'), candidate),
       () => acquireLock(files, candidate)
     ];
     for (const attempt of attempts) await assert.rejects(attempt(), /escapes its authorized root/);
@@ -327,6 +396,8 @@ test('filesystem reads, writes, cleanup, and lock creation reject nested directo
   const files = new BcQualityFiles(home);
   const throughLink = resolveWithinRoot(link, 'marker.txt');
   for (const attempt of [() => files.readFile(throughLink), () => files.writeFile(throughLink, 'overwrite'),
+    () => files.link(throughLink, path.join(home, 'copy.txt')),
+    () => files.link(path.join(home, 'copy.txt'), throughLink),
     () => files.rm(throughLink), () => acquireLock(files, throughLink)]) {
     await assert.rejects(attempt(), /symlink/);
   }

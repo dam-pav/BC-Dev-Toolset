@@ -55,6 +55,13 @@ class BcQualityFiles {
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is checked against its explicit authorization root above.
     return fs.mkdir(validatedPath, options); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
   }
+  async link(source, destination) {
+    const validatedSource = await this.checked(source);
+    const validatedDestination = await this.checked(destination);
+    // Both entries are confined to the authorized root and reject symlink traversal.
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- both paths are checked against the explicit authorization root above.
+    return fs.link(validatedSource, validatedDestination); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
+  }
   async readdir(candidate) {
     const validatedPath = await this.checked(candidate);
     // checked confines enumeration to the authorized root without following links.

@@ -65,34 +65,50 @@ function wrapper(root, capability) {
 // Dead owners are reclaimed; a live owner is never evicted by a timer.
 async function acquireLock(files, lockFile) {
   async function create() {
-    const handle = await files.open(lockFile, 'wx');
-    try { await handle.writeFile(JSON.stringify({ pid: process.pid })); }
-    finally { await handle.close(); }
+    // Publish complete owner information atomically, including for recovery locks.
+    // A crash before publication can only leave an unused uniquely named file.
+    const candidate = `${lockFile}.${crypto.randomUUID()}.owner`;
+    const handle = await files.open(candidate, 'wx');
+    try {
+      try { await handle.writeFile(JSON.stringify({ pid: process.pid })); }
+      finally { await handle.close(); }
+      await files.link(candidate, lockFile);
+    } finally { await files.unlink(candidate); }
     return async () => { await files.unlink(lockFile); };
+  }
+  async function abandoned() {
+    const stat = await exists(files, lockFile);
+    if (!stat) return 'missing';
+    if (stat.isSymbolicLink()) throw new Error('BCQuality lock must not be a symlink.');
+    let pid;
+    try { pid = JSON.parse(await files.readFile(lockFile, 'utf8'))?.pid; }
+    catch (error) {
+      if (error.code === 'ENOENT') return 'missing';
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+    // Older versions created empty recovery files. Allow time for their writer
+    // to finish; new locks always have owner information before they are visible.
+    if (!Number.isInteger(pid) || pid <= 0) return Date.now() - stat.mtimeMs > 120000;
+    try { process.kill(pid, 0); return false; }
+    catch (error) { return error.code === 'ESRCH'; }
   }
   try { return await create(); }
   catch (error) { if (error.code !== 'EEXIST') throw error; }
-  // Serialize recovery so two windows cannot both unlink a dead owner's lock.
-  let recovery;
-  try { recovery = await files.open(`${lockFile}.recovery`, 'wx'); }
-  catch (error) { if (error.code === 'EEXIST') return undefined; throw error; }
+  if (!await abandoned()) return undefined;
+  // Recovery locks use the same ownership and reclamation protocol. A crash
+  // during recovery therefore cannot leave a permanently blocking sentinel.
+  const releaseRecovery = await acquireLock(files, `${lockFile}.recovery`);
+  if (!releaseRecovery) return undefined;
   try {
-    const stat = await exists(files, lockFile);
-    if (!stat) {
-      try { return await create(); } catch (error) { if (error.code === 'EEXIST') return undefined; throw error; }
+    const stale = await abandoned();
+    if (!stale) return undefined;
+    if (stale === true) {
+      try { await files.unlink(lockFile); }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
     }
-    if (stat.isSymbolicLink()) throw new Error('BCQuality lock must not be a symlink.');
-    let pid;
-    try { pid = JSON.parse(await files.readFile(lockFile, 'utf8')).pid; }
-    catch { return undefined; } // Another process may still be writing the lock.
-    if (!Number.isInteger(pid) || pid <= 0) return undefined;
-    try { process.kill(pid, 0); return undefined; }
-    catch (error) { if (error.code !== 'ESRCH') return undefined; }
-    await files.unlink(lockFile);
     try { return await create(); } catch (error) { if (error.code === 'EEXIST') return undefined; throw error; }
   } finally {
-    await recovery.close();
-    await files.unlink(`${lockFile}.recovery`);
+    await releaseRecovery();
   }
 }
 
