@@ -29,13 +29,14 @@ test('pinned build inputs use a literal module import instead of a constructed f
   assert.doesNotMatch(source, /fs\.readFileSync\([^\n]*path\.join\([^\n]*build-inputs/);
 });
 
-function loadWithDependencies(relative, dependencies) {
+function loadWithDependencies(relative, dependencies, globals = {}) {
   const filename = resolveWithinRoot(path.resolve(__dirname, '..'), relative);
   const localRequire = createRequire(filename);
   const module = { exports: {} };
   vm.runInNewContext(fs.readFileSync(filename, 'utf8'), { // nosemgrep -- contained fixed test module path
     module, __dirname: path.dirname(filename), process, console,
-    require: name => dependencies[name] || localRequire(name)
+    require: name => dependencies[name] || localRequire(name),
+    ...globals
   }, { filename });
   return module.exports;
 }
@@ -80,6 +81,23 @@ test('CI companion discovery tolerates cold startup before attempting compilatio
   assert.throws(() => buildCompanion(root), error => error === stopped);
   assert.equal(probes.length, 1);
   assert.equal(probes[0].timeout, 60000);
+});
+
+test('AL compatibility smoke test tolerates cold startup before attempting compilation', t => {
+  const root = fixture(t, ['bin/altool.exe']);
+  const probes = [];
+  const discover = coldStartDiscovery(probes);
+  const stopped = new Error('Discovery verified; do not compile in this unit test');
+  assert.throws(() => loadWithDependencies('scripts/check-al-compatibility.js', {
+    '../al-tool-discovery': { discoverAlTool(extensionRoot, options) {
+      const selected = discover(extensionRoot, { ...options, platform: 'win32' });
+      assert.equal(selected, path.join(root, 'bin/altool.exe'));
+      throw stopped;
+    } }
+  }, { process: { argv: ['node', 'check-al-compatibility.js', root] } }), error => error === stopped);
+  assert.equal(probes.length, 1);
+  assert.equal(probes[0].timeout, 60000);
+  assert.deepEqual(probes[0].args, ['--help']);
 });
 
 test('rejects invalid or unbounded ALTool probe timeouts before launching', t => {

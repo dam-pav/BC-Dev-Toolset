@@ -53,7 +53,7 @@ Important local settings to review before running most operations:
 - `dependenciesPaths`: Folders containing dependency `.app` packages, or direct `.zip` file paths, used by dependency publishing operations.
 - `dependenciesPath`: Deprecated legacy single folder containing dependency `.app` packages. It is still read for compatibility, but users should migrate to `dependenciesPaths`.
 - `packageOutputPath`: Folder where runtime packages are written.
-- `sqlBackupPath`: Set this inside each Container `configurations` entry that uses SQL backup operations. Different containers can use different folders; set the same folder on multiple Container configurations only when sharing is intentional.
+- `sqlBackupPath`: Set this inside each Container `configurations` entry that uses SQL backup operations. Initialize Workspace fills missing or blank paths in local and workspace Container configurations with `.bcdevtoolset/.backups/<configuration name>` and creates those folders. Existing non-empty paths are preserved. The `.bcdevtoolset/` Git ignore rule covers these backups. Folder names are normalized by replacing invalid characters and trailing periods or spaces with underscores; reserved Windows device names receive an underscore prefix, and empty names use `_`. Configuration names in settings are preserved. Generated paths are unique across workspace and local Container configurations, using numeric suffixes such as `_2` when normalized names collide (case-insensitively). Existing configured destinations are reserved before assigning new defaults; explicit shared paths remain unchanged. Different containers can use different folders; set the same folder on multiple Container configurations only when sharing is intentional.
 - `licenseFile`: Required for license update and some runtime packaging scenarios.
 - `certificateFile`: Required when creating signed runtime packages.
 - `recordingsPath`: Folder containing page scripting recordings.
@@ -136,7 +136,7 @@ The `AL compatibility` workflow runs daily, on relevant pull requests, and manua
 
 ### Workspace
 
-- `Initialize Workspace`: Creates the baseline BC Dev Toolset workspace structure and default settings content for the current workspace.
+- `Initialize Workspace`: Creates the baseline BC Dev Toolset workspace structure and default settings content for the current workspace, including Git-ignored backup folders for Container configurations with missing or blank `sqlBackupPath` values.
 - `Open Local Settings (JSON)`: Opens `.bcdevtoolset/settings.json` for the current workspace.
 - `Clear App and translation artifacts`: Removes generated app and translation artifacts from the workspace.
 - `Build all apps in the workspace`: Uses the platform-specific ALTool bundled and signed with the required Microsoft AL Language extension to compile each AL project in dependency order. The toolset does not discover or invoke the unsigned global `al` .NET tool. Every app builds against an isolated copy of its own package cache plus freshly built packages for its declared workspace dependencies, preserving project cache isolation.
