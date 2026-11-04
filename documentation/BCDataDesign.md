@@ -7,7 +7,7 @@ Decision record: 2026-10-06.
 
 BC Data is an optional agent-facing capability within BC Dev Toolset. It exposes discovery and generic read, insert, modify, delete (RIMD), and rename operations through MCP and a bundled companion AL app. It is a general development capability for investigation, configuration, data maintenance, debugging, and other agent workflows; it is not restricted to testing.
 
-The initial supported target is BC development containers. BC23 is the minimum compatibility baseline, with support required through at least BC27.1, including intervening major releases. This is a support target, not a claim of completed verification. Later releases should be accommodated without architectural redesign. Remote on-premises and online test environments are deferred. Native Microsoft MCP availability does not replace this capability or determine its connection path.
+The initial supported target is BC development containers. BC23 is the minimum compatibility baseline, with support required through at least BC27.1, including intervening major releases. This is a support target, not a claim of completed verification. Later releases should be accommodated without architectural redesign. Issue #170 expands configuration eligibility to Container, Cloud and OnPrem targets in Dev, Test and Production roles. Publishing still requires the same management/API access as normal publishing operations; data calls can use a separately installed companion without publishing access. Live remote qualification remains pending. Native Microsoft MCP availability does not replace this capability or determine its connection path.
 
 No alternative BC UI is planned. VS Code provides configuration, initialization, status, and diagnostics. Page objects and page execution are outside scope; this service will not reproduce business logic placed in pages. Generic table operations do not implicitly invoke posting or other separate business processes.
 
@@ -23,7 +23,7 @@ Keep these implementation boundaries:
 2. Data client and tool handlers: direct HTTP calls, structured MCP inputs/results, target-scoped caching, errors, and retry handling. Keep these modules separate from VS Code UI and the PowerShell operation runner.
 3. Toolset integration: resolve configured targets and credentials, provision the companion app, register tools, and expose configuration/status operations.
 
-Implemented transport: a published codeunit with OData V4 unbound actions carrying structured JSON in Text parameters, called through bounded native Node HTTP/1.0 connection-close requests. This avoids the reproduced HTTP.sys unbuffered chunked-response failure without changing BC server settings. TLS retains normal certificate validation; live HTTPS qualification remains pending. The MCP server defines six read-only tools and one mutation tool using the `bc_dev_toolset_data_` prefix, behind individual default-off switches; mutation execution uses the separate BCDDataWrite service and permission boundary. Credential resolution and data execution stay inside the extension host; MCP forwards validated arguments through its authenticated workspace bridge.
+Implemented transport: a published codeunit with OData V4 unbound actions carrying structured JSON in Text parameters, called through bounded native Node HTTP/1.0 connection-close requests. This avoids the reproduced HTTP.sys unbuffered chunked-response failure without changing BC server settings. Cloud uses a tenant-bound OAuth session established by the explicit Sign in to BC Data command; routine calls resolve it silently. Windows authentication uses a private persistent PowerShell/.NET worker for negotiated HTTP, independently of the operation terminal. TLS retains normal certificate validation; live HTTPS qualification remains pending. The MCP server defines six read-only tools and one mutation tool using the `bc_dev_toolset_data_` prefix, behind individual default-off switches; mutation execution uses the separate BCDDataWrite service and permission boundary. Credential resolution and data execution stay inside the extension host; MCP forwards validated arguments through its authenticated workspace bridge.
 
 Ordinary data calls must not launch a PowerShell operation per request. Deployment and upgrades use the existing Toolset deployment mechanisms. No dependencies on the developer's project apps belong in the companion app.
 
@@ -36,7 +36,7 @@ Two independent scopes are agreed; both default to disabled:
 | Container configuration | Provision and maintain the companion app |
 | Workspace MCP configuration | Expose data tools to agents |
 
-Provisioning alone does not expose tools. Tool exposure alone does not silently install the app. A call against an uninitialized target returns actionable initialization information. An explicit Initialize BC Data Access operation can coordinate both scopes for the chosen container and current workspace.
+Provisioning alone does not expose tools. Tool exposure alone does not silently install the app. A call against an uninitialized target returns actionable initialization information. An explicit Initialize BC Data Access operation can coordinate both scopes for the chosen configuration and current workspace; tool exposure remains separately configured.
 
 Disabled workspaces perform no data connection checks, schema discovery, background polling, or data tool registration. Load the data module lazily. The bundled app adds VSIX size even when disabled. Follow existing MCP restart/refresh behavior when tool settings change.
 
@@ -50,7 +50,7 @@ Proposed tool names, with agreed responsibilities:
 
 | Tool | Responsibility |
 | --- | --- |
-| `bc_dev_toolset_data_list_connections` | Configured container targets and readiness |
+| `bc_dev_toolset_data_list_connections` | Configured Container, Cloud and OnPrem targets (offline discovery) |
 | `bc_dev_toolset_data_list_companies` | Companies within a selected connection |
 | `bc_dev_toolset_data_get_readiness` | Companion contract and structural capabilities |
 | `bc_dev_toolset_data_find_tables` | Paginated search by table ID, name, or caption |

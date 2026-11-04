@@ -13,6 +13,15 @@ This repository contains the BC Dev Toolset runtime scripts and the VS Code exte
 - Keep operation metadata, VS Code command contributions, MCP tool exposure, and README documentation aligned when adding, removing, renaming, or recategorizing operations.
 - Preserve the distinction between deployed-user behavior and this development environment. End-user Codex setup belongs in the extension's `Configure Codex MCP Integration` operation, not in this repo-level instruction file.
 
+## Expected Failure Handling
+
+- Design every workflow to handle foreseeable failures explicitly. This applies throughout the repository, especially to PowerShell scripts, and also to extension code, MCP tools, external processes and service integrations. Expected failures must not reach users as raw exceptions or stack traces.
+- Handle failures at the boundary that can explain them: identify the failed operation and stage, report a safe reason and relevant status/error code when available, and provide concrete recovery steps. Distinguish known causes from unknown causes; do not guess from arbitrary exception text. Keep credentials, tokens and sensitive backend payloads out of diagnostics.
+- Preserve failure semantics: stop dependent work, return a failed result or nonzero exit status, and never print completion or success after a failed step. Graceful handling must not silently swallow errors or turn failure into success. Clean up owned resources in `finally` blocks or equivalent disposal paths.
+- In PowerShell, use `try`/`catch` around fallible workflow boundaries and `-ErrorAction Stop` where nonterminating cmdlet errors must fail the step. Check native process exit codes explicitly. Do not use `SilentlyContinue` to hide a workflow failure; reserve it for genuinely optional probes whose absence is handled explicitly.
+- Report whether side effects were not started, completed, partially completed or remain unknown. After an uncertain write/deployment outcome, explain how to inspect or reconcile the target before retrying. Retry only when the operation's semantics establish that it is safe, with bounded attempts; do not silently switch targets, credentials or deployment methods.
+- Reuse shared failure-handling helpers across workflows with the same failure modes. Add regression tests for expected failure paths, including nonterminating PowerShell errors where applicable, actionable diagnostics, preservation of failure status, cleanup and prevention of unintended continuation or duplicate side effects.
+
 ## Filesystem Path Safety
 
 - Treat paths originating from users, workspace settings, environment variables, operation arguments, or callbacks as untrusted.

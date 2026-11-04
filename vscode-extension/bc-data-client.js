@@ -29,16 +29,19 @@ function createDataClient({ resolveConnection, transport = requestHttp10, now = 
       throw new DataClientError('disabled', 'BC Data tools are disabled for this connection.');
     }
     const connection = Object.freeze({ id: resolved.id, baseUrl: resolved.baseUrl, username: resolved.username,
-      password: resolved.password, authentication: resolved.authentication, revision: resolved.revision || '', tenant: resolved.tenant ?? 'default' });
+      password: resolved.password, accessToken: resolved.accessToken, windowsTransport: resolved.windowsTransport, authentication: resolved.authentication, revision: resolved.revision || '', tenant: resolved.tenant ?? 'default' });
     let url;
     try { url = new URL(connection.baseUrl); }
     catch { throw new DataClientError('invalid_configuration', 'BC Data requires a valid configured ODataV4 base URL.'); }
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || url.search ||
-        !url.pathname.endsWith('/ODataV4') || connection.authentication !== 'UserPassword' ||
-        typeof connection.username !== 'string' || !connection.username ||
-        typeof connection.password !== 'string' || !connection.password ||
+        !url.pathname.endsWith('/ODataV4') ||
+        !['UserPassword', 'AAD', 'Windows'].includes(connection.authentication) ||
+        (connection.authentication === 'UserPassword' && (typeof connection.username !== 'string' || !connection.username || typeof connection.password !== 'string' || !connection.password)) ||
+        (connection.authentication === 'AAD' && (url.protocol !== 'https:' || typeof connection.accessToken !== 'string' || !connection.accessToken || !connection.username)) ||
+        (connection.authentication === 'Windows' && (typeof connection.windowsTransport !== 'function' ||
+          ((connection.username || connection.password) && (typeof connection.username !== 'string' || !connection.username || typeof connection.password !== 'string' || !connection.password)))) ||
         typeof connection.revision !== 'string' || !connection.revision || typeof connection.tenant !== 'string' || !connection.tenant) {
-      throw new DataClientError('invalid_configuration', 'BC Data requires a configured ODataV4 base URL, UserPassword credentials, tenant and explicit connection revision.');
+      throw new DataClientError('invalid_configuration', 'BC Data requires a configured ODataV4 base URL, supported authentication, tenant and explicit connection revision.');
     }
     return connection;
   }
@@ -50,7 +53,8 @@ function createDataClient({ resolveConnection, transport = requestHttp10, now = 
     const url = new URL(`${connection.baseUrl}/${service}_${action}`);
     url.searchParams.set('tenant', connection.tenant);
     if (companyId) url.searchParams.set('company', companyId);
-    const response = await transport({ url: url.href, username: connection.username, password: connection.password,
+    const sendRequest = connection.authentication === 'Windows' ? connection.windowsTransport : transport;
+    const response = await sendRequest({ url: url.href, username: connection.username, password: connection.password, accessToken: connection.accessToken,
       body: { inputJson: JSON.stringify(input) } });
     const authorizationRejected = [401, 403].includes(response.status);
     let envelope;
@@ -68,7 +72,7 @@ function createDataClient({ resolveConnection, transport = requestHttp10, now = 
         original.includes('BCD_CONCURRENCY_CONFLICT') ? 'concurrency_conflict' : original.includes('BCD_RECORD_NOT_FOUND') ? 'record_not_found' :
         original.includes('BCD_RESPONSE_TOO_LARGE') ? 'response_too_large' : response.status === 404 ? 'initialization_required' : 'bc_error';
       const message = original
-        ? original.split(connection.password).join('[redacted]').split(Buffer.from(`${connection.username}:${connection.password}`).toString('base64')).join('[redacted]').slice(0, 2048)
+        ? [connection.password, connection.accessToken, connection.password ? Buffer.from(`${connection.username}:${connection.password}`).toString('base64') : undefined].filter(Boolean).reduce((text, secret) => text.split(secret).join('[redacted]'), original).slice(0, 2048)
         : authorizationRejected ? 'BC Data authentication or authorization was rejected.' : 'BC Data request was rejected.';
       const rejected = new DataClientError(category, category === 'initialization_required'
         ? 'BC Data is not initialized. Deploy the compatible companion app and register BCDData on this target.' : message);

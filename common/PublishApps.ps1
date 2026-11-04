@@ -1,3 +1,4 @@
+. (Join-Path $PSScriptRoot 'PublishingDiagnostics.ps1')
 
 function Get-OnPremDevelopmentPublishUri {
     param($Configuration)
@@ -299,10 +300,11 @@ function Publish-Dependencies {
     
                     if ($renewAuthContext -eq $true) {
                         #get authenticated
-                        $authContext.Value = New-BcAuthContext `
-                            -includeDeviceLogin `
-                            -tenantID $configuration.tenant `
-                            -refreshToken $refreshToken
+                        $authContext.Value = Invoke-BcPublishingStep -Configuration $configuration -Stage Authentication -Action {
+                            $context = New-BcAuthContext -includeDeviceLogin -tenantID $configuration.tenant -refreshToken $refreshToken -ErrorAction Stop
+                            if (-not $context.AccessToken) { throw 'Authentication did not return an access token.' }
+                            $context
+                        }
                         #$continue = Confirm-Option "Continue?" -defaultYes $true
                         #if ($continue -eq $false) {
                         #    throw "Deployment aborted."
@@ -321,12 +323,16 @@ function Publish-Dependencies {
                         $params.appFile = $appList
                         Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
                         Write-Host ":" -ForegroundColor green
-                        Publish-BcContainerApp -ErrorAction SilentlyContinue @params
+                        Invoke-BcPublishingStep -Configuration $configuration -Stage Publishing -DeploymentState Unknown -Action {
+                            Publish-BcContainerApp -ErrorAction Stop @params
+                        } | Out-Null
                     } else {
                         $params.appFiles = $appList
                         Write-Host "Publish-PerTenantExtensionApps" -ForegroundColor Blue -NoNewline
                         Write-Host ":" -ForegroundColor green
-                        Publish-PerTenantExtensionApps -ErrorAction SilentlyContinue @params
+                        Invoke-BcPublishingStep -Configuration $configuration -Stage Publishing -DeploymentState Unknown -Action {
+                            Publish-PerTenantExtensionApps -ErrorAction Stop @params
+                        } | Out-Null
                     }
                 }
                 'Container' {
@@ -474,10 +480,11 @@ function Publish-Apps {
     
                     if ($renewAuthContext -eq $true) {
                         #get authenticated
-                        $authContext.Value = New-BcAuthContext `
-                            -includeDeviceLogin `
-                            -tenantID $configuration.tenant `
-                            -refreshToken $refreshToken
+                        $authContext.Value = Invoke-BcPublishingStep -Configuration $configuration -Stage Authentication -Action {
+                            $context = New-BcAuthContext -includeDeviceLogin -tenantID $configuration.tenant -refreshToken $refreshToken -ErrorAction Stop
+                            if (-not $context.AccessToken) { throw 'Authentication did not return an access token.' }
+                            $context
+                        }
                         #$continue = Confirm-Option "Continue?" -defaultYes $true
                         #if ($continue -eq $false) {
                         #    throw "Deployment aborted."
@@ -498,12 +505,16 @@ function Publish-Apps {
                         $params.replacePackageId = $true
                         Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
                         Write-Host ":" -ForegroundColor green
-                        Publish-BcContainerApp -ErrorAction SilentlyContinue @params
+                        Invoke-BcPublishingStep -Configuration $configuration -Stage Publishing -DeploymentState Unknown -Action {
+                            Publish-BcContainerApp -ErrorAction Stop @params
+                        } | Out-Null
                     } else {
                         $params.appFiles = $appList
                         Write-Host "Publish-PerTenantExtensionApps" -ForegroundColor Blue -NoNewline
                         Write-Host ":" -ForegroundColor green
-                        Publish-PerTenantExtensionApps -ErrorAction SilentlyContinue @params
+                        Invoke-BcPublishingStep -Configuration $configuration -Stage Publishing -DeploymentState Unknown -Action {
+                            Publish-PerTenantExtensionApps -ErrorAction Stop @params
+                        } | Out-Null
                     }
                 }
                 'Container' {

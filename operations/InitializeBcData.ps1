@@ -8,6 +8,6 @@ Initialize-Context -scriptPath $scriptRoot -settingsJSON ([ref]$settingsJSON) -w
 $configuration = Select-BcDataInitializationConfiguration -SettingsJSON $settingsJSON
 $connectionId = $configuration.name
 Assert-BcDataConfiguration -Configuration $configuration
-if (-not (Confirm-Option -question "Initialize BC Data on '$connectionId'? Installs/upgrades only the companion and preserves newer compatible versions. Tool exposure remains separately configured." -defaultYes:$false -PromptId 'bcData.initialize' -Risk 'Installs or upgrades the BC Data companion on this one development container.')) { return }
-Initialize-BcDataCompanion -ToolsetRoot $scriptRoot -Configuration $configuration | Out-Null
+if (-not (Confirm-Option -question "Initialize BC Data on '$connectionId'? Installs/upgrades only the companion and preserves newer compatible versions. Tool exposure remains separately configured." -defaultYes:$false -PromptId 'bcData.initialize' -Risk 'Installs or upgrades the BC Data companion on this selected configuration.')) { return }
+Initialize-BcDataCompanion -ToolsetRoot $scriptRoot -Configuration $configuration -SettingsJSON $settingsJSON | Out-Null
 Write-Done

@@ -5,6 +5,12 @@ const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const { authorizeRoot, resolveWithinRoot } = require('../path-security');
 
+test('SaaS app and dependency publishing stop on terminating or nonterminating deployment failures', () => {
+  const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File',
+    path.join(__dirname, 'saas-publishing-failures.tests.ps1')], { encoding: 'utf8', windowsHide: true });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
 test('remote dependencies use selected-service tools, order packages, upgrade safely and clean staging', { skip: process.platform !== 'win32' }, () => {
   const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File',
     path.join(__dirname, 'onprem-dependencies.tests.ps1')], { encoding: 'utf8' });

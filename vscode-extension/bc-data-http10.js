@@ -17,7 +17,7 @@ class DataTransportError extends Error {
 // Deliberately narrow HTTP/1.0, connection-close transport. No redirects, proxy,
 // compression, connection reuse, retries, or private Node HTTP API overrides.
 // Restricting response framing avoids the qualified HTTP.sys chunked-write defect.
-function requestHttp10({ url, username, password, body, method = 'POST', timeoutMs = 30000,
+function requestHttp10({ url, username, password, accessToken, body, method = 'POST', timeoutMs = 30000,
   maxResponseBytes = 4 * 1024 * 1024, signal, acceptLanguage }) {
   let target;
   try { target = new URL(url); }
@@ -29,14 +29,15 @@ function requestHttp10({ url, username, password, body, method = 'POST', timeout
         !/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,3}$/.test(acceptLanguage)))) {
     throw new Error('Invalid BC Data HTTP configuration.');
   }
-  if (typeof username !== 'string' || typeof password !== 'string' || !username || !password || username.includes(':')) {
+  if (accessToken !== undefined && (target.protocol !== 'https:' || typeof accessToken !== 'string' || !/^[A-Za-z0-9._~+\/-]+=*$/.test(accessToken))) throw new Error('Invalid BC Data bearer authentication.');
+  if (accessToken === undefined && (typeof username !== 'string' || typeof password !== 'string' || !username || !password || username.includes(':'))) {
     throw new Error('BC Data requires configured UserPassword credentials.');
   }
   const bytes = body === undefined ? Buffer.alloc(0) : Buffer.from(JSON.stringify(body), 'utf8');
   if (bytes.length > 4 * 1024 * 1024) throw new Error('BC Data request exceeds the 4 MiB limit.');
-  const authorization = Buffer.from(`${username}:${password}`, 'utf8').toString('base64');
+  const authorization = accessToken === undefined ? `Basic ${Buffer.from(`${username}:${password}`, 'utf8').toString('base64')}` : `Bearer ${accessToken}`;
   const header = Buffer.from(`${method} ${target.pathname}${target.search} HTTP/1.0\r\n` +
-    `Host: ${target.host}\r\nAuthorization: Basic ${authorization}\r\n` +
+    `Host: ${target.host}\r\nAuthorization: ${authorization}\r\n` +
     'Accept: application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n' +
     (acceptLanguage === undefined ? '' : `Accept-Language: ${acceptLanguage}\r\n`) +
     `Content-Type: application/json; charset=utf-8\r\nContent-Length: ${bytes.length}\r\n\r\n`, 'ascii');

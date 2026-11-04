@@ -4,6 +4,36 @@ const assert = require('node:assert/strict');
 const net = require('node:net');
 const { requestHttp10 } = require('../bc-data-http10');
 
+test('issue 170: bearer authentication uses verified TLS and rejects insecure or injected tokens', async t => {
+  const tls = require('node:tls');
+  const { EventEmitter } = require('node:events');
+  const original = tls.connect;
+  let sent = '';
+  let connections = 0;
+  tls.connect = (options, connected) => {
+    connections++;
+    assert.equal(options.rejectUnauthorized, true);
+    assert.equal(options.servername, 'bc.example');
+    const socket = new EventEmitter();
+    socket.setNoDelay = () => {};
+    socket.destroy = () => {};
+    socket.write = bytes => { sent += bytes.toString(); };
+    queueMicrotask(() => {
+      connected();
+      socket.emit('data', Buffer.from('HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\n{}'));
+    });
+    return socket;
+  };
+  t.after(() => { tls.connect = original; });
+  const result = await requestHttp10({ url: 'https://bc.example/BC/ODataV4/BCDData_Readiness', accessToken: 'private.oauth-token', body: {} });
+  assert.equal(result.status, 200);
+  assert.match(sent, /Authorization: Bearer private.oauth-token\r\n/);
+  assert.doesNotMatch(sent, /Authorization: Basic/);
+  assert.throws(() => requestHttp10({ url: 'http://bc.example/BC/ODataV4/BCDData_Readiness', accessToken: 'private.oauth-token' }));
+  assert.throws(() => requestHttp10({ url: 'https://bc.example/BC/ODataV4/BCDData_Readiness', accessToken: 'token\r\nInjected: header' }));
+  assert.equal(connections, 1);
+});
+
 async function server(t, reply) {
   const sockets = new Set();
   const listener = net.createServer(socket => {

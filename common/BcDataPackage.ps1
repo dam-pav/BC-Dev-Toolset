@@ -53,8 +53,8 @@ function Assert-BcDataPackageIdentity {
     foreach ($pair in @(@('Id','appId'), @('Name','name'), @('Publisher','publisher'), @('Version','version'), @('Runtime','runtime'), @('Application','application'))) {
         if ([string]$app.($pair[0]) -cne [string]$Expected.($pair[1])) { throw "BC Data package identity mismatch: $($pair[0])." }
     }
-    if ($app.Target -cne 'OnPrem' -or @($Document.Package.Dependencies.ChildNodes | Where-Object NodeType -eq 'Element').Count -gt 0) {
-        throw 'BC Data package must be the standalone OnPrem companion without app dependencies.'
+    if ($app.Target -cne 'Cloud' -or @($Document.Package.Dependencies.ChildNodes | Where-Object NodeType -eq 'Element').Count -gt 0) {
+        throw 'BC Data package must be the standalone Cloud-compatible companion without app dependencies.'
     }
     $range = $Document.Package.IdRanges.IdRange
     if ($range.MinObjectId -cne '99100' -or $range.MaxObjectId -cne '99149') { throw 'Unexpected BC Data object range.' }
