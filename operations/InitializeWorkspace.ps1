@@ -92,7 +92,7 @@ function ConvertTo-BackupFolderName {
     $folderName = $Name -replace '[<>:"/\\|?*\x00-\x1f]', '_'
     $folderName = [regex]::Replace($folderName, '[. ]+$', { param($match) '_' * $match.Length })
     if ([string]::IsNullOrWhiteSpace($folderName)) { $folderName = '_' }
-    if ($folderName -match '^(?i:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)') {
+    if ($folderName -match '^(?i:con|prn|aux|nul|conin\$|conout\$|com[1-9¹²³]|lpt[1-9¹²³])(?:[ .]|$)') {
         $folderName = "_$folderName"
     }
     return $folderName
@@ -100,12 +100,27 @@ function ConvertTo-BackupFolderName {
 
 function Initialize-WorkspaceBackupFolders {
     param(
-        [PSObject] $Settings,
+        [object[]] $Configurations,
         [string] $WorkspaceRootPath
     )
 
     $validatedWorkspaceRoot = [System.IO.Path]::GetFullPath($WorkspaceRootPath)
-    foreach ($configuration in @($Settings.configurations)) {
+    $containerConfigurations = @($Configurations | Where-Object { $_.serverType -eq 'Container' })
+    $occupiedPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    # Reserve all explicit destinations before assigning defaults, including those from earlier runs.
+    foreach ($configuration in $containerConfigurations) {
+        if ([string]::IsNullOrWhiteSpace([string]$configuration.sqlBackupPath)) { continue }
+        try {
+            $configuredPath = [string]$configuration.sqlBackupPath
+            if (-not [System.IO.Path]::IsPathRooted($configuredPath)) {
+                $configuredPath = Join-Path $validatedWorkspaceRoot $configuredPath
+            }
+            $null = $occupiedPaths.Add([System.IO.Path]::GetFullPath($configuredPath).TrimEnd([char[]]'\/'))
+        } catch {
+            # Preserve invalid explicit settings; backup operations report their validation errors.
+        }
+    }
+    foreach ($configuration in $containerConfigurations) {
         if ($configuration.serverType -ne 'Container' -or
             -not [string]::IsNullOrWhiteSpace([string]$configuration.sqlBackupPath)) {
             continue
@@ -116,6 +131,12 @@ function Initialize-WorkspaceBackupFolders {
 
         $relativeBackupPath = ".bcdevtoolset/.backups/$backupFolderName"
         $validatedBackupPath = [System.IO.Path]::GetFullPath((Join-Path $validatedWorkspaceRoot $relativeBackupPath))
+        $suffix = 2
+        while (-not $occupiedPaths.Add($validatedBackupPath)) {
+            $relativeBackupPath = ".bcdevtoolset/.backups/${backupFolderName}_$suffix"
+            $validatedBackupPath = [System.IO.Path]::GetFullPath((Join-Path $validatedWorkspaceRoot $relativeBackupPath))
+            $suffix++
+        }
         $relativePath = [System.IO.Path]::GetRelativePath($validatedWorkspaceRoot, $validatedBackupPath)
         if ([System.IO.Path]::IsPathRooted($relativePath) -or $relativePath -match '^\.\.([\\/]|$)') {
             throw "Backup folder for configuration '$configurationName' escapes the workspace."
@@ -123,7 +144,7 @@ function Initialize-WorkspaceBackupFolders {
 
         # Reject links at every generated component so physical writes stay inside the authorized workspace.
         $componentPath = $validatedWorkspaceRoot
-        foreach ($component in @('.bcdevtoolset', '.backups', $backupFolderName)) {
+        foreach ($component in @('.bcdevtoolset', '.backups', [System.IO.Path]::GetFileName($validatedBackupPath))) {
             $componentPath = Join-Path $componentPath $component
             if (Test-Path -LiteralPath $componentPath) {
                 $item = Get-Item -LiteralPath $componentPath -Force
@@ -330,8 +351,6 @@ $null = Add-DefaultAssemblyProbingPath -settings $workspaceJson.settings
 if ($null -ne $toolsetSettings) {
     $toolsetSettings.PSObject.Properties.Remove('country')
 }
-Initialize-WorkspaceBackupFolders -Settings $toolsetSettings -WorkspaceRootPath $workspaceConfigurationRoot
-$workspaceJson | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $workspaceFile.FullName
 
 $settingsPath = if ([string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_LOCAL_SETTINGS_PATH)) {
     Join-Path $workspaceConfigurationRoot '.bcdevtoolset' 'settings.json'
@@ -343,7 +362,8 @@ $settingsPath = if ([string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_LOCAL_SETTING
 }
 Build-Settings -settingsPath $settingsPath -workspaceName $workspaceName -ReconcileWorkspaceDefaults
 $localSettings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
-Initialize-WorkspaceBackupFolders -Settings $localSettings -WorkspaceRootPath $workspaceConfigurationRoot
+Initialize-WorkspaceBackupFolders -Configurations (@($toolsetSettings.configurations) + @($localSettings.configurations)) -WorkspaceRootPath $workspaceConfigurationRoot
+$workspaceJson | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $workspaceFile.FullName
 $localSettings | ConvertTo-Json -Depth 10 | Format-Json | Set-Content -LiteralPath $settingsPath
 Add-BcDevToolsetGitIgnore -RootPath $workspaceConfigurationRoot
 
