@@ -58,8 +58,8 @@ const selectionFixture = `
     @{name='First';serverType='Container';targetType='Dev';container='bc-first'},
     @{name='Tests';serverType='Container';targetType='Test';container='bc-tests'},
     @{name='Production';serverType='Container';targetType='Production';container='bc-prod'},
-    @{name='Remote';serverType='OnPrem';targetType='Dev';container='bc-remote'},
-    @{name='Cloud';serverType='Cloud';targetType='Dev';container='bc-cloud'},
+    @{name='Remote';serverType='OnPrem';targetType='Dev';serverInstance='BC'},
+    @{name='Cloud';serverType='Cloud';targetType='Dev';environmentName='Sandbox'},
     @{name='Blank';serverType='Container';targetType='Dev';container=' '},
     @{name='Second';serverType='Container';targetType='Dev';container='bc-second'}
   )}
@@ -87,22 +87,22 @@ test('BC Data initialization selection never assigns to the automatic Matches va
   assert.equal(result.assignments, 0);
 });
 
-test('BC Data initialization presents numbered Dev containers and selects without typing a name', () => {
+test('BC Data initialization presents numbered configurations of every server and target type and selects without typing a name', () => {
   const result = run(selectionFixture + `
-    $script:answer=$null; $script:inputs=@('invalid','3','2'); $script:inputIndex=0
+    $script:answer=$null; $script:inputs=@('invalid','8','6'); $script:inputIndex=0
     function Read-Host { param($Prompt) $script:inputs[$script:inputIndex++] }
     $selected=Select-BcDataInitializationConfiguration $settings
     @{name=$selected.name;container=$selected.container;output=$script:output;prompts=$script:prompts}|ConvertTo-Json -Depth 6 -Compress
   `);
   assert.equal(result.name, 'Second');
   assert.equal(result.container, 'bc-second');
-  assert.ok(result.output.some(line => line.startsWith('[1] First (bc-first)')));
-  assert.ok(result.output.some(line => line.startsWith('[2] Second (bc-second)')));
-  assert.ok(!result.output.some(line => /Tests|Production|Remote|Cloud|Blank/.test(line)));
-  assert.deepEqual(result.prompts[0], { id: 'bcData.connectionId', type: 'choice', choices: ['First', 'Second'] });
+  assert.ok(result.output.some(line => line.startsWith('[1] First (Container, Dev)')));
+  assert.ok(result.output.some(line => line.startsWith('[6] Second (Container, Dev)')));
+  assert.ok(!result.output.some(line => /Blank/.test(line)));
+  assert.deepEqual(result.prompts[0], { id: 'bcData.connectionId', type: 'choice', choices: ['First', 'Tests', 'Production', 'Remote', 'Cloud', 'Second'] });
 });
 
-test('BC Data initialization MCP choices reject Test, Production, remote, missing and inexact targets', () => {
+test('BC Data initialization MCP choices accept all configured targets and reject missing or inexact names', () => {
   const result = run(selectionFixture + `
     function Select-IndexFromList { throw 'Unexpected terminal selection' }
     $results=@()
@@ -113,8 +113,8 @@ test('BC Data initialization MCP choices reject Test, Production, remote, missin
     }
     ConvertTo-Json -InputObject $results -Depth 5 -Compress
   `);
-  assert.deepEqual(result.slice(0, 2), [{ name: 'First' }, { name: 'Second' }]);
-  assert.ok(result.slice(2).every(item => /unique Dev Container configuration name/.test(item.error)));
+  assert.deepEqual(result.slice(0, 6).map(item => item.name), ['First', 'Second', 'Tests', 'Production', 'Remote', 'Cloud']);
+  assert.ok(result.slice(6).every(item => /unique configuration name/.test(item.error)));
 });
 
 test('BC Data initialization handles a single Dev choice and rejects absent or ambiguous choices before prompting', () => {
@@ -124,7 +124,7 @@ test('BC Data initialization handles a single Dev choice and rejects absent or a
     $single=Select-BcDataInitializationConfiguration @{configurations=@($settings.configurations[0])}
     $script:prompts=@(); $errors=@()
     foreach($configurations in @(
-      @($settings.configurations[1]),
+      @($settings.configurations[5]),
       @($settings.configurations[0],$settings.configurations[0]),
       @($settings.configurations[0],@{name='first';serverType='Container';targetType='Test';container='other'})
     )) {
@@ -134,7 +134,7 @@ test('BC Data initialization handles a single Dev choice and rejects absent or a
     @{single=$single.name;errors=$errors;prompts=$script:prompts.Count}|ConvertTo-Json -Depth 5 -Compress
   `);
   assert.equal(result.single, 'First');
-  assert.match(result.errors[0], /No Dev Container configurations/);
+  assert.match(result.errors[0], /No named Container, Cloud or OnPrem configurations/);
   assert.ok(result.errors.slice(1).every(error => /unique configuration name/.test(error)));
   assert.equal(result.prompts, 0);
 });
@@ -254,10 +254,10 @@ test('invalid mutation allowlists fail before initialization or automatic provis
   assert.equal(result.reads, 0);
   assert.equal(result.published, 0);
 });
-test('production, remote, option-like container names and invalid endpoints fail before deployment', () => {
+test('incomplete remote targets, option-like container names and invalid endpoints fail before deployment', () => {
   const result = run(fixture + `
     $errors=@()
-    foreach($change in @(@{targetType='Production'},@{serverType='OnPrem'},@{container='--all'},@{bcData=[pscustomobject]@{baseUrl='http://user:secret@elsewhere/ODataV4'}})) {
+    foreach($change in @(@{targetType='Unknown'},@{serverType='OnPrem'},@{container='--all'},@{bcData=[pscustomobject]@{baseUrl='http://user:secret@elsewhere/ODataV4'}})) {
       $candidate=$config.PSObject.Copy()
       foreach($key in $change.Keys){$candidate|Add-Member NoteProperty $key $change[$key] -Force}
       try{Initialize-BcDataCompanion -ToolsetRoot 'fixed' -Configuration $candidate|Out-Null}catch{$errors+=$_.Exception.Message}
@@ -284,8 +284,11 @@ test('package checksum/embedded identity/path checks reject tampering before dep
     New-Item -ItemType Directory -Path (Join-Path $folder 'bc-data')|Out-Null
     try {
       $manifest=[pscustomobject]@{appId='0f92aea5-4cc0-459b-ae98-ca9e5c2b0304';name='BC Dev Toolset Data';publisher='dam-pav';version='0.1.3.0';contractVersion=1;runtime='12.0';application='23.0.0.0';serviceName='BCDData';packageFile='BCData.app';mutationsEnabled=$false}
-      $xml=[xml]'<Package><App Id="0f92aea5-4cc0-459b-ae98-ca9e5c2b0304" Name="BC Dev Toolset Data" Publisher="dam-pav" Version="0.1.3.0" Runtime="12.0" Application="23.0.0.0" Target="OnPrem"/><Dependencies/><IdRanges><IdRange MinObjectId="99100" MaxObjectId="99149"/></IdRanges></Package>'
+      $xml=[xml]'<Package><App Id="0f92aea5-4cc0-459b-ae98-ca9e5c2b0304" Name="BC Dev Toolset Data" Publisher="dam-pav" Version="0.1.3.0" Runtime="12.0" Application="23.0.0.0" Target="Cloud"/><Dependencies/><IdRanges><IdRange MinObjectId="99100" MaxObjectId="99149"/></IdRanges></Package>'
       Assert-BcDataPackageIdentity -Expected $manifest -Document $xml
+      $xml.Package.App.Target='OnPrem'
+      try{Assert-BcDataPackageIdentity -Expected $manifest -Document $xml}catch{$onPremOnly=$_.Exception.Message}
+      $xml.Package.App.Target='Cloud'
       $xml.Package.IdRanges.IdRange.MinObjectId='50100'; $xml.Package.IdRanges.IdRange.MaxObjectId='50149'
       try{Assert-BcDataPackageIdentity -Expected $manifest -Document $xml}catch{$oldRange=$_.Exception.Message}
       $xml.Package.IdRanges.IdRange.MinObjectId='99100'; $xml.Package.IdRanges.IdRange.MaxObjectId='99150'
@@ -306,10 +309,11 @@ test('package checksum/embedded identity/path checks reject tampering before dep
       [IO.File]::WriteAllText((Join-Path $folder 'bc-data/BCData.app'),'tampered')
       try{Get-ValidatedBcDataPackage -ToolsetRoot $folder}catch{$checksum=$_.Exception.Message}
       try{Assert-BcDataContainedPath -Root $folder -Path (Join-Path $folder '../escape')}catch{$escape=$_.Exception.Message}
-      @{identity=$identity;checksum=$checksum;escape=$escape;protocol=$protocol;protocolType=$protocolType;service=$service;oldRange=$oldRange;wideRange=$wideRange}|ConvertTo-Json -Compress
+      @{identity=$identity;checksum=$checksum;escape=$escape;protocol=$protocol;protocolType=$protocolType;service=$service;oldRange=$oldRange;wideRange=$wideRange;onPremOnly=$onPremOnly}|ConvertTo-Json -Compress
     }finally{Remove-Item -LiteralPath $folder -Recurse -Force}
   `);
   assert.match(result.identity, /identity mismatch/);
+  assert.match(result.onPremOnly, /Cloud-compatible/);
   assert.match(result.checksum, /checksum mismatch/);
   assert.match(result.escape, /escapes/);
   assert.match(result.protocol, /Unsupported/);
@@ -333,7 +337,7 @@ test('runtime preparation accepts current embedded sources and blocks stale same
       @{id=$expected.appId;name=$expected.name;publisher=$expected.publisher;version=$expected.version;runtime=$expected.runtime;application=$expected.application}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $folder 'al/BCData/app.json')
       $al='codeunit 99100 Dummy {}'
       [IO.File]::WriteAllText((Join-Path $folder 'al/BCData/src/Dummy.Codeunit.al'),$al)
-      $xml='<Package><App Id="0f92aea5-4cc0-459b-ae98-ca9e5c2b0304" Name="BC Dev Toolset Data" Publisher="dam-pav" Version="'+$expected.version+'" Runtime="12.0" Application="23.0.0.0" Target="OnPrem"/><Dependencies/><IdRanges><IdRange MinObjectId="99100" MaxObjectId="99149"/></IdRanges></Package>'
+      $xml='<Package><App Id="0f92aea5-4cc0-459b-ae98-ca9e5c2b0304" Name="BC Dev Toolset Data" Publisher="dam-pav" Version="'+$expected.version+'" Runtime="12.0" Application="23.0.0.0" Target="Cloud"/><Dependencies/><IdRanges><IdRange MinObjectId="99100" MaxObjectId="99149"/></IdRanges></Package>'
       Add-Type -AssemblyName System.IO.Compression
       $stream=[IO.MemoryStream]::new()
       $zip=[IO.Compression.ZipArchive]::new($stream,[IO.Compression.ZipArchiveMode]::Create,$true)
@@ -354,7 +358,8 @@ test('runtime preparation accepts current embedded sources and blocks stale same
   assert.match(result.stale, /sources are stale/);
   assert.equal(result.testAppBundled, false);
 });
-test('initialization readiness uses exact HTTP/1.0 and validates the actual contract without exposing BC errors', { timeout: 30000 }, async t => {
+// Six separate PowerShell startups share this test deadline, including on busy hosts.
+test('initialization readiness uses exact HTTP/1.0 and validates the actual contract without exposing BC errors', { timeout: 90000 }, async t => {
   const requests = [];
   let compatible = true;
   let mutationMode = 'off';
@@ -407,7 +412,7 @@ test('initialization metadata, command, switches and scopes are aligned', () => 
   assert.equal(metadata.script, 'operations/InitializeBcData.ps1');
   const selection = metadata.promptInputs.find(input => input.promptId === 'bcData.connectionId');
   assert.equal(selection.type, 'choice');
-  assert.match(selection.question, /Dev container/);
+  assert.match(selection.question, /configuration/);
   const repositoryRoot = authorizeRoot(path.resolve(__dirname, '../..'), 'Repository root');
   const operationPath = resolveWithinRoot(repositoryRoot, 'operations', 'InitializeBcData.ps1');
   assert.throws(() => resolveWithinRoot(repositoryRoot, '..', 'InitializeBcData.ps1'), /escapes its authorized root/);
@@ -420,11 +425,177 @@ test('initialization metadata, command, switches and scopes are aligned', () => 
   assert.ok(pkg.contributes.commands.some(command => command.command === 'bcDevToolset.operation.initializeBcData'));
   assert.equal(shared.mcpTools.properties.bc_dev_toolset_initialize_bc_data.default, false);
   assert.deepEqual(shared.mcpTools, local.properties.mcpTools);
-  const container = config => config.allOf.find(rule => rule.if?.properties?.serverType?.const === 'Container').then.properties.bcData;
+  const container = config => config.properties.bcData;
   assert.deepEqual(container(shared.configurations.items), container(local.definitions.configuration));
   assert.equal(container(local.definitions.configuration).properties.provisioningEnabled.default, false);
   assert.deepEqual(container(local.definitions.configuration).properties.allowedAllMutationOperations, {
     type: 'boolean', default: false,
     description: 'Permit insert, modify, rename and delete on this connection when true, overriding allowedMutationOperations. False or omitted uses that list. Also requires the mutation MCP tool switch and native BC permissions.'
   });
+});
+
+
+test('issue 170: companion is Cloud-compatible and package versions stay aligned', () => {
+  const app = require('../../al/BCData/app.json');
+  const compatibility = require('../../bc-data/compatibility.json');
+  assert.equal(app.target, 'Cloud');
+  assert.equal(app.version, compatibility.version);
+});
+
+test('issue 170: Cloud and OnPrem initialization dispatch deployment and preserve newer versions', () => {
+  const result = run(fixture + `
+    $script:actions=@(); $script:version=$null
+    function New-BcAuthContext { param([switch]$includeDeviceLogin,$tenantID) @{AccessToken='synthetic-token'} }
+    function Get-BcDataCloudApps { param($Configuration,$AuthContext)
+      [pscustomobject]@{Name='Base Application';Publisher='Microsoft';Version='23.0.0.0';IsInstalled=$true}
+      if($script:version){[pscustomobject]@{AppId='0f92aea5-4cc0-459b-ae98-ca9e5c2b0304';Version=$script:version;IsInstalled=$true}}
+    }
+    function Get-BcDataOnPremApps { param($Configuration,$SettingsJSON) Get-BcDataCloudApps }
+    function Publish-PerTenantExtensionApps { param($bcAuthContext,$environment,$appFiles,$schemaSyncMode)
+      $script:actions+=@{type='Cloud';environment=$environment;mode=$schemaSyncMode;count=$appFiles.Count}
+    }
+    function Publish-BcDataOnPremCompanion { param($Configuration,$SettingsJSON,$Bundle,$Upgrade)
+      $script:actions+=@{type='OnPrem';instance=$Configuration.serverInstance;upgrade=$Upgrade}
+    }
+    function Get-BcDataInitializationReadiness { param($Configuration,$Credential,$Expected,$AccessToken)
+      if($Configuration.serverType -eq 'Cloud' -and $AccessToken -ne 'synthetic-token'){throw 'Wrong cloud identity'}
+      [pscustomobject]@{contractVersion=1;appVersion='0.1.3.0'}
+    }
+    $cloud=[pscustomobject]@{name='Cloud';serverType='Cloud';targetType='Production';tenant='tenant.example';environmentName='Production'}
+    $onprem=[pscustomobject]@{name='OnPrem';serverType='OnPrem';targetType='Test';server='https://bc.example';serverInstance='BC';authentication='UserPassword';tenant='tenant';bcData=@{baseUrl='https://bc.example:7448/BC/ODataV4'}}
+    foreach($candidate in @($cloud,$onprem)) {
+      $script:version=$null; Initialize-BcDataCompanion -ToolsetRoot fixed -Configuration $candidate 6>$null | Out-Null
+      $script:version='0.1.2.0'; Initialize-BcDataCompanion -ToolsetRoot fixed -Configuration $candidate 6>$null | Out-Null
+      $script:version='0.1.4.0'; Initialize-BcDataCompanion -ToolsetRoot fixed -Configuration $candidate 6>$null | Out-Null
+    }
+    @{actions=$script:actions;containerReads=$script:reads;containerWrites=$script:published.Count}|ConvertTo-Json -Depth 8 -Compress
+  `);
+  assert.equal(result.containerReads, 0);
+  assert.equal(result.containerWrites, 0);
+  assert.deepEqual(result.actions, [
+    { type: 'Cloud', environment: 'Production', mode: 'Add', count: 1 },
+    { type: 'Cloud', environment: 'Production', mode: 'Add', count: 1 },
+    { type: 'OnPrem', instance: 'BC', upgrade: false },
+    { type: 'OnPrem', instance: 'BC', upgrade: true }
+  ]);
+});
+
+
+test('issue 170: local OnPrem uses tenant-scoped additive deployment and native upgrade', () => {
+  const result = run(`
+    $script:calls=@()
+    function Get-RemoteComputerNameFromServer { param($server) 'bc.example' }
+    function Test-IsLocalSqlServer { param($databaseServer) $true }
+    function Initialize-OnPremPublishingManagement { param($SettingsJSON,$Configuration) }
+    function Get-NAVAppInfo { param($Path,$ServerInstance,$Tenant,[switch]$TenantSpecificProperties)
+      if($Path){[pscustomobject]@{Name='BC Dev Toolset Data';Publisher='dam-pav';Version='0.1.12.0'}}
+    }
+    function Publish-NAVApp { param($ServerInstance,$Tenant,$Path,$Scope,[switch]$SkipVerification) $script:calls+=@{command='publish';instance=$ServerInstance;tenant=$Tenant;scope=$Scope} }
+    function Sync-NAVApp { param($ServerInstance,$Tenant,$Name,$Publisher,$Version,$Mode) $script:calls+=@{command='sync';mode=$Mode;tenant=$Tenant} }
+    function Install-NAVApp { param($ServerInstance,$Tenant,$Name,$Publisher,$Version) $script:calls+=@{command='install';tenant=$Tenant} }
+    function Start-NAVAppDataUpgrade { param($ServerInstance,$Tenant,$Name,$Publisher,$Version) $script:calls+=@{command='upgrade';tenant=$Tenant} }
+    $config=[pscustomobject]@{name='Local';serverType='OnPrem';server='bc.example';serverInstance='BC';authentication='Windows';tenant='ignored';bcData=@{baseUrl='http://bc.example:7448/BC/ODataV4';tenant='selected'}}
+    $bundle=[pscustomobject]@{Path='fixed.app';Manifest=@{appId='0f92aea5-4cc0-459b-ae98-ca9e5c2b0304';version='0.1.12.0'}}
+    Publish-BcDataOnPremCompanion -Configuration $config -Bundle $bundle -Upgrade $false
+    Publish-BcDataOnPremCompanion -Configuration $config -Bundle $bundle -Upgrade $true
+    ConvertTo-Json -InputObject $script:calls -Compress
+  `);
+  assert.deepEqual(result.map(call => call.command), ['publish','sync','install','publish','sync','upgrade']);
+  assert.ok(result.every(call => call.tenant === 'selected'));
+  assert.ok(result.filter(call => call.command === 'publish').every(call => call.scope === 'Tenant' && call.instance === 'BC'));
+  assert.ok(result.filter(call => call.command === 'sync').every(call => call.mode === 'Add'));
+});
+
+test('issue 170: remote OnPrem reuses publishing with effective tenant and preserves configuration', () => {
+  const result = run(`
+    function Get-RemoteComputerNameFromServer { param($server) 'bc.example' }
+    function Test-IsLocalSqlServer { param($databaseServer) $false }
+    function Publish-RemoteOnPremDependencies { param($Configuration,$AppFiles)
+      $script:received=@{tenant=$Configuration.tenant;server=$Configuration.server;files=$AppFiles;remoteCredential=$Configuration.remoteCredential}
+    }
+    $config=@{name='Remote';serverType='OnPrem';server='bc.example';serverInstance='BC';authentication='Windows';tenant='original';remoteCredential=$true;bcData=@{baseUrl='http://bc.example:7448/BC/ODataV4';tenant='selected'}}
+    Publish-BcDataOnPremCompanion -Configuration $config -Bundle @{Path='fixed.app'} -Upgrade $false
+    @{received=$script:received;originalTenant=$config.tenant}|ConvertTo-Json -Depth 5 -Compress
+  `);
+  assert.equal(result.originalTenant, 'original');
+  assert.deepEqual(result.received, { tenant: 'selected', server: 'bc.example', files: ['fixed.app'], remoteCredential: true });
+});
+
+test('issue 170: inaccessible publishing management stops initialization without a deployment fallback', () => {
+  const result = run(fixture + `
+    function Get-BcDataOnPremApps { param($Configuration,$SettingsJSON) throw 'Management host is unreachable; check the existing publishing/WinRM prerequisites.' }
+    $config=[pscustomobject]@{name='Data only';serverType='OnPrem';targetType='Production';server='bc.example';serverInstance='BC';authentication='Windows';bcData=@{baseUrl='https://bc.example/BC/ODataV4'}}
+    try{Initialize-BcDataCompanion -ToolsetRoot fixed -Configuration $config|Out-Null}catch{$message=$_.Exception.Message}
+    @{message=$message;containerReads=$script:reads;containerWrites=$script:published.Count}|ConvertTo-Json -Compress
+  `);
+  assert.match(result.message, /publishing\/WinRM prerequisites/);
+  assert.equal(result.containerReads, 0);
+  assert.equal(result.containerWrites, 0);
+});
+
+
+test('BC Data publishing failures identify stage and uncertain outcomes without leaking secrets or continuing', () => {
+  const result = run(fixture + `
+    $config=[pscustomobject]@{name='SaaS';serverType='Cloud';targetType='Test';tenant='tenant.example';environmentName='Sandbox'}
+    $script:failureStage=''; $script:attempts=0; $script:readiness=0; $script:output=@()
+    function Write-Host { param($Object,$ForegroundColor) $script:output += [string]$Object }
+    function New-BcAuthContext { param([switch]$includeDeviceLogin,$tenantID)
+      if($script:failureStage -eq 'Authentication'){throw 'secret auth token'}
+      if($script:failureStage -eq 'EmptyAuthentication'){return $null}
+      @{AccessToken='secret-token'}
+    }
+    function Get-BcDataCloudApps { param($Configuration,$AuthContext)
+      if($script:failureStage -eq 'Inspection'){throw 'secret API payload'}
+      [pscustomobject]@{Name='Base Application';Publisher='Microsoft';Version='23.0.0.0';IsInstalled=$true}
+    }
+    function Publish-PerTenantExtensionApps { param($bcAuthContext,$environment,$appFiles,$schemaSyncMode)
+      $script:attempts++
+      if($script:failureStage -eq 'Publishing'){Write-Error 'secret deployment token'}
+      if($script:failureStage -eq 'ThrowPublishing'){throw 'secret deployment details'}
+    }
+    function Get-BcDataInitializationReadiness { param($Configuration,$Credential,$Expected,$AccessToken)
+      $script:readiness++
+      if($script:failureStage -eq 'Readiness'){throw 'secret readiness response'}
+      [pscustomobject]@{contractVersion=1;appVersion='0.1.3.0'}
+    }
+    $results=@()
+    foreach($stage in @('Authentication','EmptyAuthentication','Inspection','Publishing','ThrowPublishing','Readiness')) {
+      $script:failureStage=$stage; $script:attempts=0; $script:readiness=0; $script:output=@(); $returned=@()
+      try{$returned=@(Initialize-BcDataCompanion -ToolsetRoot fixed -Configuration $config)}catch{
+        $results+=@{case=$stage;stage=$_.Exception.Data['Stage'];state=$_.Exception.Data['DeploymentState'];message=$_.Exception.Message;attempts=$script:attempts;readiness=$script:readiness;returned=$returned.Count;output=$script:output}
+      }
+    }
+    ConvertTo-Json -InputObject $results -Depth 8 -Compress
+  `);
+  assert.equal(result.length, 6);
+  assert.deepEqual(result.map(value => value.stage), ['Authentication','Authentication','Inspection','Publishing','Publishing','Readiness']);
+  assert.deepEqual(result.map(value => value.state), ['NotStarted','NotStarted','NotStarted','Unknown','Unknown','Returned']);
+  assert.deepEqual(result.map(value => value.attempts), [0,0,0,1,1,1]);
+  assert.deepEqual(result.map(value => value.readiness), [0,0,0,0,0,1]);
+  assert.ok(result.every(value => value.returned === 0 && value.output.length === 0 && !value.message.includes('secret')));
+  assert.ok(result.every(value => value.message.includes('No automatic retry')));
+  assert.match(result[3].message, /Extension Deployment Status Details/);
+  assert.match(result[3].message, /partially completed/);
+  assert.match(result[5].message, /readiness was not verified/);
+});
+
+test('publishing diagnostics distinguish HTTP causes without copying backend bodies', () => {
+  const result = run(`
+    $results=@()
+    foreach($status in @(401,403,404,409,429,503,0)) {
+      try {
+        Invoke-BcPublishingStep -Configuration @{serverType='Cloud'} -Stage Publishing -DeploymentState Unknown -Action {
+          $exception=[InvalidOperationException]::new('secret backend response')
+          $exception | Add-Member NoteProperty StatusCode $status
+          throw $exception
+        }
+      } catch { $results+=@{status=$_.Exception.Data['HttpStatus'];message=$_.Exception.Message} }
+    }
+    ConvertTo-Json -InputObject $results -Compress
+  `);
+  assert.deepEqual(result.map(value => value.status), [401,403,404,409,429,503,0]);
+  for (const [index, pattern] of [/Sign in again/, /permissions/, /tenant and environment name/, /existing extension deployment/, /throttling/, /service health/, /app compatibility/].entries()) {
+    assert.match(result[index].message, pattern);
+  }
+  assert.ok(result.every(value => !value.message.includes('secret')));
 });

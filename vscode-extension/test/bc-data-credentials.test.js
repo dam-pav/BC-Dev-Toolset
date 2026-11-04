@@ -8,6 +8,28 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { createCredentialProvider } = require('../bc-data-credentials');
 const root = path.resolve(__dirname, '../..');
+
+test('issue 170: Windows HTTP uses a private worker, bounds responses and rejects redirects', { skip: process.platform !== 'win32' }, async t => {
+  const http = require('node:http');
+  const requests = [];
+  const server = http.createServer((request, response) => {
+    requests.push({ url: request.url, authorization: request.headers.authorization });
+    request.resume();
+    if (request.url.includes('Readiness')) { response.writeHead(302, { Location: '/redirected' }); response.end('redirect'); }
+    else { response.writeHead(200, { 'Content-Type': 'application/json' }); response.end('x'.repeat(150000)); }
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const provider = createCredentialProvider({ toolsetRoot: root });
+  t.after(() => { provider.dispose(); server.close(); });
+  const url = `http://127.0.0.1:${server.address().port}/BC/ODataV4/BCDData_`;
+  const first = await provider.request({ url: url + 'Readiness', body: { inputJson: '{}' } });
+  assert.equal(first.status, 302);
+  const second = await provider.request({ url: url + 'ListCompanies', body: { inputJson: '{}' } });
+  assert.equal(second.status, 200);
+  assert.equal(second.body.length, 150000);
+  assert.equal(requests.length, 2);
+  assert.ok(requests.every(request => request.authorization === undefined));
+});
 function fixture(options = {}) {
   const starts = [], requests = [], children = [];
   const provider = createCredentialProvider({ toolsetRoot: root, platform: 'win32', ...options,
@@ -27,6 +49,26 @@ function fixture(options = {}) {
   const reply = (request, value, child = children.at(-1)) => child.stdout.write(JSON.stringify({ id: request.id, ...value }) + '\n');
   return { provider, starts, requests, children, reply };
 }
+
+test('issue 170: project-scoped credentials and Windows HTTP reuse one worker', async () => {
+  const f = fixture();
+  const configuration = { serverType: 'OnPrem', server: 'https://bc.example', serverInstance: 'BC' };
+  const scope = crypto.randomUUID();
+  const credential = f.provider.readConfiguration(configuration, scope);
+  assert.deepEqual(f.requests[0].configuration, configuration);
+  assert.equal(f.requests[0].projectScope, scope);
+  f.reply(f.requests[0], { username: 'remote', password: 'secret' });
+  assert.equal((await credential).username, 'remote');
+  const response = f.provider.request({ url: 'https://bc.example/BC/ODataV4/BCDData_Readiness', body: { inputJson: '{}' } });
+  f.reply(f.requests[1], { status: 200, body: Buffer.from('response').toString('base64') });
+  assert.equal((await response).body.toString(), 'response');
+  assert.equal(f.starts.length, 1);
+  const failed = f.provider.request({ url: 'https://bc.example/BC/ODataV4/BCDData_Readiness', body: {} });
+  f.reply(f.requests[2], { error: 'transport_failure' });
+  await assert.rejects(failed, { name: 'DataTransportError', outcome: 'unknown' });
+  assert.equal(f.requests.length, 3);
+  f.provider.dispose();
+});
 test('credential worker is lazy, private and reused; each read receives the current value', async () => {
   const f = fixture();
   assert.equal(f.starts.length, 0);

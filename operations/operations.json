@@ -376,6 +376,12 @@
     "category": "MCP Configuration"
   },
   {
+    "id": "signInBcData",
+    "title": "Sign in to BC Data",
+    "command": "signInBcData",
+    "category": "BC Data"
+  },
+  {
     "id": "initializeBcData",
     "title": "Initialize BC Data Access",
     "script": "operations/InitializeBcData.ps1",
@@ -385,7 +391,7 @@
         "promptId": "bcData.connectionId",
         "inputName": "connectionId",
         "type": "choice",
-        "question": "Select the Dev container configuration to initialize",
+        "question": "Select the configuration to initialize",
         "inputSchema": {
           "type": "string",
           "minLength": 1,
@@ -396,7 +402,7 @@
         "promptId": "bcData.initialize",
         "inputName": "initializeCompanion",
         "type": "confirm",
-        "question": "Install or upgrade the companion on this one development container? Tool exposure remains separately configured."
+        "question": "Install or upgrade the companion on this selected configuration? Tool exposure remains separately configured."
       }
     ]
   }

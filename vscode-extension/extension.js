@@ -40,9 +40,9 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 43;
+const mcpServerDefinitionRevision = 44;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 53;
+const runtimeToolsetRevision = 55;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -129,6 +129,7 @@ async function activate(context) {
     vscode.commands.registerCommand('bcDevToolset.showObjectIdRangeVisualizationData', showObjectIdRangeVisualizationData),
     vscode.commands.registerCommand('bcDevToolset.showMcpStatus', showMcpStatus),
     vscode.commands.registerCommand('bcDevToolset.configureMcpTools', configureMcpTools),
+    vscode.commands.registerCommand('bcDevToolset.signInBcData', signInBcData),
     vscode.commands.registerCommand('bcDevToolset.configureCodexMcp', configureCodexMcp),
     vscode.commands.registerCommand('bcDevToolset.disableCodexMcp', disableCodexMcp),
     vscode.commands.registerCommand('bcDevToolset.runOperation', runOperation),
@@ -296,6 +297,8 @@ async function handleMcpBridgeRequest(request, response) {
         getConfigurations: getBcDataConfigurations,
         getToolSettings: getEffectiveMcpToolSettings,
         getStoredCredential: readBcDataStoredCredential,
+        getCloudSession: ({ tenant }) => require('./bc-data-auth').getCloudDataSession(vscode.authentication, tenant),
+        windowsTransport: request => getBcDataCredentialProvider().request(request),
         invalidateCredentials: resetBcDataCredentials
       });
       writeMcpBridgeResponse(response, 200, await bcDataRuntime.call(body.name, body.arguments));
@@ -957,12 +960,40 @@ function resetBcDataCredentials() {
   bcDataCredentialProvider = undefined;
 }
 
-async function readBcDataStoredCredential({ container }) {
+function getBcDataCredentialProvider() {
   bcDataCredentialProvider ||= require('./bc-data-credentials').createCredentialProvider({
     toolsetRoot: getToolsetPath(),
     powershellExecutable: getConfiguration().get('powershellExecutable') || 'pwsh'
   });
-  return bcDataCredentialProvider.read(container);
+  return bcDataCredentialProvider;
+}
+
+async function signInBcData() {
+  const all = getBcDataConfigurations();
+  const choices = all.filter(value => value?.serverType === 'Cloud' && typeof value.name === 'string' &&
+    all.filter(other => other?.name?.toLowerCase() === value.name.toLowerCase()).length === 1)
+    .map(value => ({ label: value.name, description: value.environmentName, tenant: value.tenant }));
+  const selected = await vscode.window.showQuickPick(choices, { placeHolder: 'Select the Cloud configuration for BC Data sign-in' });
+  if (!selected) return;
+  try {
+    await require('./bc-data-auth').getCloudDataSession(vscode.authentication, selected.tenant, true);
+    bcDataRuntime?.invalidate();
+    await vscode.window.showInformationMessage(`BC Data sign-in completed for '${selected.label}'.`);
+  } catch {
+    await vscode.window.showErrorMessage('BC Data sign-in failed. Check the configured tenant, Microsoft account access and consent.');
+  }
+}
+
+async function readBcDataStoredCredential({ container, configuration }) {
+  const provider = getBcDataCredentialProvider();
+  if (!configuration) return provider.read(container);
+  // The selected workspace authorizes this fixed credential-scope file. Only
+  // its explicit UUID crosses the private pipe; paths never become identities.
+  const root = authorizeRoot(getWorkspaceBasePath(), 'BC Data workspace');
+  const scopePath = resolveWithinRoot(root, '.bcdevtoolset', 'credential-scope.json');
+  const scope = JSON.parse(fs.readFileSync(scopePath, 'utf8')); // nosemgrep -- fixed scope file confined to the selected workspace root above
+  if (typeof scope.id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(scope.id)) throw new Error('Invalid credential scope.');
+  return provider.readConfiguration(configuration, scope.id);
 }
 
 function getMcpToolConfiguration() {
@@ -2214,6 +2245,11 @@ async function executeOperation(operation, toolsetPath) {
 
   if (operation.command === 'configureMcpTools') {
     await configureMcpTools();
+    return;
+  }
+
+  if (operation.command === 'signInBcData') {
+    await signInBcData();
     return;
   }
 

@@ -37,11 +37,11 @@ test('disabled runtime neither resolves targets nor imports or connects the clie
   assert.equal(result.structuredContent.error.category, 'disabled');
   assert.equal(result.isError, true);
 });
-test('connection discovery is offline, omits credentials and excludes production/remote targets', async () => {
+test('connection discovery is offline, omits credentials and includes production and excludes incomplete targets', async () => {
   const f = fixture();
   f.configurations.push({ ...f.configurations[0], name: 'Production', targetType: 'Production' }, { ...f.configurations[0], name: 'Remote', serverType: 'OnPrem' });
   const result = await f.runtime.call('bc_dev_toolset_data_list_connections');
-  assert.deepEqual(result.structuredContent.connections.map(item => item.id), ['Test A', 'Test B']);
+  assert.deepEqual(result.structuredContent.connections.map(item => item.id), ['Test A', 'Test B', 'Production']);
   assert.equal(f.imports, 0);
   assert.ok(!JSON.stringify(result).includes('fixture-secret'));
   assert.ok(result.structuredContent.connections.every(item => item.readiness === 'not_checked'));
@@ -333,4 +333,67 @@ test('real MCP process dispatches all four mutations through one plural tool and
   }
   assert.equal(f.forwarded.length, before);
   assert.equal(calls.length, 4);
+});
+
+
+test('issue 170: Cloud calls bind tenant/environment and keep OAuth tokens private', async () => {
+  const sessions = [];
+  const f = fixture({ getCloudSession: async input => { sessions.push(input); return { accessToken: 'cloud-secret', accountId: 'cloud-user' }; } });
+  f.configurations.splice(0, 2, { name: 'Cloud Production', serverType: 'Cloud', targetType: 'Production', tenant: 'tenant.example', environmentName: 'Production' });
+  const discovery = await f.runtime.call('bc_dev_toolset_data_list_connections');
+  assert.deepEqual(discovery.structuredContent.connections.map(item => item.id), ['Cloud Production']);
+  assert.equal(sessions.length, 0);
+  const result = await f.runtime.call('bc_dev_toolset_data_list_companies', { connectionId: 'Cloud Production' });
+  assert.equal(result.isError, false);
+  assert.deepEqual(sessions, [{ tenant: 'tenant.example' }]);
+  assert.ok(f.requests.every(request => request.accessToken === 'cloud-secret' && request.username === 'cloud-user' && request.url.startsWith('https://api.businesscentral.dynamics.com/v2.0/tenant.example/Production/ODataV4/')));
+  assert.ok(!JSON.stringify(result).includes('cloud-secret'));
+  f.configurations[0].bcData = { baseUrl: 'https://elsewhere/ODataV4' };
+  const count = f.requests.length;
+  assert.equal((await f.runtime.call('bc_dev_toolset_data_list_companies', { connectionId: 'Cloud Production' })).isError, true);
+  assert.equal(f.requests.length, count);
+  assert.equal(sessions.length, 1);
+});
+
+test('issue 170: OnPrem UserPassword uses configured OData endpoint, tenant and project stored identity', async () => {
+  const reads = [];
+  const f = fixture({ getStoredCredential: async input => { reads.push(input); return { username: 'remote-user', password: 'stored-secret' }; } });
+  f.configurations.splice(0, 2, { name: 'OnPrem', serverType: 'OnPrem', targetType: 'Production', server: 'https://bc.example', serverInstance: 'BC', port: 7049,
+    authentication: 'UserPassword', tenant: 'selected', bcCredential: true, bcUser: 'trap', bcPassword: 'trap', bcData: { baseUrl: 'https://bc.example:7448/BC/ODataV4' } });
+  assert.equal((await f.runtime.call('bc_dev_toolset_data_list_companies', { connectionId: 'OnPrem' })).isError, false);
+  assert.deepEqual(reads, [{ configuration: { serverType: 'OnPrem', server: 'https://bc.example', managementServer: undefined, serverInstance: 'BC' } }]);
+  assert.ok(f.requests.every(request => request.username === 'remote-user' && request.password === 'stored-secret' && request.url.includes(':7448/') && request.url.includes('tenant=selected')));
+  for (const baseUrl of ['https://other.example/BC/ODataV4', 'http://bc.example/BC/ODataV4']) {
+    f.configurations[0].bcData.baseUrl = baseUrl;
+    assert.equal((await f.runtime.call('bc_dev_toolset_data_list_companies', { connectionId: 'OnPrem' })).isError, true);
+  }
+  assert.equal(reads.length, 1);
+});
+
+test('issue 170: Windows requests use negotiated transport rather than Basic authentication', async () => {
+  const requests = [];
+  const f = fixture({ windowsTransport: async request => {
+    requests.push(request);
+    return { status: 200, body: Buffer.from(JSON.stringify({ value: JSON.stringify(request.url.includes('Readiness')
+      ? { contractVersion: 1, capabilities: ['companies'], mutationsEnabled: false } : { companies: [] }) })) };
+  } });
+  f.configurations.splice(0, 2, { name: 'Windows', serverType: 'OnPrem', targetType: 'Test', server: 'https://bc.example', serverInstance: 'BC', authentication: 'Windows', bcData: { baseUrl: 'https://bc.example/BC/ODataV4' } });
+  assert.equal((await f.runtime.call('bc_dev_toolset_data_list_companies', { connectionId: 'Windows' })).isError, false);
+  assert.equal(requests.length, 2);
+  assert.equal(f.requests.length, 0);
+  assert.ok(requests.every(request => request.username === undefined && request.password === undefined));
+});
+
+test('issue 170: discovery and data access do not require publishing access', async () => {
+  const f = fixture();
+  f.configurations.splice(0, 2, { name: 'Data only', serverType: 'OnPrem', targetType: 'Production', server: 'bc.example', serverInstance: 'BC',
+    authentication: 'UserPassword', bcUser: 'data-reader', bcPassword: 'data-secret' });
+  assert.deepEqual((await f.runtime.call('bc_dev_toolset_data_list_connections')).structuredContent.connections.map(item => item.id), ['Data only']);
+  const missingEndpoint = await f.runtime.call('bc_dev_toolset_data_list_companies', { connectionId: 'Data only' });
+  assert.equal(missingEndpoint.structuredContent.error.category, 'invalid_configuration');
+  assert.match(missingEndpoint.structuredContent.error.message, /bcData.baseUrl/);
+  assert.equal(f.requests.length, 0);
+  f.configurations[0].bcData = { baseUrl: 'https://bc.example:7448/BC/ODataV4' };
+  assert.equal((await f.runtime.call('bc_dev_toolset_data_list_companies', { connectionId: 'Data only' })).isError, false);
+  assert.equal(f.requests.length, 2);
 });
