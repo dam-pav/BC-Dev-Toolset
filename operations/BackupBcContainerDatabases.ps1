@@ -21,8 +21,7 @@ $availableConfigurations = @($settingsJSON.configurations | Where-Object {
     $_.serverType -eq 'Container' -and ([string]$_.container).Trim() -in $readyContainers
 })
 if ($availableConfigurations.Count -eq 0) {
-    Write-Host 'No available containers for SQL backup export. No backup was started. Recover a configured container and retry.' -ForegroundColor Yellow
-    return $false
+    Write-Error 'No available containers for SQL backup export. No backup was started. Recover a configured container and retry.' -ErrorAction Stop
 }
 
 Export-BcContainerSqlBackupSet `

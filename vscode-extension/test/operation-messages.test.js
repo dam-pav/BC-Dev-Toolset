@@ -48,8 +48,10 @@ for (const mode of ['single', 'selected', 'all', 'none']) {
   test(`container backup checks readiness before offering only available targets (${mode})`, (t) => {
     const { root, write } = fixture(t);
     const operation = operations.find(operation => operation.id === 'backupBcContainerDatabases');
-    write(operation.script, fs.readFileSync(path.join(repositoryRoot, 'operations/BackupBcContainerDatabases.ps1'), 'utf8'));
-    write('common/ContainerLifecycle.ps1', fs.readFileSync(path.join(repositoryRoot, 'common/ContainerLifecycle.ps1'), 'utf8'));
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed source path validated as contained by the repository root
+    write(operation.script, fs.readFileSync(resolveWithinRoot(repositoryRoot, 'operations/BackupBcContainerDatabases.ps1'), 'utf8')); // nosemgrep -- fixed source path validated as contained by the repository root
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed source path validated as contained by the repository root
+    write('common/ContainerLifecycle.ps1', fs.readFileSync(resolveWithinRoot(repositoryRoot, 'common/ContainerLifecycle.ps1'), 'utf8')); // nosemgrep -- fixed source path validated as contained by the repository root
     write('common/PublishApps.ps1', '');
     const backupPath = path.join(repositoryRoot, 'common/BackupMgt.ps1').replaceAll("'", "''");
     write('common/WorkspaceMgt.ps1', `
@@ -92,18 +94,22 @@ for (const mode of ['single', 'selected', 'all', 'none']) {
       function Write-Done { $script:events.Add('done') }
     `);
     const output = run(root, `
-      $ErrorActionPreference='Stop'
-      try { $messages = . ./operations/BackupBcContainerDatabases.ps1 6>&1 }
-      catch { $failure=$_.Exception.Message }
-      @{Events=@($script:events.ToArray());Failure=$failure;Messages=($messages -join '|');Exported=(Test-Path './exports/Core/Core.database.database.bak')} |
+      $ErrorActionPreference='Continue'
+      $messages=[collections.generic.list[string]]::new()
+      try {
+        . ./operations/BackupBcContainerDatabases.ps1 6>&1 | ForEach-Object { $messages.Add([string]$_) }
+        $operationExitCode=if ($?) { 0 } else { 1 }
+      } catch { $failure=$_.Exception.Message; $operationExitCode=1 }
+      @{Events=@($script:events.ToArray());Failure=$failure;ExitCode=$operationExitCode;Messages=($messages -join '|');Exported=(Test-Path './exports/Core/Core.database.database.bak')} |
         ConvertTo-Json -Compress
     `);
     const result = JSON.parse(output);
-    assert.equal(result.Failure, null);
     assert.match(result.Messages, /Unavailable containers excluded:.*CoreTest/);
     assert.match(result.Messages, /Missing.*missing; skipped/);
     assert.ok(result.Events.includes('container restart -- CoreTest'));
     if (mode !== 'none') {
+      assert.equal(result.Failure, null);
+      assert.equal(result.ExitCode, 0);
       assert.equal(result.Exported, true);
       assert.ok(result.Events.includes('backup:Core'));
       assert.ok(result.Events.includes('done'));
@@ -119,7 +125,8 @@ for (const mode of ['single', 'selected', 'all', 'none']) {
       }
     } else {
       assert.equal(result.Exported, false);
-      assert.match(result.Messages, /No available containers.*No backup was started.*Recover/);
+      assert.equal(result.ExitCode, 1);
+      assert.match(result.Failure, /No available containers.*No backup was started.*Recover/);
       assert.ok(result.Events.every(event => !event.startsWith('backup:') && !event.startsWith('select:') && event !== 'done'));
     }
   });
