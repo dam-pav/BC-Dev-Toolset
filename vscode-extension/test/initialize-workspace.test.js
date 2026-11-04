@@ -96,6 +96,67 @@ test('workspace initialization recognizes BC apps nested in a workspace folder',
   assert.deepEqual(localSettings.configurations.map(({ name }) => name), ['Local']);
   assert.deepEqual(localSettings.configurations.map(({ container }) => container), ['sample']);
   assert.deepEqual(localSettings.configurations.map(({ includeTestToolkit }) => includeTestToolkit), ['true']);
+  assert.equal(localSettings.configurations[0].sqlBackupPath, '.bcdevtoolset/.backups/Local');
+  assert.ok(fs.statSync(resolveWithinRoot(workspacePath, '.bcdevtoolset', '.backups', 'Local')).isDirectory()); // nosemgrep -- path is contained by the test-owned workspace root
+});
+
+test('workspace initialization defaults missing backup paths by configuration name and preserves existing paths', () => {
+  const workspacePath = authorizeRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-backup-defaults-')), 'Test workspace');
+  const workspaceFile = resolveWithinRoot(workspacePath, 'sample.code-workspace');
+  const settingsPath = resolveWithinRoot(workspacePath, '.bcdevtoolset', 'settings.json');
+  fs.writeFileSync(resolveWithinRoot(workspacePath, 'app.json'), '{}\n'); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.mkdirSync(resolveWithinRoot(workspacePath, '.bcdevtoolset')); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.writeFileSync(workspaceFile, JSON.stringify({ // nosemgrep -- path is contained by the test-owned workspace root
+    folders: [{ path: '.' }],
+    settings: { bcDevToolset: { configurations: [
+      { name: 'Shared Dev', serverType: 'Container', container: 'shared-container' },
+      { name: 'Shared Custom', serverType: 'Container', sqlBackupPath: '../shared-backups' },
+      { name: 'Remote', serverType: 'OnPrem' }
+    ] } }
+  }));
+  fs.writeFileSync(settingsPath, JSON.stringify({ configurations: [ // nosemgrep -- path is contained by the test-owned workspace root
+    { name: 'Local', serverType: 'Container', container: 'different-container', sqlBackupPath: '' },
+    { name: 'QA tests', serverType: 'Container', container: 'qa-container', sqlBackupPath: null },
+    { name: 'Missing', serverType: 'Container', container: 'other-container' },
+    { name: 'Whitespace', serverType: 'Container', sqlBackupPath: '  ' },
+    { name: 'Custom', serverType: 'Container', sqlBackupPath: 'D:/existing-backups' },
+    { name: 'Cloud', serverType: 'Cloud' },
+    { name: '../escaped-backup', serverType: 'Container' },
+    { name: 'nested/backup', serverType: 'Container' },
+    { name: 'NUL', serverType: 'Container' }
+  ] }));
+  fs.writeFileSync(resolveWithinRoot(workspacePath, '.gitignore'), '# Existing rules\n*.app\n'); // nosemgrep -- path is contained by the test-owned workspace root
+
+  const result = runInitializeWorkspace(workspacePath, workspaceFile);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /its name must be a valid folder name/);
+  const localSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
+  const initializedWorkspace = JSON.parse(fs.readFileSync(workspaceFile, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
+  const shared = initializedWorkspace.settings.bcDevToolset.configurations;
+  assert.deepEqual(localSettings.configurations.slice(0, 4).map(({ sqlBackupPath }) => sqlBackupPath),
+    ['Local', 'QA tests', 'Missing', 'Whitespace'].map((name) => `.bcdevtoolset/.backups/${name}`));
+  assert.equal(localSettings.configurations[4].sqlBackupPath, 'D:/existing-backups');
+  for (const configuration of localSettings.configurations.slice(5)) {
+    assert.equal(Object.hasOwn(configuration, 'sqlBackupPath'), false);
+  }
+  assert.equal(shared[0].sqlBackupPath, '.bcdevtoolset/.backups/Shared Dev');
+  assert.equal(shared[1].sqlBackupPath, '../shared-backups');
+  assert.equal(Object.hasOwn(shared[2], 'sqlBackupPath'), false);
+  const backupRoot = resolveWithinRoot(workspacePath, '.bcdevtoolset', '.backups');
+  assert.deepEqual(fs.readdirSync(backupRoot).sort(), ['Local', 'Missing', 'QA tests', 'Shared Dev', 'Whitespace']); // nosemgrep -- path is contained by the test-owned workspace root
+  assert.equal(fs.existsSync(resolveWithinRoot(workspacePath, '.bcdevtoolset', 'escaped-backup')), false); // nosemgrep -- path is contained by the test-owned workspace root
+  const init = childProcess.spawnSync('git', ['init', workspacePath], { encoding: 'utf8' });
+  assert.equal(init.status, 0, init.stderr);
+  const checkIgnore = childProcess.spawnSync('git', ['-C', workspacePath, 'check-ignore', '--no-index', '.bcdevtoolset/.backups/Local/example.bak'], { encoding: 'utf8' });
+  assert.equal(checkIgnore.status, 0, checkIgnore.stderr);
+  const gitIgnore = fs.readFileSync(resolveWithinRoot(workspacePath, '.gitignore'), 'utf8'); // nosemgrep -- path is contained by the test-owned workspace root
+  assert.match(gitIgnore, /\*\.app/);
+
+  const rerun = runInitializeWorkspace(workspacePath, workspaceFile);
+  assert.equal(rerun.status, 0, rerun.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')), localSettings); // nosemgrep -- path is contained by the test-owned workspace root
+  assert.deepEqual(JSON.parse(fs.readFileSync(workspaceFile, 'utf8')), initializedWorkspace); // nosemgrep -- path is contained by the test-owned workspace root
+  assert.equal(fs.readFileSync(resolveWithinRoot(workspacePath, '.gitignore'), 'utf8'), gitIgnore); // nosemgrep -- path is contained by the test-owned workspace root
 });
 
 test('workspace initialization coordinates repository, app folders, and file exclusions', () => {
@@ -144,6 +205,22 @@ test('workspace initialization coordinates repository, app folders, and file exc
   assert.deepEqual(rerunWorkspace.settings['al.assemblyProbingPaths'], ['./custom-assemblies', './.netpackages']);
 });
 
+test('workspace initialization rejects backup directory links that could write outside the workspace', () => {
+  const workspacePath = authorizeRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-backup-link-')), 'Test workspace');
+  const outsidePath = authorizeRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-outside-backups-')), 'External test directory');
+  const workspaceFile = resolveWithinRoot(workspacePath, 'sample.code-workspace');
+  fs.writeFileSync(resolveWithinRoot(workspacePath, 'app.json'), '{}\n'); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.writeFileSync(workspaceFile, '{ "folders": [{ "path": "." }] }\n'); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.mkdirSync(resolveWithinRoot(workspacePath, '.bcdevtoolset')); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.symlinkSync(outsidePath, resolveWithinRoot(workspacePath, '.bcdevtoolset', '.backups'), process.platform === 'win32' ? 'junction' : 'dir'); // nosemgrep -- both paths are authorized test-owned roots
+
+  const result = runInitializeWorkspace(workspacePath, workspaceFile);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /cannot be a link/);
+  assert.deepEqual(fs.readdirSync(outsidePath), []); // nosemgrep -- outsidePath is an authorized test-owned root
+});
+
 test('workspace initialization writes local settings beside the active workspace file', () => {
   const workspaceBasePath = authorizeRoot(
     fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-workspace-base-')),
@@ -162,6 +239,7 @@ test('workspace initialization writes local settings beside the active workspace
   assert.equal(result.status, 0, result.stderr);
   assert.equal(fs.existsSync(settingsPath), true); // nosemgrep -- settingsPath is contained by the test-owned workspace root
   assert.equal(fs.existsSync(misplacedSettingsPath), false); // nosemgrep -- misplacedSettingsPath is contained by the test-owned workspace root
+  assert.ok(fs.statSync(resolveWithinRoot(workspaceBasePath, '.bcdevtoolset', '.backups', 'Local')).isDirectory()); // nosemgrep -- path is contained by the test-owned workspace root
 });
 
 test('workspace initialization adds missing test defaults without changing existing local settings', () => {

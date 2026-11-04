@@ -85,6 +85,51 @@ function Add-BcDevToolsetGitIgnore {
     Add-Content -LiteralPath $gitIgnorePath -Value ''
 }
 
+function Initialize-WorkspaceBackupFolders {
+    param(
+        [PSObject] $Settings,
+        [string] $WorkspaceRootPath
+    )
+
+    $validatedWorkspaceRoot = [System.IO.Path]::GetFullPath($WorkspaceRootPath)
+    foreach ($configuration in @($Settings.configurations)) {
+        if ($configuration.serverType -ne 'Container' -or
+            -not [string]::IsNullOrWhiteSpace([string]$configuration.sqlBackupPath)) {
+            continue
+        }
+
+        $configurationName = [string]$configuration.name
+        if ([string]::IsNullOrWhiteSpace($configurationName) -or
+            $null -ne (Test-WorkspaceName -Name $configurationName) -or
+            $configurationName -match '[. ]$') {
+            Write-Host "Backup folder was not created for configuration '$configurationName': its name must be a valid folder name." -ForegroundColor Yellow
+            continue
+        }
+
+        $relativeBackupPath = ".bcdevtoolset/.backups/$configurationName"
+        $validatedBackupPath = [System.IO.Path]::GetFullPath((Join-Path $validatedWorkspaceRoot $relativeBackupPath))
+        $relativePath = [System.IO.Path]::GetRelativePath($validatedWorkspaceRoot, $validatedBackupPath)
+        if ([System.IO.Path]::IsPathRooted($relativePath) -or $relativePath -match '^\.\.([\\/]|$)') {
+            throw "Backup folder for configuration '$configurationName' escapes the workspace."
+        }
+
+        # Reject links at every generated component so physical writes stay inside the authorized workspace.
+        $componentPath = $validatedWorkspaceRoot
+        foreach ($component in @('.bcdevtoolset', '.backups', $configurationName)) {
+            $componentPath = Join-Path $componentPath $component
+            if (Test-Path -LiteralPath $componentPath) {
+                $item = Get-Item -LiteralPath $componentPath -Force
+                if (-not $item.PSIsContainer -or ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                    throw "Backup folder component '$componentPath' must be a directory and cannot be a link."
+                }
+            }
+        }
+
+        [System.IO.Directory]::CreateDirectory($validatedBackupPath) | Out-Null
+        $configuration | Add-Member -MemberType NoteProperty -Name sqlBackupPath -Value $relativeBackupPath -Force
+    }
+}
+
 function Update-WorkspacePaths {
     param(
         [PSObject] $Workspace,
@@ -277,6 +322,7 @@ $null = Add-DefaultAssemblyProbingPath -settings $workspaceJson.settings
 if ($null -ne $toolsetSettings) {
     $toolsetSettings.PSObject.Properties.Remove('country')
 }
+Initialize-WorkspaceBackupFolders -Settings $toolsetSettings -WorkspaceRootPath $workspaceConfigurationRoot
 $workspaceJson | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $workspaceFile.FullName
 
 $settingsPath = if ([string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_LOCAL_SETTINGS_PATH)) {
@@ -288,6 +334,9 @@ $settingsPath = if ([string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_LOCAL_SETTING
     [System.IO.Path]::GetFullPath((Join-Path $workspaceConfigurationRoot $env:BCDEVTOOLSET_LOCAL_SETTINGS_PATH))
 }
 Build-Settings -settingsPath $settingsPath -workspaceName $workspaceName -ReconcileWorkspaceDefaults
+$localSettings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+Initialize-WorkspaceBackupFolders -Settings $localSettings -WorkspaceRootPath $workspaceConfigurationRoot
+$localSettings | ConvertTo-Json -Depth 10 | Format-Json | Set-Content -LiteralPath $settingsPath
 Add-BcDevToolsetGitIgnore -RootPath $workspaceConfigurationRoot
 
 Write-Host "BC Dev Toolset workspace configuration is ready: $($workspaceFile.FullName)" -ForegroundColor Green
