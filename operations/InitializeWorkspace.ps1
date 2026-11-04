@@ -85,6 +85,19 @@ function Add-BcDevToolsetGitIgnore {
     Add-Content -LiteralPath $gitIgnorePath -Value ''
 }
 
+function ConvertTo-BackupFolderName {
+    param([string] $Name)
+
+    # Use Windows rules on every host so generated settings remain portable.
+    $folderName = $Name -replace '[<>:"/\\|?*\x00-\x1f]', '_'
+    $folderName = [regex]::Replace($folderName, '[. ]+$', { param($match) '_' * $match.Length })
+    if ([string]::IsNullOrWhiteSpace($folderName)) { $folderName = '_' }
+    if ($folderName -match '^(?i:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)') {
+        $folderName = "_$folderName"
+    }
+    return $folderName
+}
+
 function Initialize-WorkspaceBackupFolders {
     param(
         [PSObject] $Settings,
@@ -99,14 +112,9 @@ function Initialize-WorkspaceBackupFolders {
         }
 
         $configurationName = [string]$configuration.name
-        if ([string]::IsNullOrWhiteSpace($configurationName) -or
-            $null -ne (Test-WorkspaceName -Name $configurationName) -or
-            $configurationName -match '[. ]$') {
-            Write-Host "Backup folder was not created for configuration '$configurationName': its name must be a valid folder name." -ForegroundColor Yellow
-            continue
-        }
+        $backupFolderName = ConvertTo-BackupFolderName -Name $configurationName
 
-        $relativeBackupPath = ".bcdevtoolset/.backups/$configurationName"
+        $relativeBackupPath = ".bcdevtoolset/.backups/$backupFolderName"
         $validatedBackupPath = [System.IO.Path]::GetFullPath((Join-Path $validatedWorkspaceRoot $relativeBackupPath))
         $relativePath = [System.IO.Path]::GetRelativePath($validatedWorkspaceRoot, $validatedBackupPath)
         if ([System.IO.Path]::IsPathRooted($relativePath) -or $relativePath -match '^\.\.([\\/]|$)') {
@@ -115,7 +123,7 @@ function Initialize-WorkspaceBackupFolders {
 
         # Reject links at every generated component so physical writes stay inside the authorized workspace.
         $componentPath = $validatedWorkspaceRoot
-        foreach ($component in @('.bcdevtoolset', '.backups', $configurationName)) {
+        foreach ($component in @('.bcdevtoolset', '.backups', $backupFolderName)) {
             $componentPath = Join-Path $componentPath $component
             if (Test-Path -LiteralPath $componentPath) {
                 $item = Get-Item -LiteralPath $componentPath -Force

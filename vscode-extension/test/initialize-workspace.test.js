@@ -129,21 +129,20 @@ test('workspace initialization defaults missing backup paths by configuration na
 
   const result = runInitializeWorkspace(workspacePath, workspaceFile);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /its name must be a valid folder name/);
   const localSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
   const initializedWorkspace = JSON.parse(fs.readFileSync(workspaceFile, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
   const shared = initializedWorkspace.settings.bcDevToolset.configurations;
   assert.deepEqual(localSettings.configurations.slice(0, 4).map(({ sqlBackupPath }) => sqlBackupPath),
     ['Local', 'QA tests', 'Missing', 'Whitespace'].map((name) => `.bcdevtoolset/.backups/${name}`));
   assert.equal(localSettings.configurations[4].sqlBackupPath, 'D:/existing-backups');
-  for (const configuration of localSettings.configurations.slice(5)) {
-    assert.equal(Object.hasOwn(configuration, 'sqlBackupPath'), false);
-  }
+  assert.equal(Object.hasOwn(localSettings.configurations[5], 'sqlBackupPath'), false);
+  assert.deepEqual(localSettings.configurations.slice(6).map(({ sqlBackupPath }) => sqlBackupPath),
+    ['.._escaped-backup', 'nested_backup', '_NUL'].map((name) => `.bcdevtoolset/.backups/${name}`));
   assert.equal(shared[0].sqlBackupPath, '.bcdevtoolset/.backups/Shared Dev');
   assert.equal(shared[1].sqlBackupPath, '../shared-backups');
   assert.equal(Object.hasOwn(shared[2], 'sqlBackupPath'), false);
   const backupRoot = resolveWithinRoot(workspacePath, '.bcdevtoolset', '.backups');
-  assert.deepEqual(fs.readdirSync(backupRoot).sort(), ['Local', 'Missing', 'QA tests', 'Shared Dev', 'Whitespace']); // nosemgrep -- path is contained by the test-owned workspace root
+  assert.deepEqual(fs.readdirSync(backupRoot).sort(), ['.._escaped-backup', 'Local', 'Missing', 'QA tests', 'Shared Dev', 'Whitespace', '_NUL', 'nested_backup']); // nosemgrep -- path is contained by the test-owned workspace root
   assert.equal(fs.existsSync(resolveWithinRoot(workspacePath, '.bcdevtoolset', 'escaped-backup')), false); // nosemgrep -- path is contained by the test-owned workspace root
   const init = childProcess.spawnSync('git', ['init', workspacePath], { encoding: 'utf8' });
   assert.equal(init.status, 0, init.stderr);
@@ -157,6 +156,39 @@ test('workspace initialization defaults missing backup paths by configuration na
   assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')), localSettings); // nosemgrep -- path is contained by the test-owned workspace root
   assert.deepEqual(JSON.parse(fs.readFileSync(workspaceFile, 'utf8')), initializedWorkspace); // nosemgrep -- path is contained by the test-owned workspace root
   assert.equal(fs.readFileSync(resolveWithinRoot(workspacePath, '.gitignore'), 'utf8'), gitIgnore); // nosemgrep -- path is contained by the test-owned workspace root
+});
+
+test('workspace initialization normalizes invalid folder characters and Windows special names', () => {
+  const workspacePath = authorizeRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-normalized-backups-')), 'Test workspace');
+  const workspaceFile = resolveWithinRoot(workspacePath, 'sample.code-workspace');
+  const settingsPath = resolveWithinRoot(workspacePath, '.bcdevtoolset', 'settings.json');
+  const cases = [
+    ['Local', 'Local'],
+    ['QA: <test>"/\\|?*\u0001', 'QA_ _test________'],
+    ['Trailing. ', 'Trailing__'],
+    ['.', '_'],
+    ['..', '__'],
+    ['', '_'],
+    ['CON.txt', '_CON.txt'],
+    ['lpt1', '_lpt1'],
+    ['Release QA', 'Release QA']
+  ];
+  fs.writeFileSync(resolveWithinRoot(workspacePath, 'app.json'), '{}\n'); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.writeFileSync(workspaceFile, '{ "folders": [{ "path": "." }] }\n'); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.mkdirSync(resolveWithinRoot(workspacePath, '.bcdevtoolset')); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.writeFileSync(settingsPath, JSON.stringify({ configurations: cases.map(([name]) => ({ name, serverType: 'Container' })) })); // nosemgrep -- path is contained by the test-owned workspace root
+
+  const result = runInitializeWorkspace(workspacePath, workspaceFile);
+  assert.equal(result.status, 0, result.stderr);
+  const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
+  assert.deepEqual(settings.configurations.map(({ name }) => name), cases.map(([name]) => name));
+  assert.deepEqual(settings.configurations.map(({ sqlBackupPath }) => sqlBackupPath), cases.map(([, folder]) => `.bcdevtoolset/.backups/${folder}`));
+  for (const [, folder] of cases) {
+    assert.ok(fs.statSync(resolveWithinRoot(workspacePath, '.bcdevtoolset', '.backups', folder)).isDirectory()); // nosemgrep -- path is contained by the test-owned workspace root
+  }
+  const rerun = runInitializeWorkspace(workspacePath, workspaceFile);
+  assert.equal(rerun.status, 0, rerun.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')), settings); // nosemgrep -- path is contained by the test-owned workspace root
 });
 
 test('workspace initialization coordinates repository, app folders, and file exclusions', () => {
