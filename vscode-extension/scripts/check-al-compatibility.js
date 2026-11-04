@@ -8,7 +8,8 @@ const { discoverAlTool } = require('../al-tool-discovery');
 const { authorizeRoot, resolveWithinRoot } = require('../path-security');
 
 const extensionRoot = authorizeRoot(process.argv[2], 'AL extension installation argument');
-const tool = discoverAlTool(extensionRoot);
+// Fresh hosted runners can take longer to start ALTool for the first time.
+const tool = discoverAlTool(extensionRoot, { probeTimeoutMs: 60000 });
 const manifest = JSON.parse(fs.readFileSync(resolveWithinRoot(extensionRoot, 'package.json'), 'utf8')); // nosemgrep -- fixed manifest within explicitly authorized installation
 console.log(`Testing AL extension ${manifest.version}: ${tool}`);
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bc-al-compatibility-'));
