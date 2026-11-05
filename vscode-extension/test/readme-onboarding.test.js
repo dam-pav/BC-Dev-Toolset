@@ -11,7 +11,7 @@ test('repository README introduces BC Data in its own chapter before BCQuality',
   const repositoryReadme = fs.readFileSync(path.join(__dirname, '..', '..', 'README.md'), 'utf8');
   const switches = repositoryReadme.split('#### MCP tool switches')[1].split('\n#### ')[0];
   assert.doesNotMatch(switches, /BC Data access provides/);
-  assert.match(repositoryReadme, /## BC Data access\r?\n\r?\nBC Data access provides[^\r\n]+\r?\n\r?\n## BCQuality integration/);
+  assert.match(repositoryReadme, /^## BC Data access\r?\n\r?\nBC Data access provides[^\r\n]+\r?\n\r?\n## BCQuality integration/m);
 });
 
 test('repository settings references use two-column tables', () => {
@@ -20,8 +20,8 @@ test('repository settings references use two-column tables', () => {
   assert.doesNotMatch(setup, /^- `[^`]+`:/m);
   for (const heading of ['### Extension settings', '### Workspace settings', '#### Configurations', '### Local settings']) {
     const section = setup.split(heading)[1].split(/\n#{3,4} /)[0];
-    assert.match(section, /\| Setting \| Description \|\r?\n\| --- \| --- \|/);
-    assert.match(section, /^\| `[^`]+` \| .+ \|$/m);
+    assert.match(section, /\| Setting +\| Description +\|\r?\n\| -{3,} +\| -{3,} +\|/);
+    assert.match(section, /^\| `[^`]+` +\| .+ \|$/m);
   }
   assert.match(setup, /\| `bcCredential`, `remoteCredential`, `databaseCredential` \|/);
   for (const row of setup.split(/\r?\n/).filter(line => line.startsWith('|'))) {
@@ -32,7 +32,7 @@ test('repository settings references use two-column tables', () => {
 test('publishing target guidance is a chapter immediately before Setup', () => {
   const repositoryReadme = fs.readFileSync(path.join(__dirname, '..', '..', 'README.md'), 'utf8');
   const chapters = repositoryReadme.split(/^## /m).slice(1);
-  const publishingIndex = chapters.findIndex(chapter => chapter.startsWith('Selecting publishing targets'));
+  const publishingIndex = chapters.findIndex(chapter => chapter.startsWith('Publishing\r\n') || chapter.startsWith('Publishing\n'));
   assert.ok(publishingIndex >= 0);
   assert.ok(chapters[publishingIndex + 1].startsWith('Setup'));
   assert.match(chapters[publishingIndex], /Supply the exact `configurationName`/);
