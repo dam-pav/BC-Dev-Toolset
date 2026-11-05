@@ -41,24 +41,15 @@ This initializes your current project. You will actually do this for every proje
 
 ### 3. Open local settings
 
-The defaults might work for you out-of-the-box in which case you don't need to change or add any settings. This is all optional but, if you need any of the below specifics:
+The default settings may be enough to get started. To review or customize your local setup, run `BC Dev Toolset: Open Local Settings (JSON)`.
 
-Run `BC Dev Toolset: Open Local Settings (JSON)`.
+This opens `.bcdevtoolset/settings.json`. Start with these settings, changing them only as needed:
 
-This opens the developer-local settings file at `.bcdevtoolset/settings.json`. Use it to define machine-specific paths, credentials, output folders, and local environment targets.
+- `configurations`: Check that the default `Local` container target suits your project, or add the Business Central environment you want to use.
+- `dependenciesPaths`: Add folders containing dependency `.app` packages or paths to `.zip` archives if your project needs external dependencies.
+- `licenseFile`: Set the path to your Business Central license file if your environment requires one.
 
-Important local settings to review before running most operations:
-
-- `configurations`: Defines the local Business Central environments the toolset can target. The extension creates a default `Local` container configuration automatically.
-- `dependenciesPaths`: Folders containing dependency `.app` packages, or direct `.zip` file paths, used by dependency publishing operations.
-- `dependenciesPath`: Deprecated legacy single folder containing dependency `.app` packages. It is still read for compatibility, but users should migrate to `dependenciesPaths`.
-- `packageOutputPath`: Folder where runtime packages are written.
-- `sqlBackupPath`: Set this inside each Container `configurations` entry that uses SQL backup operations. Initialize Workspace fills missing or blank paths in local and workspace Container configurations with `.bcdevtoolset/.backups/<configuration name>` and creates those folders. Existing non-empty paths are preserved. The `.bcdevtoolset/` Git ignore rule covers these backups. Folder names are normalized by replacing invalid characters and trailing periods or spaces with underscores; reserved Windows device names receive an underscore prefix, and empty names use `_`. Configuration names in settings are preserved. Generated paths are unique across workspace and local Container configurations, using numeric suffixes such as `_2` when normalized names collide (case-insensitively). Existing configured destinations are reserved before assigning new defaults; explicit shared paths remain unchanged. Different containers can use different folders; set the same folder on multiple Container configurations only when sharing is intentional.
-- `licenseFile`: Required for license update and some runtime packaging scenarios.
-- `certificateFile`: Required when creating signed runtime packages.
-- `recordingsPath`: Folder containing page scripting recordings.
-- `pageScriptTestResultsPath`: Folder where page script test results are stored.
-- `testIsolationDisabledCodeunits`: Optional integer codeunit IDs (for example `[60990]`) for AL integration tests requiring disabled isolation. Set this in shared `settings.bcDevToolset` or local `.bcdevtoolset/settings.json`; an explicit local array replaces the shared list, and `[]` clears it. Duplicates are removed; invalid IDs are rejected before build/container preparation. Selected tests run under `130451`, all others under `130450`, with extension-scoped discovery and one combined report. This is not restricted to any Business Central version; compatibility depends on the available runner, discovery and filter capabilities. Unmatched IDs fail the run. Committed data can persist: non-isolated tests must manage setup, cleanup and recovery after failure. Page-script and AL Runner tests are unaffected.
+See the [Settings reference](#settings) for all options, including backups, runtime packages, and testing.
 
 This is it, now you can start working on your project. Explore the toolset:
 
@@ -134,28 +125,43 @@ The `AL compatibility` workflow runs daily, on relevant pull requests, and manua
 
 ## Operations
 
+### BCQuality
+
+| Operation | Description |
+| --- | --- |
+| `Update BCQuality` | Retries maintenance of the configured BCQuality checkout and agent skills, then opens the status report. |
+| `Show BCQuality Status` | Opens the current maintenance status, checkout revision, installed agent skills, and any warnings or errors. |
+
+These commands are available under **BCQuality** in **Show Operations List** and directly from the Command Palette. They are not exposed as MCP tools.
+
 ### Workspace
 
-- `Initialize Workspace`: Creates the baseline BC Dev Toolset workspace structure and default settings content for the current workspace, including Git-ignored backup folders for Container configurations with missing or blank `sqlBackupPath` values.
-- `Open Local Settings (JSON)`: Opens `.bcdevtoolset/settings.json` for the current workspace.
-- `Clear App and translation artifacts`: Removes generated app and translation artifacts from the workspace.
-- `Build all apps in the workspace`: Uses the platform-specific ALTool bundled and signed with the required Microsoft AL Language extension to compile each AL project in dependency order. The toolset does not discover or invoke the unsigned global `al` .NET tool. Every app builds against an isolated copy of its own package cache plus freshly built packages for its declared workspace dependencies, preserving project cache isolation.
-- `Update launch.json files in all apps in the workspace`: Refreshes launch configurations for all apps in the workspace.
+| Operation | Description |
+| --- | --- |
+| `Initialize Workspace` | Creates the baseline BC Dev Toolset workspace structure and default settings content for the current workspace, including Git-ignored backup folders for Container configurations with missing or blank `sqlBackupPath` values. |
+| `Open Local Settings (JSON)` | Opens `.bcdevtoolset/settings.json` for the current workspace. |
+| `Clear App and translation artifacts` | Removes generated app and translation artifacts from the workspace. |
+| `Build all apps in the workspace` | Uses the platform-specific ALTool bundled and signed with the required Microsoft AL Language extension to compile each AL project in dependency order. The toolset does not discover or invoke the unsigned global `al` .NET tool. Every app builds against an isolated copy of its own package cache plus freshly built packages for its declared workspace dependencies, preserving project cache isolation. |
+| `Update launch.json files in all apps in the workspace` | Refreshes launch configurations for all apps in the workspace. |
 
 ### Container
 
-- `Check and start configured containers`: Checks distinct Container configurations, starts created or stopped containers, restarts unhealthy running containers once, and waits for a running and healthy state when a Docker health check exists. It reports missing containers without creating them. Container-dependent operations run this check automatically for existing configured containers and continue to skip missing containers where they did before. AL test tool and page script tests run the check on their selected container after creating it if needed, before restore, deployment, or test execution.
-- `Create/Overwrite Docker container based on the workspace app.json application version`: Creates or recreates a development container using the common `application` version from every workspace app. Mismatched values stop the operation and are reported by app.json path. If more than one Container configuration has a non-empty `container` value, choose one configuration or process all qualified configurations; duplicate `container` values abort the operation. Manual creation exports an initial SQL backup set when `includeTestToolkit` is `true`, `targetType` is `Test`, and `sqlBackupPath` is non-empty.
-- `Extract assembly probing paths from Docker container`: Extracts Service and .NET DLLs from an existing configured container into the `.netpackages` folder of each workspace app whose `app.json` target is `OnPrem`. After extraction, it adds `"./.netpackages"` to `al.assemblyProbingPaths` if that exact path is absent, preserving other paths. It writes to the selected workspace file, or to root `.vscode/settings.json` when the workspace is opened as a folder. It prefers the `Microsoft.NETCore.App.Ref` targeting pack and falls back to the `Microsoft.NETCore.App` shared runtime. If multiple containers are configured, the operation asks which one to use. The create-container operation also runs this step after building a configuration whose `autoExtractAssemblies` value is `true`. Manual extraction ignores `autoExtractAssemblies`.
-- `Add Test Toolkit to existing container`: Lists the `container` values from Container configurations and adds the Business Central Test Toolkit to the selected existing container. An empty or invalid selection aborts the operation.
-- `Update license files in all containers`: Applies the configured license file to container environments.
-- `Update server configuration in all containers`: Applies configured server settings to container environments.
+| Operation | Description |
+| --- | --- |
+| `Check and start configured containers` | Checks distinct Container configurations, starts created or stopped containers, restarts unhealthy running containers once, and waits for a running and healthy state when a Docker health check exists. It reports missing containers without creating them. Container-dependent operations run this check automatically for existing configured containers and continue to skip missing containers where they did before. AL test tool and page script tests run the check on their selected container after creating it if needed, before restore, deployment, or test execution. |
+| `Create/Overwrite Docker container based on the workspace app.json application version` | Creates or recreates a development container using the common `application` version from every workspace app. Mismatched values stop the operation and are reported by app.json path. If more than one Container configuration has a non-empty `container` value, choose one configuration or process all qualified configurations; duplicate `container` values abort the operation. Manual creation exports an initial SQL backup set when `includeTestToolkit` is `true`, `targetType` is `Test`, and `sqlBackupPath` is non-empty. |
+| `Extract assembly probing paths from Docker container` | Extracts Service and .NET DLLs from an existing configured container into the `.netpackages` folder of each workspace app whose `app.json` target is `OnPrem`. After extraction, it adds `"./.netpackages"` to `al.assemblyProbingPaths` if that exact path is absent, preserving other paths. It writes to the selected workspace file, or to root `.vscode/settings.json` when the workspace is opened as a folder. It prefers the `Microsoft.NETCore.App.Ref` targeting pack and falls back to the `Microsoft.NETCore.App` shared runtime. If multiple containers are configured, the operation asks which one to use. The create-container operation also runs this step after building a configuration whose `autoExtractAssemblies` value is `true`. Manual extraction ignores `autoExtractAssemblies`. |
+| `Add Test Toolkit to existing container` | Lists the `container` values from Container configurations and adds the Business Central Test Toolkit to the selected existing container. An empty or invalid selection aborts the operation. |
+| `Update license files in all containers` | Applies the configured license file to container environments. |
+| `Update server configuration in all containers` | Applies configured server settings to container environments. |
 
 ### Backup
 
-- `Create and export SQL backup set from Docker container`: Creates SQL backup files from a Docker container environment. If more than one Container configuration has a non-empty `sqlBackupPath`, choose one container or back up all qualified containers.
-- `Create and export SQL backup set from BC service SQL Server`: Creates SQL backup files from a Business Central service SQL Server environment. You will require credentials with the ability to create remote Powershell sessions to the SQL Server host.
-- `Restore SQL backup set to Docker container`: Restores a saved SQL backup set into a Docker container, either through the manual operation or during automatic container initialization. If more than one Container configuration has a non-empty `sqlBackupPath`, choose which container to restore. Afterward, it reports platform/database/Microsoft application versions and, when matching same-major packages make the detected split safe to upgrade, forcibly closes active BC sessions and upgrades System Application, Base Application, and Application in dependency order with non-destructive schema synchronization.
+| Operation | Description |
+| --- | --- |
+| `Create and export SQL backup set from Docker container` | Creates SQL backup files from a Docker container environment. If more than one Container configuration has a non-empty `sqlBackupPath`, choose one container or back up all qualified containers. |
+| `Create and export SQL backup set from BC service SQL Server` | Creates SQL backup files from a Business Central service SQL Server environment. You will require credentials with the ability to create remote Powershell sessions to the SQL Server host. |
+| `Restore SQL backup set to Docker container` | Restores a saved SQL backup set into a Docker container, either through the manual operation or during automatic container initialization. If more than one Container configuration has a non-empty `sqlBackupPath`, choose which container to restore. Afterward, it reports platform/database/Microsoft application versions and, when matching same-major packages make the detected split safe to upgrade, forcibly closes active BC sessions and upgrades System Application, Base Application, and Application in dependency order with non-destructive schema synchronization. |
 
 #### Automatic administrator setup after restore
 
@@ -173,22 +179,29 @@ If an extension blocks CLI User table validation/events, for example because no 
 
 ### Tests
 
-- `Run AL test tool tests`: Builds all workspace apps in dependency order before preparing the test container, so a failed build stops the operation before backup restore or deployment. It then runs tests once per workspace extension. Business Central discovers codeunits whose `SubType` is `Test` by extension ID, so test suite registration in an `OnInstall` procedure is not required.
-- `Run page script tests`: Runs page script test recordings and writes the results to the configured output location.
-- `AL Runner Test`: A BC Dev Toolset feature based on Stefan Maron's [BusinessCentral.AL.Runner](https://github.com/StefanMaron/BusinessCentral.AL.Runner) tool. It runs without a Business Central container and passes every workspace folder that contains an `app.json` file to one `al-runner` invocation. The operation resolves the configured Container release matching the workspace application baseline and passes its exact major/minor through `--bc-version`. Compatibility runs do the same for each explicitly configured newer release in sequence. The operation reports the requested release; unlike container modes, AL Runner does not expose an independently verified installed application version. Refer to the upstream GitHub repository for its capabilities, limitations, and CLI documentation.
-- Automated test operations resolve only Container configurations whose `targetType` is `Test`. Dev, Production, and unspecified roles are excluded. AL Runner also uses Test-role configurations to resolve platform versions, but does not require a test toolkit because it does not use a BC container.
-- Compatibility test operations run the same test mode against every explicitly configured Container platform newer than the workspace `app.json` application baseline. They build once, execute targets sequentially, validate each container's installed Application release before restore/deployment, and report outcomes per target. A major-only target such as `23.0` accepts the latest cumulative update in BC 23; a non-zero minor such as `27.1` must match exactly. The AL Runner compatibility operation passes each configured release's exact major/minor to `--bc-version`.
-- Automated testing resolves only Container configurations with `targetType: "Test"`. Dev, Production, and unspecified roles are never used. AL Runner also uses Test-role configurations to resolve platform versions, but does not require a test toolkit because it does not use a BC container.
+| Operation | Description |
+| --- | --- |
+| `Run AL test tool tests` | Builds all workspace apps in dependency order before preparing the test container, so a failed build stops the operation before backup restore or deployment. It then runs tests once per workspace extension. Business Central discovers codeunits whose `SubType` is `Test` by extension ID, so test suite registration in an `OnInstall` procedure is not required. |
+| `Run page script tests` | Runs page script test recordings and writes the results to the configured output location. |
+| `AL Runner Test` | A BC Dev Toolset feature based on Stefan Maron's [BusinessCentral.AL.Runner](https://github.com/StefanMaron/BusinessCentral.AL.Runner) tool. It runs without a Business Central container and passes every workspace folder that contains an `app.json` file to one `al-runner` invocation. The operation resolves the configured Container release matching the workspace application baseline and passes its exact major/minor through `--bc-version`. Compatibility runs do the same for each explicitly configured newer release in sequence. The operation reports the requested release; unlike container modes, AL Runner does not expose an independently verified installed application version. Refer to the upstream GitHub repository for its capabilities, limitations, and CLI documentation. |
 
-  Windows Smart App Control or an organizational App Control policy can block an AL Runner release whose executable assemblies are not signed with a trusted certificate. The prerequisite and test operations report the corresponding Code Integrity failure but do not weaken or bypass application-control protection. Use a signed upstream release when available, or ask the device administrator to approve an appropriate policy. See Microsoft's [Smart App Control signing guidance](https://learn.microsoft.com/windows/apps/develop/smart-app-control/code-signing-for-smart-app-control).
+Automated test operations resolve only Container configurations whose `targetType` is `Test`. Dev, Production, and unspecified roles are excluded. AL Runner also uses Test-role configurations to resolve platform versions, but does not require a test toolkit because it does not use a BC container.
 
-  AL Runner availability, application-control, and invocation failures are reported as tool failures with a clear statement that tests were not executed. The `bc_dev_toolset_al_runner_test` MCP response tells agents to suggest `bc_dev_toolset_invoke_tests` as the container-based fallback, but not to run it automatically. Genuine AL compilation and test failures are kept separate and do not receive this fallback guidance. AL Runner itself determines whether it supports the requested release.
+Compatibility test operations run the same test mode against every explicitly configured Container platform newer than the workspace `app.json` application baseline. They build once, execute targets sequentially, validate each container's installed Application release before restore/deployment, and report outcomes per target. A major-only target such as `23.0` accepts the latest cumulative update in BC 23; a non-zero minor such as `27.1` must match exactly. The AL Runner compatibility operation passes each configured release's exact major/minor to `--bc-version`.
+
+Automated testing resolves only Container configurations with `targetType: "Test"`. Dev, Production, and unspecified roles are never used. AL Runner also uses Test-role configurations to resolve platform versions, but does not require a test toolkit because it does not use a BC container.
+
+Windows Smart App Control or an organizational App Control policy can block an AL Runner release whose executable assemblies are not signed with a trusted certificate. The prerequisite and test operations report the corresponding Code Integrity failure but do not weaken or bypass application-control protection. Use a signed upstream release when available, or ask the device administrator to approve an appropriate policy. See Microsoft's [Smart App Control signing guidance](https://learn.microsoft.com/windows/apps/develop/smart-app-control/code-signing-for-smart-app-control).
+
+AL Runner availability, application-control, and invocation failures are reported as tool failures with a clear statement that tests were not executed. The `bc_dev_toolset_al_runner_test` MCP response tells agents to suggest `bc_dev_toolset_invoke_tests` as the container-based fallback, but not to run it automatically. Genuine AL compilation and test failures are kept separate and do not receive this fallback guidance. AL Runner itself determines whether it supports the requested release.
 
 ### Publish
 
-- `Publish dependencies to a selected configuration`: Publishes dependency apps to one selected Container, Cloud, or OnPrem configuration.
-- `Publish workspace apps (excluding test apps) to a selected configuration`: Publishes workspace apps to one selected Container, Cloud, or OnPrem configuration.
-- `Unpublish all workspace apps from a selected configuration`: Unpublishes workspace apps from one selected Container or OnPrem configuration.
+| Operation | Description |
+| --- | --- |
+| `Publish dependencies to a selected configuration` | Publishes dependency apps to one selected Container, Cloud, or OnPrem configuration. |
+| `Publish workspace apps (excluding test apps) to a selected configuration` | Publishes workspace apps to one selected Container, Cloud, or OnPrem configuration. |
+| `Unpublish all workspace apps from a selected configuration` | Unpublishes workspace apps from one selected Container or OnPrem configuration. |
 
 Workspace app and runtime publishing exclude test apps identified by Microsoft Test Toolkit dependencies, using the same rule as launch configuration generation. Test execution workflows explicitly include test apps when preparing their test targets.
 
@@ -198,26 +211,34 @@ OnPrem Dev publishing uses `server`, the developer-services `port`, `serverInsta
 
 ### Runtime
 
-- `Publish stored runtime packages (excluding test apps) to a selected configuration`: Publishes existing runtime packages to one selected Container or OnPrem configuration across Dev, Test, and Production. Cloud targets are excluded.
-- `Create deployment runtime packages for all apps in the workspace (not compile/build validation)`: Builds deployment runtime packages for all workspace apps. This is not a substitute for ordinary AL compile/build validation.
+| Operation | Description |
+| --- | --- |
+| `Publish stored runtime packages (excluding test apps) to a selected configuration` | Publishes existing runtime packages to one selected Container or OnPrem configuration across Dev, Test, and Production. Cloud targets are excluded. |
+| `Create deployment runtime packages for all apps in the workspace (not compile/build validation)` | Builds deployment runtime packages for all workspace apps. This is not a substitute for ordinary AL compile/build validation. |
 
 ### Visualization
 
-- `Prepare object id range data for visualization`: Collects declared ranges and actual numbered AL object IDs per workspace app and object type. Source scanning ignores comments and literals, includes all conditional compilation branches, and excludes dependency caches and nested apps. Repeated IDs within an app/type count once.
-- `Show object id range visualization data`: Opens the range pool chart, followed by an expandable app/type tree of contiguous occupied ID ranges (gaps excluded) and a counts matrix with app, object type, and grand totals. Prepare data again to add actual usage to older visualization files.
+| Operation | Description |
+| --- | --- |
+| `Prepare object id range data for visualization` | Collects declared ranges and actual numbered AL object IDs per workspace app and object type. Source scanning ignores comments and literals, includes all conditional compilation branches, and excludes dependency caches and nested apps. Repeated IDs within an app/type count once. |
+| `Show object id range visualization data` | Opens the range pool chart, followed by an expandable app/type tree of contiguous occupied ID ranges (gaps excluded) and a counts matrix with app, object type, and grand totals. Prepare data again to add actual usage to older visualization files. |
 
 ### Prerequisites
 
-- `Show BcContainerHelper versions (installed and available)`: Shows the installed and available BcContainerHelper versions.
-- `Install/Update Prerequisites`: Installs and updates the main prerequisites used by the toolset, including BcContainerHelper, Node.js, @microsoft/bc-replay and its matching Playwright browsers, .NET SDK 9/10, and MSDyn365BC.AL.Runner. If required Windows container features cannot be enabled, later installation steps are skipped and the operation offers to open the guarded uninstall flow.
-- `Uninstall Prerequisites`: Detects Docker Engine, BC Replay, AL Runner, Node.js, Git, BcContainerHelper, and Windows container features, then asks separately before removing each component. Every prompt defaults to keeping the component installed. The shared .NET SDK is retained.
-- `Install/Update Microsoft PowerShell`: Updates the Windows PowerShell installation used for the toolkit setup flow.
+| Operation | Description |
+| --- | --- |
+| `Show BcContainerHelper versions (installed and available)` | Shows the installed and available BcContainerHelper versions. |
+| `Install/Update Prerequisites` | Installs and updates the main prerequisites used by the toolset, including BcContainerHelper, Node.js, @microsoft/bc-replay and its matching Playwright browsers, .NET SDK 9/10, and MSDyn365BC.AL.Runner. If required Windows container features cannot be enabled, later installation steps are skipped and the operation offers to open the guarded uninstall flow. |
+| `Uninstall Prerequisites` | Detects Docker Engine, BC Replay, AL Runner, Node.js, Git, BcContainerHelper, and Windows container features, then asks separately before removing each component. Every prompt defaults to keeping the component installed. The shared .NET SDK is retained. |
+| `Install/Update Microsoft PowerShell` | Updates the Windows PowerShell installation used for the toolkit setup flow. |
 
 ### MCP Configuration
 
-- `Show MCP status`: Shows the extension MCP API, server, protocol/instance identity, bound workspace, terminal bridge, and runtime status. Authentication tokens are never displayed.
-- `Configure Codex MCP integration`: Enables automatic maintenance, adds or updates the BC Dev Toolset MCP server entry in Codex configuration, and adds managed global Codex instructions.
-- `Disable Codex MCP integration`: Disables automatic maintenance and removes the extension-managed Codex MCP entry and global instructions.
+| Operation | Description |
+| --- | --- |
+| `Show MCP status` | Shows the extension MCP API, server, protocol/instance identity, bound workspace, terminal bridge, and runtime status. Authentication tokens are never displayed. |
+| `Configure Codex MCP integration` | Enables automatic maintenance, adds or updates the BC Dev Toolset MCP server entry in Codex configuration, and adds managed global Codex instructions. |
+| `Disable Codex MCP integration` | Disables automatic maintenance and removes the extension-managed Codex MCP entry and global instructions. |
 
 ## Settings
 
@@ -227,79 +248,93 @@ The extension uses three settings layers:
 
 At startup, legacy `dam-pav.bcdevtoolset` and `dam-pav.bcDevToolset` setting names are automatically migrated to `bcDevToolset` in user, workspace, and folder settings. Contents are preserved and completion is reported without a confirmation dialog. Conflicting destinations or unsaved files are left unchanged and reported.
 
-- VS Code extension settings under `bcDevToolset.*`
-- Workspace settings under `bcDevToolset` in the `.code-workspace` file
-- Local settings in `.bcdevtoolset/settings.json`
+| Settings layer | Location |
+| --- | --- |
+| VS Code extension | `bcDevToolset.*` in VS Code settings |
+| Workspace | `bcDevToolset` in the `.code-workspace` file |
+| Local | `.bcdevtoolset/settings.json` |
 
 ### VS Code extension settings
 
-- `bcDevToolset.toolsetPath`: Overrides the central BC-Dev-Toolset runtime location. Default: `%LOCALAPPDATA%\BC-Dev-Toolset\toolset` on Windows.
-- `bcDevToolset.powershellExecutable`: PowerShell executable used to run operations. Default: `pwsh`. Operations reuse a dedicated `BC Dev Toolset: <executable>` terminal when it is already open.
-- `bcDevToolset.localSettingsPath`: Workspace-relative path to the local settings file passed to operations. Default: `.bcdevtoolset/settings.json`.
-- `bcDevToolset.codexMcpIntegration.enabled`: Machine-level opt-in for automatically keeping the global Codex MCP configuration synchronized with the installed extension version. The configure and disable commands manage this setting. Default: `false`.
-- `bcDevToolset.shortcuts`: Shortcut mode used for container creation flows. Default: `None`.
-- `bcDevToolset.hostHelperFolder`: BcContainerHelper host helper folder used by runtime operations. Default: `C:\ProgramData\BcContainerHelper`.
+| Setting | Description |
+| --- | --- |
+| `bcDevToolset.toolsetPath` | Overrides the central BC-Dev-Toolset runtime location. Default: `%LOCALAPPDATA%\BC-Dev-Toolset\toolset` on Windows. |
+| `bcDevToolset.powershellExecutable` | PowerShell executable used to run operations. Default: `pwsh`. Operations reuse a dedicated `BC Dev Toolset: <executable>` terminal when it is already open. |
+| `bcDevToolset.localSettingsPath` | Workspace-relative path to the local settings file passed to operations. Default: `.bcdevtoolset/settings.json`. |
+| `bcDevToolset.codexMcpIntegration.enabled` | Machine-level opt-in for automatically keeping the global Codex MCP configuration synchronized with the installed extension version. The configure and disable commands manage this setting. Default: `false`. |
+| `bcDevToolset.shortcuts` | Shortcut mode used for container creation flows. Default: `None`. |
+| `bcDevToolset.hostHelperFolder` | BcContainerHelper host helper folder used by runtime operations. Default: `C:\ProgramData\BcContainerHelper`. |
 
 ### Workspace settings
 
 These are stored in the workspace file. AL settings such as `al.symbolsCountryRegion` and `al.assemblyProbingPaths` are directly under `settings`; the remaining toolset settings are under `bcDevToolset`.
 
-- `al.symbolsCountryRegion`: Business Central artifact region. Default: `w1`.
-- `al.assemblyProbingPaths`: Workspace initialization and assembly extraction add `"./.netpackages"` if that exact path is absent, preserving other entries. The path resolves from each app folder and points to the DLLs extracted for OnPrem apps. Remove older folder-level `al.assemblyProbingPaths` overrides from app `.vscode/settings.json` files to use the workspace setting.
-- `selectArtifact`: Artifact selection strategy. Default: `Latest`. Another common value is `Closest`.
-- `testBuildWarningsAsErrors`: Boolean, `false` by default. Set to `true` in shared workspace `bcDevToolset` settings or local `.bcdevtoolset/settings.json` to block **Run AL test tool tests** when its build emits compiler warnings. An explicit local value (including `false`) overrides the workspace setting. The operation stops before container preparation and test execution; the MCP report includes the warnings and instructs the agent to resolve them before rerunning. Standalone builds, page script tests, and AL Runner tests are unaffected.
-- `configurations`: Shared target definitions for the workspace. These are useful when a team wants common environment entries available to everyone.
+| Setting | Description |
+| --- | --- |
+| `al.symbolsCountryRegion` | Business Central artifact region. Default: `w1`. |
+| `al.assemblyProbingPaths` | Workspace initialization and assembly extraction add `"./.netpackages"` if that exact path is absent, preserving other entries. The path resolves from each app folder and points to the DLLs extracted for OnPrem apps. Remove older folder-level `al.assemblyProbingPaths` overrides from app `.vscode/settings.json` files to use the workspace setting. |
+| `selectArtifact` | Artifact selection strategy. Default: `Latest`. Another common value is `Closest`. |
+| `testBuildWarningsAsErrors` | Boolean, `false` by default. Set to `true` in shared workspace `bcDevToolset` settings or local `.bcdevtoolset/settings.json` to block **Run AL test tool tests** when its build emits compiler warnings. An explicit local value (including `false`) overrides the workspace setting. The operation stops before container preparation and test execution; the MCP report includes the warnings and instructs the agent to resolve them before rerunning. Standalone builds, page script tests, and AL Runner tests are unaffected. |
+| `testIsolationDisabledCodeunits` | Optional integer codeunit IDs (for example `[60990]`) for AL integration tests requiring disabled isolation. Set this in shared `settings.bcDevToolset` or local `.bcdevtoolset/settings.json`; an explicit local array replaces the shared list, and `[]` clears it. Duplicates are removed; invalid IDs are rejected before build/container preparation. Selected tests run under `130451`, all others under `130450`, with extension-scoped discovery and one combined report. This is not restricted to any Business Central version; compatibility depends on the available runner, discovery and filter capabilities. Unmatched IDs fail the run. Committed data can persist: non-isolated tests must manage setup, cleanup and recovery after failure. Page-script and AL Runner tests are unaffected. |
+| `configurations` | Shared target definitions for the workspace. These are useful when a team wants common environment entries available to everyone. |
 
 Each workspace `configuration` entry can contain:
 
-- `name`: Display name of the target. Entries named `sample` are placeholders and are ignored by operations.
-- `serverType`: Target type. Valid values: `Container`, `Cloud`, `OnPrem`.
-- `targetType`: Intended role of the target. Valid values: `Dev`, `Test`, `Production`.
-- `autoUpdateLaunchJson`: Optional override controlling whether this entry is included when launch.json files are updated, both manually and after container creation. It applies to all `serverType` values but does not change target-role routing: `Dev` entries go to apps without Microsoft Test Toolkit dependencies, and `Test` entries go to apps with those dependencies. When omitted, the effective value is `true` for entries matching the app's role.
-- `server`: Business Central server name for `OnPrem`.
-- `serverInstance`: Business Central server instance for `OnPrem`.
-- `container`: Docker container name for `Container`. Create-container processing only includes Container configurations with a non-empty `container` value, and duplicate `container` values abort the operation.
-- `multitenant`: Explicit container mode passed to `New-BcContainer` by the Create container operation. When omitted, creation infers the mode from a compatible backup set. If neither the setting nor the backup determines the mode, the parameter is omitted and BcContainerHelper decides. An explicit value has priority; creation aborts with an explanation if it conflicts with the detected `*.app.bak` or `*.database.bak` backup type. Valid only for `Container`.
-- `port`: Service port for `OnPrem`.
-- Container artifact type comes from workspace apps' `app.json` targets: if any app targets `OnPrem`, the container uses OnPrem artifacts; otherwise it uses Sandbox artifacts. Container launch entries use that same type. Cloud launch entries use Sandbox and are skipped for apps targeting `OnPrem`. An omitted app target defaults to `Cloud`. Existing configuration `environmentType` entries are ignored and can be removed.
-- `environmentName`: Business Central environment name for `Cloud`.
-- `includeTestToolkit`: Whether a container target includes the test toolkit.
-- `tenant`: Tenant identifier for `Cloud` or `OnPrem`.
-- `authentication`: Authentication mode. Valid values: `UserPassword`, `Windows`, `AAD`.
-- `bcUser`: Business Central service user name.
-- `bcPassword`: Business Central service password.
-- `admin`: Obsolete fallback for `bcUser`. Use `bcUser` instead; this field will be removed in the next major release.
-- `password`: Obsolete fallback for `bcPassword`. Use `bcPassword` instead; this field will be removed in the next major release.
-- `network`: Optional Docker network passed to `New-BcContainer` for `Container` targets. Suggested Windows container network values include `NAT`, `transparent`, `l2bridge`, `l2tunnel`, `overlay`, and `none`; custom Docker network names are also allowed. For suggested network names, the toolset verifies that the Docker network exists with the expected driver and creates missing creatable networks, for example `docker network create -d transparent transparent`. Custom network setup is left to the user. Use a transparent network when the container should appear on the LAN with a real address.
-- `hostIP`: Optional `host.containerhelper.internal` IP address passed to `New-BcContainer`.
-- `updateHosts`: Optional switch controlling whether `New-BcContainer` updates the host machine's hosts file. Defaults to `true` when omitted. Valid for `Container`.
-- `autoExtractAssemblies`: Boolean controlling whether assembly extraction runs automatically after this container is built. Defaults to `false` when omitted. Valid only for a `Container` when at least one workspace app's `app.json` target is `OnPrem`; the manual extraction operation ignores it.
-- `autoRestoreBackup`: Boolean controlling whether container creation and Test operations automatically restore a compatible backup set from `sqlBackupPath`. Defaults to `true` when omitted; set it explicitly to `false` to disable automatic restore. Valid only for `Container`; manual restore ignores it.
-- `macAddress`: Optional container MAC address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Use Docker's colon-delimited MAC address format, for example `02:42:ac:11:00:02`.
-- `IP`: Optional static container IP address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Leave empty to let the selected network assign the address, for example through DHCP.
-- `dns`: Optional DNS value passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. `HostDNS` adds the host DNS servers; explicit DNS server values are also allowed. Use a comma-delimited string for multiple DNS servers, for example `8.8.8.8,1.1.1.1`.
-- `memoryLimit`: Optional container memory limit passed directly to `New-BcContainer`. Valid only for `Container`. Use a positive whole-number size ending in `M` or `G`, for example `16G`. When omitted or empty, BcContainerHelper chooses its default (currently `8G` for Hyper-V isolation).
-- `sqlMemoryLimit`: Optional SQL Server memory limit passed directly to `New-BcContainer`. Valid only for `Container`. Use a positive whole-number size ending in `M` or `G`, or a percentage from `1%` through `100%`, for example `2G` or `25%`. When omitted or empty, BcContainerHelper chooses its default.
-- `databaseUser`: Optional SQL user for database operations.
-- `databasePassword`: Optional SQL password for database operations.
-- `sqlBackupPath`: Folder used for SQL backup files for this configuration. Valid only for `Container`. Relative paths are resolved from the workspace root and may resolve outside the workspace; absolute local drive paths are also supported. Container backup and manual restore use the path from the selected Container configuration, while automatic restore during creation uses it only when `autoRestoreBackup` is `true`. With `includeTestToolkit` set to `true`, Test-operation creation always exports an initial backup here; manual creation exports one only when `targetType` is also `Test`. BC service SQL Server backups export into the configured Container backup folders.
-- `remoteUser`: Optional PowerShell remoting user.
-- `remotePassword`: Optional PowerShell remoting password.
-- `serverConfiguration`: Additional Business Central server configuration entries as `KeyName` and `KeyValue` pairs.
+| Setting | Description |
+| --- | --- |
+| `name` | Display name of the target. Entries named `sample` are placeholders and are ignored by operations. |
+| `serverType` | Target type. Valid values: `Container`, `Cloud`, `OnPrem`. |
+| `targetType` | Intended role of the target. Valid values: `Dev`, `Test`, `Production`. |
+| `autoUpdateLaunchJson` | Optional override controlling whether this entry is included when launch.json files are updated, both manually and after container creation. It applies to all `serverType` values but does not change target-role routing: `Dev` entries go to apps without Microsoft Test Toolkit dependencies, and `Test` entries go to apps with those dependencies. When omitted, the effective value is `true` for entries matching the app's role. |
+| `server` | Business Central server name for `OnPrem`. |
+| `serverInstance` | Business Central server instance for `OnPrem`. |
+| `container` | Docker container name for `Container`. Create-container processing only includes Container configurations with a non-empty `container` value, and duplicate `container` values abort the operation. |
+| `multitenant` | Explicit container mode passed to `New-BcContainer` by the Create container operation. When omitted, creation infers the mode from a compatible backup set. If neither the setting nor the backup determines the mode, the parameter is omitted and BcContainerHelper decides. An explicit value has priority; creation aborts with an explanation if it conflicts with the detected `*.app.bak` or `*.database.bak` backup type. Valid only for `Container`. |
+| `port` | Service port for `OnPrem`. |
+| `environmentName` | Business Central environment name for `Cloud`. |
+| `includeTestToolkit` | Whether a container target includes the test toolkit. |
+| `tenant` | Tenant identifier for `Cloud` or `OnPrem`. |
+| `authentication` | Authentication mode. Valid values: `UserPassword`, `Windows`, `AAD`. |
+| `bcUser` | Business Central service user name. |
+| `bcPassword` | Business Central service password. |
+| `admin` | Obsolete fallback for `bcUser`. Use `bcUser` instead; this field will be removed in the next major release. |
+| `password` | Obsolete fallback for `bcPassword`. Use `bcPassword` instead; this field will be removed in the next major release. |
+| `network` | Optional Docker network passed to `New-BcContainer` for `Container` targets. Suggested Windows container network values include `NAT`, `transparent`, `l2bridge`, `l2tunnel`, `overlay`, and `none`; custom Docker network names are also allowed. For suggested network names, the toolset verifies that the Docker network exists with the expected driver and creates missing creatable networks, for example `docker network create -d transparent transparent`. Custom network setup is left to the user. Use a transparent network when the container should appear on the LAN with a real address. |
+| `hostIP` | Optional `host.containerhelper.internal` IP address passed to `New-BcContainer`. |
+| `updateHosts` | Optional switch controlling whether `New-BcContainer` updates the host machine's hosts file. Defaults to `true` when omitted. Valid for `Container`. |
+| `autoExtractAssemblies` | Boolean controlling whether assembly extraction runs automatically after this container is built. Defaults to `false` when omitted. Valid only for a `Container` when at least one workspace app's `app.json` target is `OnPrem`; the manual extraction operation ignores it. |
+| `autoRestoreBackup` | Boolean controlling whether container creation and Test operations automatically restore a compatible backup set from `sqlBackupPath`. Defaults to `true` when omitted; set it explicitly to `false` to disable automatic restore. Valid only for `Container`; manual restore ignores it. |
+| `macAddress` | Optional container MAC address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Use Docker's colon-delimited MAC address format, for example `02:42:ac:11:00:02`. |
+| `IP` | Optional static container IP address passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. Leave empty to let the selected network assign the address, for example through DHCP. |
+| `dns` | Optional DNS value passed to `New-BcContainer`. Valid when `serverType` is `Container` and `network` is `transparent`. `HostDNS` adds the host DNS servers; explicit DNS server values are also allowed. Use a comma-delimited string for multiple DNS servers, for example `8.8.8.8,1.1.1.1`. |
+| `memoryLimit` | Optional container memory limit passed directly to `New-BcContainer`. Valid only for `Container`. Use a positive whole-number size ending in `M` or `G`, for example `16G`. When omitted or empty, BcContainerHelper chooses its default (currently `8G` for Hyper-V isolation). |
+| `sqlMemoryLimit` | Optional SQL Server memory limit passed directly to `New-BcContainer`. Valid only for `Container`. Use a positive whole-number size ending in `M` or `G`, or a percentage from `1%` through `100%`, for example `2G` or `25%`. When omitted or empty, BcContainerHelper chooses its default. |
+| `databaseUser` | Optional SQL user for database operations. |
+| `databasePassword` | Optional SQL password for database operations. |
+| `sqlBackupPath` | Folder used for SQL backup files for this configuration. Valid only for `Container`. Relative paths are resolved from the workspace root and may resolve outside the workspace; absolute local drive paths are also supported. Container backup and manual restore use the path from the selected Container configuration, while automatic restore during creation uses it only when `autoRestoreBackup` is `true`. With `includeTestToolkit` set to `true`, Test-operation creation always exports an initial backup here; manual creation exports one only when `targetType` is also `Test`. BC service SQL Server backups export into the configured Container backup folders. |
+| `remoteUser` | Optional PowerShell remoting user. |
+| `remotePassword` | Optional PowerShell remoting password. |
+| `serverConfiguration` | Additional Business Central server configuration entries as `KeyName` and `KeyValue` pairs. |
+
+Container artifact type comes from workspace apps' `app.json` targets: if any app targets `OnPrem`, the container uses OnPrem artifacts; otherwise it uses Sandbox artifacts. Container launch entries use that same type. Cloud launch entries use Sandbox and are skipped for apps targeting `OnPrem`. An omitted app target defaults to `Cloud`. Existing configuration `environmentType` entries are ignored and can be removed.
+
+Initialize Workspace fills missing or blank `sqlBackupPath` values in local and workspace Container configurations with `.bcdevtoolset/.backups/<configuration name>` and creates those folders. Existing non-empty paths are preserved. The `.bcdevtoolset/` Git ignore rule covers these backups. Folder names are normalized by replacing invalid characters and trailing periods or spaces with underscores; reserved Windows device names receive an underscore prefix, and empty names use `_`. Configuration names in settings are preserved. Generated paths are unique across workspace and local Container configurations, using numeric suffixes such as `_2` when normalized names collide (case-insensitively). Existing configured destinations are reserved before assigning new defaults; explicit shared paths remain unchanged. Different containers can use different folders; set the same folder on multiple Container configurations only when sharing is intentional.
 
 ### Local settings
 
 These are stored in `.bcdevtoolset/settings.json` and are intended for developer-specific values.
 
-- `licenseFile`: Path to the Business Central license file.
-- `certificateFile`: Path to the certificate file used by local operations and runtime packaging.
-- `packageOutputPath`: Folder where generated packages are written.
-- `dependenciesPaths`: Folders containing dependency `.app` packages, or direct `.zip` file paths.
-- `dependenciesPath`: Deprecated legacy single folder containing dependency app packages. It is still read for compatibility, but users should migrate to `dependenciesPaths`.
-- `recordingsPath`: Folder containing page scripting recordings.
-- `pageScriptTestResultsPath`: Folder where page script test results are written.
-- `pageScriptTestHeaded`: Whether page script tests should run headed.
-- `configurations`: Developer-local target definitions. These use the same structure as workspace `configurations` and are merged with them at runtime.
+| Setting | Description |
+| --- | --- |
+| `licenseFile` | Path to the Business Central license file. |
+| `certificateFile` | Path to the certificate file used by local operations and runtime packaging. |
+| `packageOutputPath` | Folder where generated packages are written. |
+| `dependenciesPaths` | Folders containing dependency `.app` packages, or direct `.zip` file paths. |
+| `dependenciesPath` | Deprecated legacy single folder containing dependency app packages. It is still read for compatibility, but users should migrate to `dependenciesPaths`. |
+| `recordingsPath` | Folder containing page scripting recordings. |
+| `pageScriptTestResultsPath` | Folder where page script test results are written. |
+| `pageScriptTestHeaded` | Whether page script tests should run headed. |
+| `configurations` | Developer-local target definitions. These use the same structure as workspace `configurations` and are merged with them at runtime. |
 
 The extension adds JSON validation for `.bcdevtoolset/settings.json`, so VS Code can help you keep the local settings file in shape while editing it.
 

@@ -42,7 +42,7 @@ const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
 const mcpServerDefinitionRevision = 44;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 55;
+const runtimeToolsetRevision = 56;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -2223,6 +2223,19 @@ function getOperations(toolsetPath) {
 }
 
 async function executeOperation(operation, toolsetPath) {
+  if (operation.command === 'updateBcQuality' || operation.command === 'showBcQualityStatus') {
+    try {
+      await vscode.commands.executeCommand(`bcDevToolset.${operation.command}`);
+    } catch {
+      const recovery = operation.command === 'updateBcQuality'
+        ? 'Maintenance may have partially completed. Run Show BCQuality Status to inspect the current state and verify the bcDevToolset.bcQualityPath User setting before retrying.'
+        : 'The status report could not be opened. Reload the VS Code window and retry Show BCQuality Status. No maintenance was started by this command.';
+      await vscode.window.showErrorMessage(`BC Dev Toolset: ${operation.title} could not complete. ${recovery}`);
+      return false;
+    }
+    return true;
+  }
+
   if (operation.command === 'showHelp') {
     await showHelp();
     return;

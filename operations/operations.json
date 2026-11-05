@@ -1,5 +1,17 @@
 [
   {
+    "id": "updateBcQuality",
+    "title": "Update BCQuality",
+    "command": "updateBcQuality",
+    "category": "BCQuality"
+  },
+  {
+    "id": "showBcQualityStatus",
+    "title": "Show BCQuality Status",
+    "command": "showBcQualityStatus",
+    "category": "BCQuality"
+  },
+  {
     "id": "initializeWorkspace",
     "title": "Initialize Workspace",
     "script": "operations/InitializeWorkspace.ps1",
