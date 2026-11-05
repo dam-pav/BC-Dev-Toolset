@@ -5,10 +5,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
+const { authorizeRoot, resolveWithinRoot } = require('../path-security');
 const pkg = require('../package.json');
 const operations = require('../../operations/operations.json');
-// Trusted test directory plus fixed segments selects only this repository's extension source.
-const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8'); // nosemgrep: javascript.pathtraversal.rule-non-literal-fs-filename
+const extensionRoot = authorizeRoot(path.resolve(__dirname, '..'), 'Repository extension root');
+const extensionSourcePath = resolveWithinRoot(extensionRoot, 'extension.js');
+const source = fs.readFileSync(extensionSourcePath, 'utf8'); // nosemgrep -- fixed source path validated within the authorized repository extension root
 const executeSource = source.match(/async function executeOperation\(operation, toolsetPath\) \{[^]*?\n}/)[0];
 
 for (const [id, title] of [['updateBcQuality', 'Update BCQuality'], ['showBcQualityStatus', 'Show BCQuality Status']]) {

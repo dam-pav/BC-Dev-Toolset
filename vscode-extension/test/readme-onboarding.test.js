@@ -4,10 +4,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { test } = require('node:test');
+const { authorizeRoot, resolveWithinRoot } = require('../path-security');
 
-// Trusted test directory plus fixed segments confines both reads to this repository's READMEs.
-const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8'); // nosemgrep: javascript.pathtraversal.rule-non-literal-fs-filename
-const repositoryReadme = fs.readFileSync(path.join(__dirname, '..', '..', 'README.md'), 'utf8'); // nosemgrep: javascript.pathtraversal.rule-non-literal-fs-filename -- fixed repository README authorized above
+const repositoryRoot = authorizeRoot(path.resolve(__dirname, '..', '..'), 'Repository root');
+const extensionReadmePath = resolveWithinRoot(repositoryRoot, 'vscode-extension', 'README.md');
+const repositoryReadmePath = resolveWithinRoot(repositoryRoot, 'README.md');
+const readme = fs.readFileSync(extensionReadmePath, 'utf8'); // nosemgrep -- fixed README path validated within the authorized repository root
+const repositoryReadme = fs.readFileSync(repositoryReadmePath, 'utf8'); // nosemgrep -- fixed README path validated within the authorized repository root
 
 test('repository README introduces BC Data in its own chapter before BCQuality', () => {
   const switches = repositoryReadme.split('#### MCP tool switches')[1].split('\n#### ')[0];
