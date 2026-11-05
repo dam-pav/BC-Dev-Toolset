@@ -41,24 +41,15 @@ This initializes your current project. You will actually do this for every proje
 
 ### 3. Open local settings
 
-The defaults might work for you out-of-the-box in which case you don't need to change or add any settings. This is all optional but, if you need any of the below specifics:
+The default settings may be enough to get started. To review or customize your local setup, run `BC Dev Toolset: Open Local Settings (JSON)`.
 
-Run `BC Dev Toolset: Open Local Settings (JSON)`.
+This opens `.bcdevtoolset/settings.json`. Start with these settings, changing them only as needed:
 
-This opens the developer-local settings file at `.bcdevtoolset/settings.json`. Use it to define machine-specific paths, credentials, output folders, and local environment targets.
+- `configurations`: Check that the default `Local` container target suits your project, or add the Business Central environment you want to use.
+- `dependenciesPaths`: Add folders containing dependency `.app` packages or paths to `.zip` archives if your project needs external dependencies.
+- `licenseFile`: Set the path to your Business Central license file if your environment requires one.
 
-Important local settings to review before running most operations:
-
-- `configurations`: Defines the local Business Central environments the toolset can target. The extension creates a default `Local` container configuration automatically.
-- `dependenciesPaths`: Folders containing dependency `.app` packages, or direct `.zip` file paths, used by dependency publishing operations.
-- `dependenciesPath`: Deprecated legacy single folder containing dependency `.app` packages. It is still read for compatibility, but users should migrate to `dependenciesPaths`.
-- `packageOutputPath`: Folder where runtime packages are written.
-- `sqlBackupPath`: Set this inside each Container `configurations` entry that uses SQL backup operations. Initialize Workspace fills missing or blank paths in local and workspace Container configurations with `.bcdevtoolset/.backups/<configuration name>` and creates those folders. Existing non-empty paths are preserved. The `.bcdevtoolset/` Git ignore rule covers these backups. Folder names are normalized by replacing invalid characters and trailing periods or spaces with underscores; reserved Windows device names receive an underscore prefix, and empty names use `_`. Configuration names in settings are preserved. Generated paths are unique across workspace and local Container configurations, using numeric suffixes such as `_2` when normalized names collide (case-insensitively). Existing configured destinations are reserved before assigning new defaults; explicit shared paths remain unchanged. Different containers can use different folders; set the same folder on multiple Container configurations only when sharing is intentional.
-- `licenseFile`: Required for license update and some runtime packaging scenarios.
-- `certificateFile`: Required when creating signed runtime packages.
-- `recordingsPath`: Folder containing page scripting recordings.
-- `pageScriptTestResultsPath`: Folder where page script test results are stored.
-- `testIsolationDisabledCodeunits`: Optional integer codeunit IDs (for example `[60990]`) for AL integration tests requiring disabled isolation. Set this in shared `settings.bcDevToolset` or local `.bcdevtoolset/settings.json`; an explicit local array replaces the shared list, and `[]` clears it. Duplicates are removed; invalid IDs are rejected before build/container preparation. Selected tests run under `130451`, all others under `130450`, with extension-scoped discovery and one combined report. This is not restricted to any Business Central version; compatibility depends on the available runner, discovery and filter capabilities. Unmatched IDs fail the run. Committed data can persist: non-isolated tests must manage setup, cleanup and recovery after failure. Page-script and AL Runner tests are unaffected.
+See the [Settings reference](#settings) for all options, including backups, runtime packages, and testing.
 
 This is it, now you can start working on your project. Explore the toolset:
 
@@ -248,6 +239,7 @@ These are stored in the workspace file. AL settings such as `al.symbolsCountryRe
 - `al.assemblyProbingPaths`: Workspace initialization and assembly extraction add `"./.netpackages"` if that exact path is absent, preserving other entries. The path resolves from each app folder and points to the DLLs extracted for OnPrem apps. Remove older folder-level `al.assemblyProbingPaths` overrides from app `.vscode/settings.json` files to use the workspace setting.
 - `selectArtifact`: Artifact selection strategy. Default: `Latest`. Another common value is `Closest`.
 - `testBuildWarningsAsErrors`: Boolean, `false` by default. Set to `true` in shared workspace `bcDevToolset` settings or local `.bcdevtoolset/settings.json` to block **Run AL test tool tests** when its build emits compiler warnings. An explicit local value (including `false`) overrides the workspace setting. The operation stops before container preparation and test execution; the MCP report includes the warnings and instructs the agent to resolve them before rerunning. Standalone builds, page script tests, and AL Runner tests are unaffected.
+- `testIsolationDisabledCodeunits`: Optional integer codeunit IDs (for example `[60990]`) for AL integration tests requiring disabled isolation. Set this in shared `settings.bcDevToolset` or local `.bcdevtoolset/settings.json`; an explicit local array replaces the shared list, and `[]` clears it. Duplicates are removed; invalid IDs are rejected before build/container preparation. Selected tests run under `130451`, all others under `130450`, with extension-scoped discovery and one combined report. This is not restricted to any Business Central version; compatibility depends on the available runner, discovery and filter capabilities. Unmatched IDs fail the run. Committed data can persist: non-isolated tests must manage setup, cleanup and recovery after failure. Page-script and AL Runner tests are unaffected.
 - `configurations`: Shared target definitions for the workspace. These are useful when a team wants common environment entries available to everyone.
 
 Each workspace `configuration` entry can contain:
@@ -286,6 +278,8 @@ Each workspace `configuration` entry can contain:
 - `remoteUser`: Optional PowerShell remoting user.
 - `remotePassword`: Optional PowerShell remoting password.
 - `serverConfiguration`: Additional Business Central server configuration entries as `KeyName` and `KeyValue` pairs.
+
+Initialize Workspace fills missing or blank `sqlBackupPath` values in local and workspace Container configurations with `.bcdevtoolset/.backups/<configuration name>` and creates those folders. Existing non-empty paths are preserved. The `.bcdevtoolset/` Git ignore rule covers these backups. Folder names are normalized by replacing invalid characters and trailing periods or spaces with underscores; reserved Windows device names receive an underscore prefix, and empty names use `_`. Configuration names in settings are preserved. Generated paths are unique across workspace and local Container configurations, using numeric suffixes such as `_2` when normalized names collide (case-insensitively). Existing configured destinations are reserved before assigning new defaults; explicit shared paths remain unchanged. Different containers can use different folders; set the same folder on multiple Container configurations only when sharing is intentional.
 
 ### Local settings
 
