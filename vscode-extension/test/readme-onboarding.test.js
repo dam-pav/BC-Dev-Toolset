@@ -7,6 +7,13 @@ const { test } = require('node:test');
 
 const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
 
+test('repository README introduces BC Data in its own chapter before BCQuality', () => {
+  const repositoryReadme = fs.readFileSync(path.join(__dirname, '..', '..', 'README.md'), 'utf8');
+  const switches = repositoryReadme.split('#### MCP tool switches')[1].split('\n#### ')[0];
+  assert.doesNotMatch(switches, /BC Data access provides/);
+  assert.match(repositoryReadme, /## BC Data access\r?\n\r?\nBC Data access provides[^\r\n]+\r?\n\r?\n## BCQuality integration/);
+});
+
 test('onboarding keeps settings brief and links to the detailed reference', () => {
   const gettingStarted = readme.split('## Getting started')[1].split('\n## ')[0];
   const settings = readme.split('\n## Settings')[1];
