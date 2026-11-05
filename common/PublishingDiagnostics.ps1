@@ -1,5 +1,15 @@
 # Shared by ordinary SaaS publishing and BC Data initialization. Keep diagnostics
 # actionable without copying backend exception bodies, tokens or credentials.
+function New-BcExpectedFailure {
+    param([Parameter(Mandatory)][string] $Message,
+        [Parameter(Mandatory)][string] $Stage)
+    # Only toolset-authored, safe diagnostics belong here; never pass backend text.
+    $failure = [InvalidOperationException]::new($Message)
+    $failure.Data['BcDevToolsetExpectedFailure'] = $true
+    $failure.Data['Stage'] = $Stage
+    return $failure
+}
+
 function Invoke-BcPublishingStep {
     param($Configuration,
         [ValidateSet('Authentication','Inspection','Publishing','Readiness')][string] $Stage,
@@ -49,7 +59,7 @@ function Invoke-BcPublishingStep {
         }
         if ($Stage -eq 'Readiness') { $guidance = 'Check for an incompatible companion contract, service BCDData registration, the OData endpoint, credentials and execute/table permissions.' }
         $http = if ($status) { " HTTP $status." } else { '' }
-        $failure = [InvalidOperationException]::new("$Operation failed during $Stage ($target).$http $guidance $targetGuidance $stateGuidance No automatic retry or alternate deployment was attempted.")
+        $failure = New-BcExpectedFailure -Stage $Stage -Message "$Operation failed during $Stage ($target).$http $guidance $targetGuidance $stateGuidance No automatic retry or alternate deployment was attempted."
         $failure.Data['Stage'] = $Stage
         $failure.Data['HttpStatus'] = $status
         $failure.Data['DeploymentState'] = $DeploymentState

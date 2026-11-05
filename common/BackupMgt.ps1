@@ -1125,7 +1125,7 @@ function Get-BcServerConfigValue {
         [string] $keyName
     )
 
-    $configValue = Get-NAVServerConfiguration -ServerInstance $serverInstance -KeyName $keyName
+    $configValue = Get-NAVServerConfiguration -ServerInstance $serverInstance -KeyName $keyName -ErrorAction Stop
     if ($configValue.PSObject.Properties.Name -contains "Value") {
         return $configValue.Value
     }
@@ -1194,7 +1194,8 @@ function Get-BcServiceDatabaseInfoRemote {
         [Parameter(Mandatory=$true)]
         [string] $serverInstance,
         [Parameter(Mandatory=$true)]
-        [PSObject] $configuration
+        [PSObject] $configuration,
+        [string[]] $configurationKeys
     )
 
     $session = New-RemoteBackupSession `
@@ -1203,7 +1204,7 @@ function Get-BcServiceDatabaseInfoRemote {
 
     try {
         Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock {
-            Param($serverInstance)
+            Param($serverInstance, $configurationKeys)
 
             if (-not (Get-Command Get-NAVServerConfiguration -ErrorAction SilentlyContinue)) {
                 # Use the selected Windows service's installation, not the newest installed BC version.
@@ -1255,6 +1256,16 @@ function Get-BcServiceDatabaseInfoRemote {
                 return [string]$configValue
             }
 
+            # Reuse this authenticated administrative connection for OData discovery,
+            # without requiring SQL metadata or tenant enumeration.
+            if ($configurationKeys.Count -gt 0) {
+                $values = [ordered]@{}
+                foreach ($key in $configurationKeys) {
+                    $values[$key] = Get-BcServerConfigValueRemote -serverInstance $serverInstance -keyName $key
+                }
+                return [pscustomobject]$values
+            }
+
             $databaseServer = Get-BcServerConfigValueRemote -serverInstance $serverInstance -keyName "DatabaseServer"
             $databaseInstance = Get-BcServerConfigValueRemote -serverInstance $serverInstance -keyName "DatabaseInstance"
             $databaseName = Get-BcServerConfigValueRemote -serverInstance $serverInstance -keyName "DatabaseName"
@@ -1279,7 +1290,7 @@ function Get-BcServiceDatabaseInfoRemote {
                 Multitenant = $multitenant
                 Tenants = $tenants
             }
-        } -ArgumentList $serverInstance
+        } -ArgumentList $serverInstance,$configurationKeys
     }
     finally {
         if ($session) {

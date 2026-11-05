@@ -103,10 +103,11 @@ function Publish-OnPremDevelopmentApps {
 }
 
 function Initialize-OnPremPublishingManagement {
-    param($SettingsJSON, $Configuration, [switch] $Unpublish)
+    param($SettingsJSON, $Configuration, [switch] $Unpublish, [string[]] $RequiredCommands)
 
     $required = @('Get-NAVAppInfo', 'Uninstall-NAVApp', 'Unpublish-NAVApp')
     if (-not $Unpublish) { $required += @('Publish-NAVApp', 'Sync-NAVApp', 'Install-NAVApp') }
+    if ($RequiredCommands.Count -gt 0) { $required = $RequiredCommands }
     $missing = @($required | Where-Object { -not (Get-Command $_ -ErrorAction SilentlyContinue) })
     if ($missing.Count -eq 0) { return }
     $modulePath = $SettingsJSON.loadOnPremMgtModule

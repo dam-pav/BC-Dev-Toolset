@@ -1,7 +1,8 @@
 'use strict';
 
 // Endpoint derivation is shared by discovery and calls. OData ports are distinct
-// from the configured developer-services port, so OnPrem requires an explicit URL.
+// from the configured developer-services port. Initialization persists an OnPrem
+// URL discovered through the administrative connection when none is configured.
 function isDataConfiguration(value) {
   const present = field => typeof value?.[field] === 'string' && value[field].trim().length > 0;
   return !!value && ['Container', 'Cloud', 'OnPrem'].includes(value.serverType) &&

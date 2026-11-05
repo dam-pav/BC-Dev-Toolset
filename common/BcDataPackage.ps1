@@ -1,4 +1,6 @@
 # Package validation shared by release preparation and explicit initialization.
+. (Join-Path $PSScriptRoot 'PublishingDiagnostics.ps1')
+
 function Assert-BcDataContainedPath {
     param([string] $Root, [string] $Path)
     $resolvedRoot = [IO.Path]::GetFullPath($Root)
@@ -53,11 +55,16 @@ function Assert-BcDataPackageIdentity {
     foreach ($pair in @(@('Id','appId'), @('Name','name'), @('Publisher','publisher'), @('Version','version'), @('Runtime','runtime'), @('Application','application'))) {
         if ([string]$app.($pair[0]) -cne [string]$Expected.($pair[1])) { throw "BC Data package identity mismatch: $($pair[0])." }
     }
-    if ($app.Target -cne 'Cloud' -or @($Document.Package.Dependencies.ChildNodes | Where-Object NodeType -eq 'Element').Count -gt 0) {
-        throw 'BC Data package must be the standalone Cloud-compatible companion without app dependencies.'
+    if ($app.Target -cne 'Cloud') {
+        throw (New-BcExpectedFailure -Stage 'BC Data package validation' -Message 'The bundled BC Data package is not the Cloud-compatible companion. This is a Toolset packaging problem. Rebuild the current companion and prepare the Toolset runtime, or install a corrected Toolset release. No companion was deployed.')
+    }
+    if (@($Document.Package.Dependencies.ChildNodes | Where-Object NodeType -eq 'Element').Count -gt 0) {
+        throw (New-BcExpectedFailure -Stage 'BC Data package validation' -Message 'The bundled BC Data companion unexpectedly has app dependencies. This is a Toolset packaging problem. Rebuild the standalone companion and prepare the Toolset runtime, or install a corrected Toolset release. No companion was deployed.')
     }
     $range = $Document.Package.IdRanges.IdRange
-    if ($range.MinObjectId -cne '99100' -or $range.MaxObjectId -cne '99149') { throw 'Unexpected BC Data object range.' }
+    if ($range.MinObjectId -cne '99100' -or $range.MaxObjectId -cne '99149') {
+        throw (New-BcExpectedFailure -Stage 'BC Data package validation' -Message 'Unexpected BC Data object range; the bundled companion must use 99100..99149. This is a Toolset packaging problem. Rebuild the current companion and prepare the Toolset runtime, or install a corrected Toolset release. No companion was deployed.')
+    }
 }
 
 function Get-ValidatedBcDataPackage {

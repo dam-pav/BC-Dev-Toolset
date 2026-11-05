@@ -43,6 +43,7 @@ test('symbol bootstrap verifies pinned content and rejects altered packages and 
     try {
       Copy-Item -LiteralPath ${quote(path.join(root,'vscode-extension/build/prepare-bc-data-symbols.ps1'))} -Destination (Join-Path $folder 'vscode-extension/build')
       Copy-Item -LiteralPath ${quote(path.join(root,'common/BcDataPackage.ps1'))} -Destination (Join-Path $folder 'common')
+      Copy-Item -LiteralPath ${quote(path.join(root,'common/PublishingDiagnostics.ps1'))} -Destination (Join-Path $folder 'common')
       $inputs=Get-Content -LiteralPath ${quote(path.join(root,'bc-data/build-inputs.json'))} -Raw|ConvertFrom-Json
       $zip=[IO.Compression.ZipFile]::Open((Join-Path $folder '.bcdevtoolset/ci-inputs/platform.zip'),[IO.Compression.ZipArchiveMode]::Create)
       foreach($symbol in $inputs.symbols){$bytes=[Text.Encoding]::UTF8.GetBytes('synthetic '+$symbol.file);$symbol.sha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant();$stream=$zip.CreateEntry($symbol.entry).Open();$stream.Write($bytes);$stream.Dispose()};$zip.Dispose()
@@ -69,6 +70,7 @@ test('finished VSIX verification rejects missing, altered, duplicate and test ap
     try {
       Copy-Item -LiteralPath ${quote(path.join(root,'vscode-extension/build/verify-bc-data-vsix.ps1'))} -Destination (Join-Path $folder 'vscode-extension/build')
       Copy-Item -LiteralPath ${quote(path.join(root,'common/BcDataPackage.ps1'))} -Destination (Join-Path $folder 'common')
+      Copy-Item -LiteralPath ${quote(path.join(root,'common/PublishingDiagnostics.ps1'))} -Destination (Join-Path $folder 'common')
       $compatibility=(Get-Content -LiteralPath ${quote(path.join(root,'bc-data/compatibility.json'))} -Raw).Replace("\u0060r\u0060n","\u0060n")
       $expected=$compatibility|ConvertFrom-Json
       $memory=[IO.MemoryStream]::new();$zip=[IO.Compression.ZipArchive]::new($memory,[IO.Compression.ZipArchiveMode]::Create,$true)
