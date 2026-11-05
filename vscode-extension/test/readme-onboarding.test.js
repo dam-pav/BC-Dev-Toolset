@@ -5,17 +5,17 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { test } = require('node:test');
 
-const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
+// Trusted test directory plus fixed segments confines both reads to this repository's READMEs.
+const readme = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8'); // nosemgrep: javascript.pathtraversal.rule-non-literal-fs-filename
+const repositoryReadme = fs.readFileSync(path.join(__dirname, '..', '..', 'README.md'), 'utf8'); // nosemgrep: javascript.pathtraversal.rule-non-literal-fs-filename -- fixed repository README authorized above
 
 test('repository README introduces BC Data in its own chapter before BCQuality', () => {
-  const repositoryReadme = fs.readFileSync(path.join(__dirname, '..', '..', 'README.md'), 'utf8');
   const switches = repositoryReadme.split('#### MCP tool switches')[1].split('\n#### ')[0];
   assert.doesNotMatch(switches, /BC Data access provides/);
   assert.match(repositoryReadme, /^## BC Data access\r?\n\r?\nBC Data access provides[^\r\n]+\r?\n\r?\n## BCQuality integration/m);
 });
 
 test('repository settings references use two-column tables', () => {
-  const repositoryReadme = fs.readFileSync(path.join(__dirname, '..', '..', 'README.md'), 'utf8');
   const setup = repositoryReadme.split('\n## Setup')[1];
   assert.doesNotMatch(setup, /^- `[^`]+`:/m);
   for (const heading of ['### Extension settings', '### Workspace settings', '#### Configurations', '### Local settings']) {
@@ -30,7 +30,6 @@ test('repository settings references use two-column tables', () => {
 });
 
 test('publishing target guidance is a chapter immediately before Setup', () => {
-  const repositoryReadme = fs.readFileSync(path.join(__dirname, '..', '..', 'README.md'), 'utf8');
   const chapters = repositoryReadme.split(/^## /m).slice(1);
   const publishingIndex = chapters.findIndex(chapter => chapter.startsWith('Publishing\r\n') || chapter.startsWith('Publishing\n'));
   assert.ok(publishingIndex >= 0);

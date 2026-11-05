@@ -7,7 +7,8 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 const pkg = require('../package.json');
 const operations = require('../../operations/operations.json');
-const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8');
+// Trusted test directory plus fixed segments selects only this repository's extension source.
+const source = fs.readFileSync(path.join(__dirname, '..', 'extension.js'), 'utf8'); // nosemgrep: javascript.pathtraversal.rule-non-literal-fs-filename
 const executeSource = source.match(/async function executeOperation\(operation, toolsetPath\) \{[^]*?\n}/)[0];
 
 for (const [id, title] of [['updateBcQuality', 'Update BCQuality'], ['showBcQualityStatus', 'Show BCQuality Status']]) {

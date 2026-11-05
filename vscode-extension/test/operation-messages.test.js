@@ -44,6 +44,94 @@ function run(root, script, extraEnv = {}) {
   return result.stdout.replace(/\r/g, '');
 }
 
+for (const mode of ['single', 'selected', 'all', 'none']) {
+  test(`container backup checks readiness before offering only available targets (${mode})`, (t) => {
+    const { root, write } = fixture(t);
+    const operation = operations.find(operation => operation.id === 'backupBcContainerDatabases');
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed source path validated as contained by the repository root
+    write(operation.script, fs.readFileSync(resolveWithinRoot(repositoryRoot, 'operations/BackupBcContainerDatabases.ps1'), 'utf8')); // nosemgrep -- fixed source path validated as contained by the repository root
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed source path validated as contained by the repository root
+    write('common/ContainerLifecycle.ps1', fs.readFileSync(resolveWithinRoot(repositoryRoot, 'common/ContainerLifecycle.ps1'), 'utf8')); // nosemgrep -- fixed source path validated as contained by the repository root
+    write('common/PublishApps.ps1', '');
+    const backupPath = path.join(repositoryRoot, 'common/BackupMgt.ps1').replaceAll("'", "''");
+    write('common/WorkspaceMgt.ps1', `
+      . '${backupPath}'
+      $script:events = [collections.generic.list[string]]::new()
+      $hostHelperFolder = Join-Path $PSScriptRoot '../helper'
+      function Test-DockerProcess {}
+      function Initialize-Context {
+        param($scriptPath, [ref]$settingsJSON, [ref]$workspaceJSON)
+        $settingsJSON.Value = @{configurations=@('Core','CoreTest','Missing'${['selected', 'all'].includes(mode) ? ",'Other'" : ''} | ForEach-Object {
+          [pscustomobject]@{name=$_;serverType='Container';container=$_;sqlBackupPath=$_}
+        })}
+      }
+      function Get-SqlBackupRootPath { param($sqlBackupPath) Join-Path $PSScriptRoot "../exports/$sqlBackupPath" }
+      function Select-IndexFromList {
+        param($Options)
+        $script:events.Add('select:' + ($Options -join '|'))
+        ${mode === 'all' ? 2 : 0}
+      }
+      function docker {
+        param([Parameter(ValueFromRemainingArguments=$true)][string[]]$DockerArguments)
+        $global:LASTEXITCODE=0
+        $script:events.Add($DockerArguments -join ' ')
+        if ($DockerArguments[0] -eq 'info') { return 'windows' }
+        if ($DockerArguments[1] -eq 'restart') { throw 'Container unavailable; recover it before retrying.' }
+        $name = $DockerArguments[-1]
+        if ($name -eq 'Missing') { throw 'No such container' }
+        @{Name="/$name";State=@{Status='running';Health=@{Status=$(if ($name -ne 'CoreTest' -and $${mode !== 'none'}) {'healthy'} else {'unhealthy'})}}} |
+          ConvertTo-Json -Depth 5 -Compress
+      }
+      function Test-DockerContainerRunning { $true }
+      function Backup-BcContainerDatabases {
+        param($containerName, $bakFolder)
+        $script:events.Add("backup:$containerName")
+        Set-Content -LiteralPath (Join-Path $bakFolder 'database.bak') -Value 'fixture backup'
+      }
+      function Get-BcContainerDatabaseBackupMap {
+        [pscustomobject]@{HelperFileName='database.bak';ExportFileName='Core.database.database.bak'}
+      }
+      function Write-Done { $script:events.Add('done') }
+    `);
+    const output = run(root, `
+      $ErrorActionPreference='Continue'
+      $messages=[collections.generic.list[string]]::new()
+      try {
+        . ./operations/BackupBcContainerDatabases.ps1 6>&1 | ForEach-Object { $messages.Add([string]$_) }
+        $operationExitCode=if ($?) { 0 } else { 1 }
+      } catch { $failure=$_.Exception.Message; $operationExitCode=1 }
+      @{Events=@($script:events.ToArray());Failure=$failure;ExitCode=$operationExitCode;Messages=($messages -join '|');Exported=(Test-Path './exports/Core/Core.database.database.bak')} |
+        ConvertTo-Json -Compress
+    `);
+    const result = JSON.parse(output);
+    assert.match(result.Messages, /Unavailable containers excluded:.*CoreTest/);
+    assert.match(result.Messages, /Missing.*missing; skipped/);
+    assert.ok(result.Events.includes('container restart -- CoreTest'));
+    if (mode !== 'none') {
+      assert.equal(result.Failure, null);
+      assert.equal(result.ExitCode, 0);
+      assert.equal(result.Exported, true);
+      assert.ok(result.Events.includes('backup:Core'));
+      assert.ok(result.Events.includes('done'));
+      assert.ok(!result.Events.includes('backup:CoreTest'));
+      assert.ok(!result.Events.includes('backup:Missing'));
+      assert.equal(result.Events.includes('backup:Other'), mode === 'all');
+      const picker = result.Events.find(event => event.startsWith('select:'));
+      if (mode === 'single') assert.equal(picker, undefined);
+      else {
+        assert.match(picker, /Core \(Core\).*Other \(Other\).*All qualified containers/);
+        assert.doesNotMatch(picker, /CoreTest|Missing/);
+        assert.ok(result.Events.indexOf(picker) > result.Events.indexOf('container restart -- CoreTest'));
+      }
+    } else {
+      assert.equal(result.Exported, false);
+      assert.equal(result.ExitCode, 1);
+      assert.match(result.Failure, /No available containers.*No backup was started.*Recover/);
+      assert.ok(result.Events.every(event => !event.startsWith('backup:') && !event.startsWith('select:') && event !== 'done'));
+    }
+  });
+}
+
 for (const nonInteractive of [false, true]) {
   test(`launcher identifies every PowerShell operation (nonInteractive=${nonInteractive})`, (t) => {
     const { root, write } = fixture(t);
