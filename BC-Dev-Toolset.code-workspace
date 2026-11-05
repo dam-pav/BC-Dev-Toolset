@@ -15,9 +15,6 @@
     {
       "name": "BC Data AL Tests",
       "path": "al/BCData.Tests"
-    },
-    {
-      "path": "C:\\Projekti\\DAM-PAV\\BCQuality"
     }
   ],
   "settings": {
@@ -34,7 +31,7 @@
         "bc_dev_toolset_initialize_workspace": false,
         "bc_dev_toolset_show_help": false,
         "bc_dev_toolset_clear_app_artifacts": false,
-        "bc_dev_toolset_build_all_apps": false,
+        "bc_dev_toolset_build_all_apps": true,
         "bc_dev_toolset_new_docker_container": true,
         "bc_dev_toolset_ensure_containers": true,
         "bc_dev_toolset_extract_container_assemblies": false,
@@ -43,11 +40,11 @@
         "bc_dev_toolset_update_bc_license_container": false,
         "bc_dev_toolset_show_active_licenses": false,
         "bc_dev_toolset_update_bc_container_server_configuration": false,
-        "bc_dev_toolset_backup_bc_container_databases": false,
+        "bc_dev_toolset_backup_bc_container_databases": true,
         "bc_dev_toolset_configure_stored_credentials": false,
         "bc_dev_toolset_configure_win_rm": false,
         "bc_dev_toolset_backup_bc_service_databases": false,
-        "bc_dev_toolset_restore_bc_container_databases": false,
+        "bc_dev_toolset_restore_bc_container_databases": true,
         "bc_dev_toolset_invoke_tests": true,
         "bc_dev_toolset_invoke_page_script_tests": false,
         "bc_dev_toolset_al_runner_test": false,
@@ -63,9 +60,18 @@
         "bc_dev_toolset_update_power_shell": false,
         "list_bc_dev_toolset_operations": false,
         "run_bc_dev_toolset_operation": false,
-        "show_active_container_licenses": false
+        "show_active_container_licenses": false,
+        "bc_dev_toolset_invoke_compatibility_tests": true,
+        "bc_data_list_connections": true,
+        "bc_data_list_companies": true,
+        "bc_data_get_readiness": true,
+        "bc_data_find_tables": true,
+        "bc_data_get_table_schema": true,
+        "bc_data_read_records": true,
+        "bc_dev_toolset_initialize_bc_data": true
       }
     },
-    "al.symbolsCountryRegion": "w1"
+    "al.symbolsCountryRegion": "w1",
+    "powershell.cwd": "BC-Dev-Toolset"
   }
 }
