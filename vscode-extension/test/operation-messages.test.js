@@ -18,7 +18,7 @@ function fixture(t) {
     fs.writeFileSync(target, content); // nosemgrep -- contained by test-owned root
   };
   write('Invoke-BcDevToolsetOperation.ps1', fs.readFileSync(path.join(repositoryRoot, 'Invoke-BcDevToolsetOperation.ps1'), 'utf8'));
-  write('common/PublishingDiagnostics.ps1', fs.readFileSync(path.join(repositoryRoot, 'common/PublishingDiagnostics.ps1'), 'utf8'));
+  write('common/PublishingDiagnostics.ps1', fs.readFileSync(resolveWithinRoot(repositoryRoot, 'common/PublishingDiagnostics.ps1'), 'utf8')); // nosemgrep -- fixed source read contained by repository root through resolveWithinRoot
   write('common/WorkspaceMgt.ps1', `
     function Get-OperationDefinitions {
       param($ScriptPath)
@@ -229,7 +229,8 @@ for (const invocation of ['terminal', 'file']) {
       write(relative, fs.readFileSync(resolveWithinRoot(repositoryRoot, relative), 'utf8')); // nosemgrep -- contained by repository root
     }
     const workspaceHelper = resolveWithinRoot(root, 'common/WorkspaceMgt.ps1');
-    write('common/WorkspaceMgt.ps1', fs.readFileSync(workspaceHelper, 'utf8') + `
+    const workspaceSource = fs.readFileSync(workspaceHelper, 'utf8'); // nosemgrep -- workspaceHelper is contained by the test-owned root through resolveWithinRoot immediately above
+    write('common/WorkspaceMgt.ps1', workspaceSource + `
       function Write-Host {
         param($Object, [ConsoleColor]$ForegroundColor)
         if ($Object -eq 'Initialize BC Data Access failed during OData configuration.') {
@@ -249,6 +250,7 @@ for (const invocation of ['terminal', 'file']) {
       function Get-RemoteComputerNameFromServer { 'bc.example' }
       function Test-IsLocalSqlServer { $true }
       function Import-BcServiceBackupDiscoveryModules {}
+      function Get-NAVServerConfiguration {}
       function Get-BcServerConfigValue {
         param($serverInstance,$keyName)
         if($keyName -eq 'ODataServicesEnabled'){return 'true'}
@@ -277,7 +279,7 @@ for (const invocation of ['terminal', 'file']) {
     assert.match(result.stdout, /FAILURE HEADING COLOR: Red/);
     assert.match(result.stdout, /Initialize BC Data Access failed during OData configuration\./);
     assert.match(result.stdout, /Enable ODataServicesEnabled and ODataServicesV4EndpointEnabled/);
-    assert.match(result.stdout, /No companion was deployed\./);
+    assert.match(result.stdout, /No companion was deployed[. ]/);
     assert.doesNotMatch(result.stdout, /Exception:|Line\s*\||BcDataMgt\.ps1:\d|DONE|UNEXPECTED/);
     if (invocation === 'terminal') assert.match(result.stdout, /CALLER CONTINUES WITH FAILED STATUS AND RESTORED ENVIRONMENT/);
   });
@@ -308,5 +310,48 @@ for (const invalidPackage of ['OnPrem', 'old-range', 'dependencies']) {
     assert.match(result.stdout, /Rebuild.*prepare the Toolset runtime.*corrected Toolset release/);
     assert.match(result.stdout, /No companion was deployed\./);
     assert.doesNotMatch(result.stdout, /Exception:|Line\s*\||BcDataPackage\.ps1:\d|DONE|UNEXPECTED DEPLOYMENT/);
+  });
+}
+
+for (const failure of ['unreadable', 'changed', 'write-failure']) {
+  test(`OData persistence failures retain clean rendering and failed status (${failure})`, (t) => {
+    const { root, write } = fixture(t);
+    write('operations/operations.json', JSON.stringify([
+      { id: 'initializeBcData', title: 'Initialize BC Data Access', script: 'operations/Test.ps1' }
+    ]));
+    for (const relative of ['common/BcDataMgt.ps1', 'common/BcDataPackage.ps1']) {
+      write(relative, fs.readFileSync(resolveWithinRoot(repositoryRoot, relative), 'utf8')); // nosemgrep -- contained by repository root
+    }
+    write('settings/config.json', 'original');
+    write('operations/Test.ps1', `
+      . (Join-Path $PSScriptRoot '../common/BcDataMgt.ps1')
+      $config=[pscustomobject]@{name='Remote';serverType='OnPrem';server='bc.example';serverInstance='BC';authentication='Windows'}
+      $script:settingsPath=Join-Path $PSScriptRoot '../settings/config.json'
+      function Get-BcDataODataSettings {
+        [pscustomobject]@{PublicODataBaseUrl='https://bc.example/BC/ODataV4';ODataServicesEnabled='true';ODataServicesV4EndpointEnabled='true'}
+      }
+      function Find-BcConfigurationDocument {
+        ${failure === 'unreadable' ? 'Remove-Item -LiteralPath $script:settingsPath -Force' : ''}
+        [pscustomobject]@{Path=$script:settingsPath;Text='${failure === 'changed' ? 'different' : 'original'}';Configuration=$config;Document=@{configurations=@($config)}}
+      }
+      ${failure === 'write-failure' ? `function ConvertTo-Json {
+        param([Parameter(ValueFromPipeline)]$InputObject,$Depth)
+        Remove-Item -LiteralPath $script:settingsPath -Force
+        Remove-Item -LiteralPath (Split-Path $script:settingsPath -Parent) -Force
+        '{}'
+      }` : ''}
+      Initialize-BcDataBaseUrl $config
+      Write-Host 'UNEXPECTED DEPLOYMENT'
+      Write-Done
+    `);
+    const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', './Invoke-BcDevToolsetOperation.ps1', '-Operation', 'initializeBcData', '-NonInteractive'], {
+      cwd: root, encoding: 'utf8', windowsHide: true, timeout: 30000
+    });
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    assert.equal(result.stderr, '');
+    assert.match(result.stdout, /failed during OData settings persistence\./);
+    assert.match(result.stdout, /No companion was deployed[. ]/);
+    assert.match(result.stdout, failure === 'write-failure' ? /Inspect the configuration file before retrying/ : /initialize again/);
+    assert.doesNotMatch(result.stdout, /Exception:|Line\s*\||BcDataMgt\.ps1:\d|DONE|UNEXPECTED DEPLOYMENT/);
   });
 }

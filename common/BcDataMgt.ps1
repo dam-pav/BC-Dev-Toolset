@@ -65,13 +65,16 @@ function Assert-BcDataConfiguration {
 }
 
 function Get-BcDataODataSettings {
-    param($Configuration)
+    param($Configuration, $SettingsJSON)
     $keys = @('PublicODataBaseUrl','ODataServicesPort','ODataServicesSSLEnabled','ODataServicesEnabled','ODataServicesV4EndpointEnabled')
     $hostName = if ($Configuration.managementServer) { $Configuration.managementServer } else { Get-RemoteComputerNameFromServer -server $Configuration.server }
     if (-not (Test-IsLocalSqlServer -databaseServer $hostName)) {
         return Get-BcServiceDatabaseInfoRemote -computerName $hostName -serverInstance $Configuration.serverInstance -configuration $Configuration -configurationKeys $keys
     }
-    Import-BcServiceBackupDiscoveryModules
+    if (-not (Get-Command Get-NAVServerConfiguration -ErrorAction SilentlyContinue)) {
+        . (Join-Path $PSScriptRoot 'PublishApps.ps1')
+        Initialize-OnPremPublishingManagement -SettingsJSON $SettingsJSON -Configuration $Configuration -RequiredCommands @('Get-NAVServerConfiguration')
+    }
     $values = [ordered]@{}
     foreach ($key in $keys) { $values[$key] = Get-BcServerConfigValue -serverInstance $Configuration.serverInstance -keyName $key }
     return [pscustomobject]$values
@@ -107,13 +110,16 @@ function Resolve-BcDataDiscoveredBaseUrl {
 }
 
 function Initialize-BcDataBaseUrl {
-    param($Configuration)
+    param($Configuration, $SettingsJSON)
     if ($Configuration.serverType -ne 'OnPrem' -or -not [string]::IsNullOrWhiteSpace([string]$Configuration.bcData.baseUrl)) { return }
-    try { $settings = Get-BcDataODataSettings -Configuration $Configuration }
-    catch { throw 'BC Data OData discovery failed before deployment. Check managementServer, WinRM credentials and the selected service administration tools, or configure bcData.baseUrl explicitly. No settings were changed.' }
+    try { $settings = Get-BcDataODataSettings -Configuration $Configuration -SettingsJSON $SettingsJSON }
+    catch {
+        if ($_.Exception.Data['BcDevToolsetExpectedFailure']) { throw }
+        throw (New-BcExpectedFailure -Stage 'OData discovery' -Message 'BC Data OData discovery failed before deployment; the cause could not be safely classified. Check managementServer, WinRM credentials and the selected service administration tools, or configure bcData.baseUrl explicitly. No settings were changed.')
+    }
     $baseUrl = Resolve-BcDataDiscoveredBaseUrl -Configuration $Configuration -Settings $settings
     try { $match = Find-BcConfigurationDocument -configuration $Configuration }
-    catch { throw 'Could not locate a unique, readable original configuration for OData discovery. Check the configuration name and settings file access. No companion was deployed and no settings were changed.' }
+    catch { throw (New-BcExpectedFailure -Stage 'OData settings persistence' -Message 'Could not locate a unique, readable original configuration for OData discovery. Check the configuration name and settings file access. No companion was deployed and no settings were changed.') }
     # Preserve a value added while the administrative connection was running.
     if (-not [string]::IsNullOrWhiteSpace([string]$match.Configuration.bcData.baseUrl)) {
         $Configuration | Add-Member NoteProperty bcData $match.Configuration.bcData -Force
@@ -124,10 +130,10 @@ function Initialize-BcDataBaseUrl {
     else { $match.Configuration.bcData | Add-Member NoteProperty baseUrl $baseUrl -Force }
     # Find-BcConfigurationDocument authorizes this original settings path with root containment.
     try { $currentText = [IO.File]::ReadAllText($match.Path) }
-    catch { throw 'Could not recheck the original settings file before saving OData discovery. Check file access and initialize again. No companion was deployed and no settings were changed.' }
-    if ($currentText -cne $match.Text) { throw 'Configuration changed during OData discovery. No settings were changed; initialize again.' }
+    catch { throw (New-BcExpectedFailure -Stage 'OData settings persistence' -Message 'Could not recheck the original settings file before saving OData discovery. Check file access and initialize again. No companion was deployed and no settings were changed.') }
+    if ($currentText -cne $match.Text) { throw (New-BcExpectedFailure -Stage 'OData settings persistence' -Message 'Configuration changed during OData discovery. No settings were changed; initialize again. No companion was deployed.') }
     try { [IO.File]::WriteAllText($match.Path, ($match.Document | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false)) }
-    catch { throw 'Could not save the discovered bcData.baseUrl. No companion was deployed. Inspect the configuration file before retrying initialization.' }
+    catch { throw (New-BcExpectedFailure -Stage 'OData settings persistence' -Message 'Could not save the discovered bcData.baseUrl. No companion was deployed. Inspect the configuration file before retrying initialization.') }
     $Configuration | Add-Member NoteProperty bcData $match.Configuration.bcData -Force
 }
 
@@ -223,7 +229,7 @@ function Get-BcDataInitializationReadiness {
 function Initialize-BcDataCompanion {
     param([string] $ToolsetRoot, $Configuration, $SettingsJSON)
     Assert-BcDataConfiguration -Configuration $Configuration
-    Initialize-BcDataBaseUrl -Configuration $Configuration
+    Initialize-BcDataBaseUrl -Configuration $Configuration -SettingsJSON $SettingsJSON
     $endpoint = Get-BcDataEndpoint -Configuration $Configuration
     $bundle = Get-ValidatedBcDataPackage -ToolsetRoot $ToolsetRoot
     $credential = $null

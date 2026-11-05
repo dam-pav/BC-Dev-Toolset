@@ -1,3 +1,5 @@
+. (Join-Path $PSScriptRoot 'PublishingDiagnostics.ps1')
+
 function Initialize-WindowsCredentialStore {
     if ($env:OS -ne 'Windows_NT') { throw 'Windows Credential Manager requires Windows.' }
     if (-not ('BcDevToolset.CredentialStore' -as [type])) {
@@ -13,7 +15,7 @@ function Get-ProjectCredentialScope {
     $relative = [IO.Path]::GetRelativePath($script:credentialProjectRoot, $scopePath)
     if ([IO.Path]::IsPathRooted($relative) -or $relative -eq '..' -or $relative.StartsWith('..' + [IO.Path]::DirectorySeparatorChar)) { throw 'Credential scope path escapes the project root.' }
     if (-not (Test-Path -LiteralPath $scopePath -PathType Leaf)) {
-        if (-not $Create) { throw 'Project credential scope is missing. Run Configure stored credentials in the human workflow. No plaintext fallback is allowed.' }
+        if (-not $Create) { throw (New-BcExpectedFailure -Stage 'Credential configuration' -Message 'Project credential scope is missing. Run Configure stored credentials in the human workflow. No plaintext fallback is allowed. No remote connection was started.') }
         [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($scopePath)) | Out-Null
         # Persist an explicit UUID; paths and file metadata never form part of the identity.
         $bytes = [Text.Encoding]::UTF8.GetBytes((@{ id=[guid]::NewGuid().ToString('D') } | ConvertTo-Json -Compress))
@@ -28,7 +30,7 @@ function Get-ProjectCredentialScope {
         $scope = [IO.File]::ReadAllText($scopePath) | ConvertFrom-Json -ErrorAction Stop
         $id = [guid]::Empty
         if (-not [guid]::TryParse([string]$scope.id, [ref]$id) -or $id -eq [guid]::Empty) { throw 'Invalid scope' }
-    } catch { throw 'Project credential-scope.json is invalid or unreadable. Restore its original ID before using stored credentials.' }
+    } catch { throw (New-BcExpectedFailure -Stage 'Credential configuration' -Message 'Project credential-scope.json is invalid or unreadable. Restore its original ID before using stored credentials. No remote connection was started.') }
     $script:credentialProjectScope = $id.ToString('D')
     return $script:credentialProjectScope
 }
@@ -59,13 +61,13 @@ function Get-ConfigurationCredential {
     param([Parameter(Mandatory=$true)][PSObject] $configuration,
           [Parameter(Mandatory=$true)][ValidateSet('bc','remote','database')][string] $kind)
     $flag = $configuration.PSObject.Properties["${kind}Credential"]
-    if ($flag -and $flag.Value -isnot [bool]) { throw "${kind}Credential must be a boolean." }
+    if ($flag -and $flag.Value -isnot [bool]) { throw (New-BcExpectedFailure -Stage 'Credential configuration' -Message "${kind}Credential must be a boolean. Correct the configuration before retrying. No remote connection was started.") }
     if ($flag -and $flag.Value) {
         $target = Get-ConfigurationCredentialTarget -configuration $configuration -kind $kind
         Initialize-WindowsCredentialStore
         $stored = [BcDevToolset.CredentialStore]::Read($target)
         if ($null -eq $stored) {
-            throw "Stored $kind credential is missing for configuration '$($configuration.name)'. Run Configure stored credentials in the human workflow. Plaintext usernames and passwords are ignored while ${kind}Credential is true."
+            throw (New-BcExpectedFailure -Stage 'Credential configuration' -Message "Stored $kind credential is missing for the selected configuration. Run Configure stored credentials in the human workflow. Plaintext usernames and passwords are ignored while ${kind}Credential is true. No remote connection was started.")
         }
         return [pscredential]::new($stored.UserName, $stored.Password)
     }

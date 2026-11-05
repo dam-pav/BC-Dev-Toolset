@@ -123,3 +123,57 @@ test('local discovery unwraps values and initialization stops before package or 
   assert.equal(result.port, '7448');
   assert.match(result.message, /Enable ODataServicesEnabled/);
 });
+
+test('local discovery loads loadOnPremMgtModule before reading the service configuration', () => {
+  const result = run(`
+    $root=Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString('N'))
+    $null=New-Item -ItemType Directory -Path $root
+    $modulePath=Join-Path $root 'NavAdminTool.ps1'
+    $managementModule=Join-Path $root 'Management.psm1'
+    try {
+      'Import-Module -Name (Join-Path $PSScriptRoot ''Management.psm1'') -Global' | Set-Content -LiteralPath $modulePath
+      @'
+function Get-NAVServerConfiguration {
+  param($ServerInstance,$KeyName)
+  if($ServerInstance -ne 'BC'){throw 'Wrong service instance'}
+  switch($KeyName){
+    'PublicODataBaseUrl' {'https://bc.example/BC/ODataV4'}
+    'ODataServicesPort' {'7448'}
+    default {'true'}
+  }
+}
+'@ | Set-Content -LiteralPath $managementModule
+      function Test-IsLocalSqlServer { $true }
+      $found=Get-BcDataODataSettings -Configuration $config -SettingsJSON @{loadOnPremMgtModule=$modulePath}
+      @{url=$found.PublicODataBaseUrl;port=$found.ODataServicesPort;enabled=$found.ODataServicesEnabled}|ConvertTo-Json -Compress
+    } finally {
+      $module=Get-Module -Name Management
+      if($module){Remove-Module $module}
+      Remove-Item -LiteralPath $modulePath -Force
+      Remove-Item -LiteralPath $managementModule -Force
+      Remove-Item -LiteralPath $root -Force
+    }
+  `);
+  assert.deepEqual(result, { url: 'https://bc.example/BC/ODataV4', port: '7448', enabled: 'true' });
+});
+
+test('missing stored remote credentials retain their safe recovery guidance through discovery', () => {
+  const result = run(`
+    $env:OS='Windows_NT'
+    Add-Type 'namespace BcDevToolset { public static class CredentialStore { public static object Read(string target) { return null; } } }'
+    $config|Add-Member NoteProperty remoteCredential $true
+    $script:connections=0
+    function Get-ConfigurationCredentialTarget { 'fixture' }
+    function Test-IsLocalSqlServer { $false }
+    function Test-RemotingAgentWorkflow { $true }
+    function New-PSSession { $script:connections++;throw 'Unexpected connection' }
+    try { Initialize-BcDataBaseUrl $config;throw 'Unexpected continuation' }
+    catch { $message=$_.Exception.Message;$stage=$_.Exception.Data['Stage'];$expected=$_.Exception.Data['BcDevToolsetExpectedFailure'] }
+    @{message=$message;stage=$stage;expected=$expected;connections=$script:connections}|ConvertTo-Json -Compress
+  `);
+  assert.match(result.message, /Stored remote credential is missing.*Configure stored credentials/);
+  assert.doesNotMatch(result.message, /could not be safely classified/);
+  assert.equal(result.stage, 'Credential configuration');
+  assert.equal(result.expected, true);
+  assert.equal(result.connections, 0);
+});
