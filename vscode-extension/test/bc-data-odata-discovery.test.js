@@ -10,6 +10,8 @@ function run(body) {
     $ErrorActionPreference='Stop'
     . ${quote(path.join(common, 'BackupMgt.ps1'))}
     . ${quote(path.join(common, 'BcDataMgt.ps1'))}
+    $script:output=@()
+    function Write-Host { param($Object,$ForegroundColor) $script:output += [string]$Object }
     $config=[pscustomobject]@{name='Remote';serverType='OnPrem';server='bc.example';managementServer='admin.example';serverInstance='BC';authentication='Windows'}
     $settings=[pscustomobject]@{PublicODataBaseUrl='';ODataServicesPort='7448';ODataServicesSSLEnabled='true';ODataServicesEnabled='true';ODataServicesV4EndpointEnabled='true'}
     ${body}
@@ -72,13 +74,15 @@ test('remote OData discovery uses existing administrative session, selected inst
     $found=Get-BcDataODataSettings $config
     $script:fail=$true
     try { Initialize-BcDataBaseUrl $config;throw 'Unexpected continuation' } catch { $message=$_.Exception.Message }
-    @{settings=$found;keys=$script:keys;closed=$script:closed;message=$message}|ConvertTo-Json -Depth 10 -Compress
+    @{settings=$found;keys=$script:keys;closed=$script:closed;message=$message;output=$script:output}|ConvertTo-Json -Depth 10 -Compress
   `);
   assert.equal(result.settings.ODataServicesPort, '7448');
   assert.deepEqual(result.keys.slice(0, 5), ['PublicODataBaseUrl', 'ODataServicesPort', 'ODataServicesSSLEnabled', 'ODataServicesEnabled', 'ODataServicesV4EndpointEnabled']);
   assert.equal(result.closed, 2);
   assert.match(result.message, /discovery failed before deployment/);
   assert.doesNotMatch(result.message, /synthetic backend secret/);
+  assert.match(result.output.join('\n'), /no bcData.baseUrl found.*Starting OData discovery/);
+  assert.doesNotMatch(result.output.join('\n'), /resolved and validated|baseUrl saved|request succeeded|synthetic backend secret/);
 });
 
 test('initialization persists discovered URL in original configuration while preserving BC Data permissions and explicit overrides', () => {
@@ -95,12 +99,18 @@ test('initialization persists discovered URL in original configuration while pre
       $saved=([IO.File]::ReadAllText($file)|ConvertFrom-Json).configurations[0].bcData
       function Get-BcDataODataSettings { throw 'Explicit URL must skip discovery' }
       Initialize-BcDataBaseUrl $config
-      @{saved=$saved;memory=$config.bcData}|ConvertTo-Json -Depth 10 -Compress
+      @{saved=$saved;memory=$config.bcData;output=$script:output}|ConvertTo-Json -Depth 10 -Compress
     } finally { Remove-Item -LiteralPath $file -Force; Remove-Item -LiteralPath $root -Force }
   `);
   const expected = { tenant: 'one', allowedMutationOperations: ['insert'], baseUrl: 'https://bc.example:7448/BC/ODataV4' };
   assert.deepEqual(result.saved, expected);
   assert.deepEqual(result.memory, expected);
+  assert.match(result.output.join('\n'), /no bcData.baseUrl found.*Starting OData discovery/);
+  assert.match(result.output.join('\n'), /discovery resolved and validated https:\/\/bc.example:7448\/BC\/ODataV4/);
+  assert.match(result.output.join('\n'), /discovered bcData.baseUrl saved/);
+  assert.match(result.output.join('\n'), /existing bcData.baseUrl found; OData discovery skipped/);
+  assert.match(result.output.join('\n'), /using configured OData endpoint https:\/\/bc.example:7448\/BC\/ODataV4/);
+  assert.doesNotMatch(result.output.join('\n'), /attempting OData readiness request|request succeeded/);
 });
 
 test('local discovery unwraps values and initialization stops before package or deployment work when OData is disabled', () => {

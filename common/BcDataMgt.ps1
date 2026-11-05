@@ -111,18 +111,28 @@ function Resolve-BcDataDiscoveredBaseUrl {
 
 function Initialize-BcDataBaseUrl {
     param($Configuration, $SettingsJSON)
-    if ($Configuration.serverType -ne 'OnPrem' -or -not [string]::IsNullOrWhiteSpace([string]$Configuration.bcData.baseUrl)) { return }
+    if ($Configuration.serverType -ne 'OnPrem') { return }
+    if (-not [string]::IsNullOrWhiteSpace([string]$Configuration.bcData.baseUrl)) {
+        Write-Host 'BC Data: existing bcData.baseUrl found; OData discovery skipped. Validating the configured endpoint.'
+        $endpoint = Get-BcDataEndpoint -Configuration $Configuration
+        Write-Host "BC Data: using configured OData endpoint $($endpoint.BaseUrl). Readiness will be attempted after app inspection/deployment."
+        return
+    }
+    Write-Host 'BC Data: no bcData.baseUrl found. Starting OData discovery from the selected BC service configuration; no endpoint request has been attempted.'
     try { $settings = Get-BcDataODataSettings -Configuration $Configuration -SettingsJSON $SettingsJSON }
     catch {
         if ($_.Exception.Data['BcDevToolsetExpectedFailure']) { throw }
         throw (New-BcExpectedFailure -Stage 'OData discovery' -Message 'BC Data OData discovery failed before deployment; the cause could not be safely classified. Check managementServer, WinRM credentials and the selected service administration tools, or configure bcData.baseUrl explicitly. No settings were changed.')
     }
     $baseUrl = Resolve-BcDataDiscoveredBaseUrl -Configuration $Configuration -Settings $settings
+    Write-Host "BC Data: OData discovery resolved and validated $baseUrl. Saving bcData.baseUrl in the original configuration."
     try { $match = Find-BcConfigurationDocument -configuration $Configuration }
     catch { throw (New-BcExpectedFailure -Stage 'OData settings persistence' -Message 'Could not locate a unique, readable original configuration for OData discovery. Check the configuration name and settings file access. No companion was deployed and no settings were changed.') }
     # Preserve a value added while the administrative connection was running.
     if (-not [string]::IsNullOrWhiteSpace([string]$match.Configuration.bcData.baseUrl)) {
         $Configuration | Add-Member NoteProperty bcData $match.Configuration.bcData -Force
+        $endpoint = Get-BcDataEndpoint -Configuration $Configuration
+        Write-Host "BC Data: bcData.baseUrl was added during discovery; preserving and using $($endpoint.BaseUrl). The discovered URL was not saved."
         return
     }
     if ($null -eq $match.Configuration.bcData) { $match.Configuration | Add-Member NoteProperty bcData ([pscustomobject]@{}) }
@@ -135,6 +145,7 @@ function Initialize-BcDataBaseUrl {
     try { [IO.File]::WriteAllText($match.Path, ($match.Document | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false)) }
     catch { throw (New-BcExpectedFailure -Stage 'OData settings persistence' -Message 'Could not save the discovered bcData.baseUrl. No companion was deployed. Inspect the configuration file before retrying initialization.') }
     $Configuration | Add-Member NoteProperty bcData $match.Configuration.bcData -Force
+    Write-Host 'BC Data: discovered bcData.baseUrl saved. Readiness will be attempted after app inspection/deployment.'
 }
 
 function Get-BcDataEndpoint {
@@ -283,9 +294,11 @@ function Initialize-BcDataCompanion {
     $readinessParameters = @{ Configuration=$Configuration; Credential=$credential; Expected=$bundle.Manifest }
     if ($authContext) { $readinessParameters.AccessToken = $authContext.AccessToken }
     $deploymentState = if ($action -eq 'unchanged') { 'NotStarted' } else { 'Returned' }
+    Write-Host "BC Data: attempting OData readiness request using $($endpoint.BaseUrl)."
     $readiness = Invoke-BcPublishingStep -Configuration $Configuration -Stage Readiness -Operation 'BC Data initialization' -DeploymentState $deploymentState -Action {
         Get-BcDataInitializationReadiness @readinessParameters
     }
+    Write-Host 'BC Data: OData readiness request succeeded; companion contract verified.'
     Write-Host "BC Data $action on '$($Configuration.name)': contract $($readiness.contractVersion), app $($readiness.appVersion). MCP tool exposure is configured separately; no tool switches were changed."
     return [pscustomobject]@{ ConnectionId = [string]$Configuration.name; Action = $action; AppVersion = [string]$readiness.appVersion; ContractVersion = $readiness.contractVersion }
 }

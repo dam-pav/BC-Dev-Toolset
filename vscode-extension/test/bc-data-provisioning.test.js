@@ -33,7 +33,7 @@ test('companion objects reserve 99100..99149 independently of the test app range
 });
 
 function run(body) {
-  const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', `$ErrorActionPreference='Stop'; . ${quote(helper)}; ${body}`], { encoding: 'utf8', timeout: 30000, windowsHide: true });
+  const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', `$ErrorActionPreference='Stop'; . ${quote(helper)}; $script:output=@(); function Write-Host { param($Object,$ForegroundColor) $script:output += [string]$Object }; ${body}`], { encoding: 'utf8', timeout: 30000, windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return JSON.parse(result.stdout);
 }
@@ -154,6 +154,16 @@ test('explicit initialization installs absent, upgrades older and preserves comp
   assert.equal(result.published[0].upgrade, false);
   assert.equal(result.published[1].upgrade, true);
 });
+test('initialization reports the readiness attempt and success only when verified', () => {
+  const result = run(fixture + `
+    Initialize-BcDataCompanion -ToolsetRoot fixed -Configuration $config | Out-Null
+    ConvertTo-Json -InputObject $script:output -Compress
+  `);
+  assert.match(result[0], /attempting OData readiness request using http:\/\/dedicated:7048\/BC\/ODataV4/);
+  assert.match(result[1], /OData readiness request succeeded; companion contract verified/);
+  assert.match(result[2], /BC Data unchanged/);
+});
+
 test('automatic provisioning defaults off and does no package, credential, metadata or readiness work', () => {
   const result = run(`
     function Initialize-BcDataCompanion { throw 'Disabled provisioning executed' }
@@ -527,11 +537,15 @@ test('issue 170: inaccessible publishing management stops initialization without
     function Get-BcDataOnPremApps { param($Configuration,$SettingsJSON) throw 'Management host is unreachable; check the existing publishing/WinRM prerequisites.' }
     $config=[pscustomobject]@{name='Data only';serverType='OnPrem';targetType='Production';server='bc.example';serverInstance='BC';authentication='Windows';bcData=@{baseUrl='https://bc.example/BC/ODataV4'}}
     try{Initialize-BcDataCompanion -ToolsetRoot fixed -Configuration $config|Out-Null}catch{$message=$_.Exception.Message}
-    @{message=$message;containerReads=$script:reads;containerWrites=$script:published.Count}|ConvertTo-Json -Compress
+    @{message=$message;containerReads=$script:reads;containerWrites=$script:published.Count;output=$script:output}|ConvertTo-Json -Compress
   `);
   assert.match(result.message, /publishing\/WinRM prerequisites/);
   assert.equal(result.containerReads, 0);
   assert.equal(result.containerWrites, 0);
+  assert.match(result.output.join('\n'), /existing bcData.baseUrl found; OData discovery skipped/);
+  assert.match(result.output.join('\n'), /using configured OData endpoint https:\/\/bc.example\/BC\/ODataV4/);
+  assert.match(result.output.join('\n'), /Readiness will be attempted after app inspection\/deployment/);
+  assert.doesNotMatch(result.output.join('\n'), /attempting OData readiness request|request succeeded/);
 });
 
 
@@ -573,7 +587,10 @@ test('BC Data publishing failures identify stage and uncertain outcomes without 
   assert.deepEqual(result.map(value => value.state), ['NotStarted','NotStarted','NotStarted','Unknown','Unknown','Returned']);
   assert.deepEqual(result.map(value => value.attempts), [0,0,0,1,1,1]);
   assert.deepEqual(result.map(value => value.readiness), [0,0,0,0,0,1]);
-  assert.ok(result.every(value => value.returned === 0 && value.output.length === 0 && !value.message.includes('secret')));
+  assert.ok(result.every(value => value.returned === 0 && !value.message.includes('secret')));
+  assert.ok(result.slice(0, 5).every(value => value.output.length === 0));
+  assert.match(result[5].output.join('\n'), /attempting OData readiness request using https:\/\/api.businesscentral.dynamics.com/);
+  assert.doesNotMatch(result[5].output.join('\n'), /request succeeded|BC Data installed/);
   assert.ok(result.every(value => value.message.includes('No automatic retry')));
   assert.match(result[3].message, /Extension Deployment Status Details/);
   assert.match(result[3].message, /partially completed/);

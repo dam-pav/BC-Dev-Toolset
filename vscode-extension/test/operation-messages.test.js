@@ -278,6 +278,8 @@ for (const invocation of ['terminal', 'file']) {
     assert.equal(result.stderr, '');
     assert.match(result.stdout, /FAILURE HEADING COLOR: Red/);
     assert.match(result.stdout, /Initialize BC Data Access failed during OData configuration\./);
+    assert.match(result.stdout, /no bcData.baseUrl found.*Starting OData discovery/);
+    assert.doesNotMatch(result.stdout, /resolved and validated|baseUrl saved|attempting OData readiness request|request succeeded/);
     assert.match(result.stdout, /Enable ODataServicesEnabled and ODataServicesV4EndpointEnabled/);
     assert.match(result.stdout, /No companion was deployed[. ]/);
     assert.doesNotMatch(result.stdout, /Exception:|Line\s*\||BcDataMgt\.ps1:\d|DONE|UNEXPECTED/);
@@ -350,6 +352,9 @@ for (const failure of ['unreadable', 'changed', 'write-failure']) {
     assert.equal(result.status, 1, result.stderr || result.stdout);
     assert.equal(result.stderr, '');
     assert.match(result.stdout, /failed during OData settings persistence\./);
+    assert.match(result.stdout, /no bcData.baseUrl found.*Starting OData discovery/);
+    assert.match(result.stdout, /OData discovery resolved and validated https:\/\/bc.example\/BC\/ODataV4/);
+    assert.doesNotMatch(result.stdout, /baseUrl saved|attempting OData readiness request|request succeeded/);
     assert.match(result.stdout, /No companion was deployed[. ]/);
     assert.match(result.stdout, failure === 'write-failure' ? /Inspect the configuration file before retrying/ : /initialize again/);
     assert.doesNotMatch(result.stdout, /Exception:|Line\s*\||BcDataMgt\.ps1:\d|DONE|UNEXPECTED DEPLOYMENT/);
