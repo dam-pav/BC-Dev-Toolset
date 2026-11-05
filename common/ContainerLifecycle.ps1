@@ -25,9 +25,12 @@ function Ensure-ConfiguredContainers {
         [ValidateRange(0, 600)] [int] $TimeoutSeconds = 120,
         [switch] $SkipMissing,
         [switch] $SkipBcDataProvisioning,
-        [switch] $RequireRunningOnly
+        [switch] $RequireRunningOnly,
+        [switch] $SkipUnavailable,
+        [ref] $ReadyContainerNames
     )
 
+    if ($null -ne $ReadyContainerNames) { $ReadyContainerNames.Value = @() }
     # Validate every target before issuing Docker commands. Reject option-like values.
     $names = @($SettingsJSON.configurations | Where-Object { $_.serverType -eq 'Container' } |
         ForEach-Object {
@@ -50,6 +53,7 @@ function Ensure-ConfiguredContainers {
     }
 
     $failed = @()
+    $ready = @()
     foreach ($name in $names) {
         Write-Host "Checking container '$name'..."
         $action = 'None'
@@ -99,12 +103,17 @@ function Ensure-ConfiguredContainers {
                 }
                 Start-Sleep -Seconds 2
             } while ($true)
+            $ready += $name
         } catch {
             $failed += $name
             Write-Host "Container '$name': action=$action; failed: $($_.Exception.Message)"
         }
     }
-    if ($failed.Count -gt 0) {
+    if ($null -ne $ReadyContainerNames) { $ReadyContainerNames.Value = @($ready) }
+    if ($failed.Count -gt 0 -and -not $SkipUnavailable) {
         throw "Configured containers not ready: $($failed -join ', '). Missing containers must be created separately; this operation never creates or replaces containers."
+    }
+    if ($failed.Count -gt 0) {
+        Write-Host "Unavailable containers excluded: $($failed -join ', '). Recover them and rerun the operation to include them." -ForegroundColor Yellow
     }
 }

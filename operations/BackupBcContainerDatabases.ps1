@@ -13,10 +13,19 @@ Initialize-Context `
     -settingsJSON ([ref]$settingsJSON)  `
     -workspaceJSON ([ref]$workspaceJSON)
 
-Ensure-ConfiguredContainers -SettingsJSON $settingsJSON -SkipMissing
+$readyContainers = @()
+Ensure-ConfiguredContainers -SettingsJSON $settingsJSON -SkipMissing -SkipUnavailable -ReadyContainerNames ([ref]$readyContainers)
+
+# Only ready targets may reach the picker, including its "all" option.
+$availableConfigurations = @($settingsJSON.configurations | Where-Object {
+    $_.serverType -eq 'Container' -and ([string]$_.container).Trim() -in $readyContainers
+})
+if ($availableConfigurations.Count -eq 0) {
+    Write-Error 'No available containers for SQL backup export. No backup was started. Recover a configured container and retry.' -ErrorAction Stop
+}
 
 Export-BcContainerSqlBackupSet `
     -scriptPath $scriptRoot `
-    -settingsJSON $settingsJSON
+    -settingsJSON @{ configurations = $availableConfigurations }
 
 Write-Done

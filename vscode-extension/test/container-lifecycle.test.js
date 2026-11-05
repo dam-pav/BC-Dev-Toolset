@@ -122,6 +122,32 @@ test('dependent operations can skip missing containers while recovering existing
   ]);
 });
 
+test('optional availability preflight returns only ready containers despite readiness timeouts and missing targets', () => {
+  const result = run(`
+    $script:states = @{
+      Core=@{Status='running';Health=@{Status='healthy'}};
+      CoreTest=@{Status='running';Health=@{Status='unhealthy'}}
+    }
+    function Invoke-ConfiguredContainerDocker {
+      param($DockerArguments)
+      if ($DockerArguments[0] -eq 'info') { return 'windows' }
+      if ($DockerArguments[1] -eq 'restart') { return 'CoreTest' }
+      $name = $DockerArguments[-1]
+      if (-not $script:states.ContainsKey($name)) { throw 'No such container' }
+      @{Name="/$name";State=$script:states[$name]} | ConvertTo-Json -Depth 5 -Compress
+    }
+    $settings=@{configurations=@('Core','CoreTest','missing' | ForEach-Object {
+      @{serverType='Container';container=$_}
+    })}
+    $ready=@('stale')
+    $messages=Ensure-ConfiguredContainers $settings -SkipMissing -SkipUnavailable -TimeoutSeconds 0 -ReadyContainerNames ([ref]$ready) 6>&1
+    @{Ready=@($ready);Messages=($messages -join '|')} | ConvertTo-Json -Compress
+  `);
+  assert.deepEqual(result.Ready, ['Core']);
+  assert.match(result.Messages, /Readiness timed out after 0 seconds/);
+  assert.match(result.Messages, /Unavailable containers excluded: CoreTest.*Recover/);
+});
+
 test('blank Container placeholders do not prevent recovery of configured containers', () => {
   const result = run(`
     $script:states = @{stopped=@{Status='exited'}}
