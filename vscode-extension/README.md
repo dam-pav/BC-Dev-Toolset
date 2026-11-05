@@ -125,6 +125,15 @@ The `AL compatibility` workflow runs daily, on relevant pull requests, and manua
 
 ## Operations
 
+### BCQuality
+
+| Operation | Description |
+| --- | --- |
+| `Update BCQuality` | Retries maintenance of the configured BCQuality checkout and agent skills, then opens the status report. |
+| `Show BCQuality Status` | Opens the current maintenance status, checkout revision, installed agent skills, and any warnings or errors. |
+
+These commands are available under **BCQuality** in **Show Operations List** and directly from the Command Palette. They are not exposed as MCP tools.
+
 ### Workspace
 
 | Operation | Description |

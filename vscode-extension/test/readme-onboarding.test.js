@@ -14,6 +14,31 @@ test('repository README introduces BC Data in its own chapter before BCQuality',
   assert.match(repositoryReadme, /## BC Data access\r?\n\r?\nBC Data access provides[^\r\n]+\r?\n\r?\n## BCQuality integration/);
 });
 
+test('repository settings references use two-column tables', () => {
+  const repositoryReadme = fs.readFileSync(path.join(__dirname, '..', '..', 'README.md'), 'utf8');
+  const setup = repositoryReadme.split('\n## Setup')[1];
+  assert.doesNotMatch(setup, /^- `[^`]+`:/m);
+  for (const heading of ['### Extension settings', '### Workspace settings', '#### Configurations', '### Local settings']) {
+    const section = setup.split(heading)[1].split(/\n#{3,4} /)[0];
+    assert.match(section, /\| Setting \| Description \|\r?\n\| --- \| --- \|/);
+    assert.match(section, /^\| `[^`]+` \| .+ \|$/m);
+  }
+  assert.match(setup, /\| `bcCredential`, `remoteCredential`, `databaseCredential` \|/);
+  for (const row of setup.split(/\r?\n/).filter(line => line.startsWith('|'))) {
+    assert.equal(row.split(/(?<!\\)\|/).length, 4, 'settings table rows must have two columns');
+  }
+});
+
+test('publishing target guidance is a chapter immediately before Setup', () => {
+  const repositoryReadme = fs.readFileSync(path.join(__dirname, '..', '..', 'README.md'), 'utf8');
+  const chapters = repositoryReadme.split(/^## /m).slice(1);
+  const publishingIndex = chapters.findIndex(chapter => chapter.startsWith('Selecting publishing targets'));
+  assert.ok(publishingIndex >= 0);
+  assert.ok(chapters[publishingIndex + 1].startsWith('Setup'));
+  assert.match(chapters[publishingIndex], /Supply the exact `configurationName`/);
+  assert.doesNotMatch(repositoryReadme, /^### Selecting publishing targets/m);
+});
+
 test('onboarding keeps settings brief and links to the detailed reference', () => {
   const gettingStarted = readme.split('## Getting started')[1].split('\n## ')[0];
   const settings = readme.split('\n## Settings')[1];
