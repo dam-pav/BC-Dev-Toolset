@@ -18,6 +18,7 @@ function fixture(t) {
     fs.writeFileSync(target, content); // nosemgrep -- contained by test-owned root
   };
   write('Invoke-BcDevToolsetOperation.ps1', fs.readFileSync(path.join(repositoryRoot, 'Invoke-BcDevToolsetOperation.ps1'), 'utf8'));
+  write('common/PublishingDiagnostics.ps1', fs.readFileSync(path.join(repositoryRoot, 'common/PublishingDiagnostics.ps1'), 'utf8'));
   write('common/WorkspaceMgt.ps1', `
     function Get-OperationDefinitions {
       param($ScriptPath)
@@ -216,5 +217,96 @@ for (const success of [true, false]) {
     } else {
       assert.doesNotMatch(output, /Reload VS Code|DONE/);
     }
+  });
+}
+
+for (const invocation of ['terminal', 'file']) {
+  test(`disabled OData initialization renders guidance without an exception and preserves failure (${invocation})`, (t) => {
+    const { root, write } = fixture(t);
+    const operation = operations.find(operation => operation.id === 'initializeBcData');
+    write('operations/operations.json', JSON.stringify([operation]));
+    for (const relative of [operation.script, 'common/BcDataMgt.ps1', 'common/BcDataPackage.ps1']) {
+      write(relative, fs.readFileSync(resolveWithinRoot(repositoryRoot, relative), 'utf8')); // nosemgrep -- contained by repository root
+    }
+    const workspaceHelper = resolveWithinRoot(root, 'common/WorkspaceMgt.ps1');
+    write('common/WorkspaceMgt.ps1', fs.readFileSync(workspaceHelper, 'utf8') + `
+      function Write-Host {
+        param($Object, [ConsoleColor]$ForegroundColor)
+        if ($Object -eq 'Initialize BC Data Access failed during OData configuration.') {
+          if ($ForegroundColor -ne [ConsoleColor]::Red) { throw 'Expected failure heading must be red' }
+          [Console]::WriteLine('FAILURE HEADING COLOR: Red')
+        }
+        Microsoft.PowerShell.Utility\\Write-Host @PSBoundParameters
+      }
+      function Initialize-Context {
+        param($scriptPath,[ref]$settingsJSON,[ref]$workspaceJSON)
+        $settingsJSON.Value=@{configurations=@(
+          [pscustomobject]@{name='taopaipai';serverType='OnPrem';targetType='Dev';server='bc.example';serverInstance='BC';authentication='Windows'}
+        )}
+      }
+      function Request-BcDevToolsetMcpPrompt { 'taopaipai' }
+      function Confirm-Option { $true }
+      function Get-RemoteComputerNameFromServer { 'bc.example' }
+      function Test-IsLocalSqlServer { $true }
+      function Import-BcServiceBackupDiscoveryModules {}
+      function Get-BcServerConfigValue {
+        param($serverInstance,$keyName)
+        if($keyName -eq 'ODataServicesEnabled'){return 'true'}
+        if($keyName -eq 'ODataServicesV4EndpointEnabled'){return 'false'}
+        return ''
+      }
+    `);
+    const command = `
+      $env:BCDEVTOOLSET_WORKSPACE_PATH='original-workspace'
+      $env:BCDEVTOOLSET_NON_INTERACTIVE='original-mode'
+      & ./Invoke-BcDevToolsetOperation.ps1 -Operation initializeBcData -NonInteractive
+      $failed=-not $?; $code=$LASTEXITCODE
+      if(-not $failed -or $code -ne 1){throw 'Failure status lost'}
+      if($env:BCDEVTOOLSET_WORKSPACE_PATH -ne 'original-workspace' -or $env:BCDEVTOOLSET_NON_INTERACTIVE -ne 'original-mode'){throw 'Environment was not restored'}
+      Write-Host 'CALLER CONTINUES WITH FAILED STATUS AND RESTORED ENVIRONMENT'
+      exit $code
+    `;
+    const args = invocation === 'terminal'
+      ? ['-Command', command]
+      : ['-File', './Invoke-BcDevToolsetOperation.ps1', '-Operation', 'initializeBcData', '-NonInteractive'];
+    const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', ...args], {
+      cwd: root, encoding: 'utf8', windowsHide: true, timeout: 30000
+    });
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    assert.equal(result.stderr, '');
+    assert.match(result.stdout, /FAILURE HEADING COLOR: Red/);
+    assert.match(result.stdout, /Initialize BC Data Access failed during OData configuration\./);
+    assert.match(result.stdout, /Enable ODataServicesEnabled and ODataServicesV4EndpointEnabled/);
+    assert.match(result.stdout, /No companion was deployed\./);
+    assert.doesNotMatch(result.stdout, /Exception:|Line\s*\||BcDataMgt\.ps1:\d|DONE|UNEXPECTED/);
+    if (invocation === 'terminal') assert.match(result.stdout, /CALLER CONTINUES WITH FAILED STATUS AND RESTORED ENVIRONMENT/);
+  });
+}
+
+for (const invalidPackage of ['OnPrem', 'old-range', 'dependencies']) {
+  test(`stale companion is identified as a Toolset packaging problem without exception decoration (${invalidPackage})`, (t) => {
+    const { root, write } = fixture(t);
+    write('operations/operations.json', JSON.stringify([
+      { id: 'initializeBcData', title: 'Initialize BC Data Access', script: 'operations/Test.ps1' }
+    ]));
+    write('common/BcDataPackage.ps1', fs.readFileSync(resolveWithinRoot(repositoryRoot, 'common/BcDataPackage.ps1'), 'utf8')); // nosemgrep -- contained by repository root
+    write('operations/Test.ps1', `
+      . (Join-Path $PSScriptRoot '../common/BcDataPackage.ps1')
+      $expected=[pscustomobject]@{appId='0f92aea5-4cc0-459b-ae98-ca9e5c2b0304';name='BC Dev Toolset Data';publisher='dam-pav';version='0.1.10.0';contractVersion=1;runtime='12.0';application='23.0.0.0';serviceName='BCDData';packageFile='BCData.app';mutationsEnabled=$false}
+      $document=[xml]'<Package><App Id="0f92aea5-4cc0-459b-ae98-ca9e5c2b0304" Name="BC Dev Toolset Data" Publisher="dam-pav" Version="0.1.10.0" Runtime="12.0" Application="23.0.0.0" Target="${invalidPackage === 'OnPrem' ? 'OnPrem' : 'Cloud'}"/><Dependencies>${invalidPackage === 'dependencies' ? '<Dependency Id="unexpected"/>' : ''}</Dependencies><IdRanges><IdRange MinObjectId="${invalidPackage === 'old-range' ? '50100' : '99100'}" MaxObjectId="${invalidPackage === 'old-range' ? '50149' : '99149'}"/></IdRanges></Package>'
+      Assert-BcDataPackageIdentity -Expected $expected -Document $document
+      Write-Host 'UNEXPECTED DEPLOYMENT'
+      Write-Done
+    `);
+    const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', './Invoke-BcDevToolsetOperation.ps1', '-Operation', 'initializeBcData', '-NonInteractive'], {
+      cwd: root, encoding: 'utf8', windowsHide: true, timeout: 30000
+    });
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    assert.equal(result.stderr, '');
+    assert.match(result.stdout, /failed during BC Data package validation\./);
+    assert.match(result.stdout, /This is a Toolset packaging problem\./);
+    assert.match(result.stdout, /Rebuild.*prepare the Toolset runtime.*corrected Toolset release/);
+    assert.match(result.stdout, /No companion was deployed\./);
+    assert.doesNotMatch(result.stdout, /Exception:|Line\s*\||BcDataPackage\.ps1:\d|DONE|UNEXPECTED DEPLOYMENT/);
   });
 }

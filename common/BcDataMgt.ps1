@@ -64,6 +64,73 @@ function Assert-BcDataConfiguration {
     }
 }
 
+function Get-BcDataODataSettings {
+    param($Configuration)
+    $keys = @('PublicODataBaseUrl','ODataServicesPort','ODataServicesSSLEnabled','ODataServicesEnabled','ODataServicesV4EndpointEnabled')
+    $hostName = if ($Configuration.managementServer) { $Configuration.managementServer } else { Get-RemoteComputerNameFromServer -server $Configuration.server }
+    if (-not (Test-IsLocalSqlServer -databaseServer $hostName)) {
+        return Get-BcServiceDatabaseInfoRemote -computerName $hostName -serverInstance $Configuration.serverInstance -configuration $Configuration -configurationKeys $keys
+    }
+    Import-BcServiceBackupDiscoveryModules
+    $values = [ordered]@{}
+    foreach ($key in $keys) { $values[$key] = Get-BcServerConfigValue -serverInstance $Configuration.serverInstance -keyName $key }
+    return [pscustomobject]$values
+}
+
+function Resolve-BcDataDiscoveredBaseUrl {
+    param($Configuration, $Settings)
+    if ([string]$Settings.ODataServicesEnabled -ine 'true' -or [string]$Settings.ODataServicesV4EndpointEnabled -ine 'true') {
+        throw (New-BcExpectedFailure -Stage 'OData configuration' -Message 'Enable ODataServicesEnabled and ODataServicesV4EndpointEnabled on the BC service, then initialize BC Data again. No companion was deployed.')
+    }
+    $baseUrl = ([string]$Settings.PublicODataBaseUrl).Trim().TrimEnd('/')
+    if ($baseUrl) {
+        # Some server versions advertise the legacy OData root.
+        if ($baseUrl.EndsWith('/OData', [StringComparison]::OrdinalIgnoreCase)) { $baseUrl = $baseUrl.Substring(0, $baseUrl.Length - 6) + '/ODataV4' }
+        if (-not $baseUrl.EndsWith('/ODataV4')) { $baseUrl += '/ODataV4' }
+    } else {
+        $port = 0
+        if (-not [int]::TryParse([string]$Settings.ODataServicesPort, [ref]$port) -or $port -lt 1 -or $port -gt 65535 -or
+            [string]$Settings.ODataServicesSSLEnabled -inotmatch '^(true|false)$') {
+            throw (New-BcExpectedFailure -Stage 'OData configuration' -Message 'BC OData listener settings are invalid. Configure PublicODataBaseUrl or a valid OData port and SSL setting, then initialize again. No companion was deployed.')
+        }
+        $serverAddress = [string]$Configuration.server
+        if ($serverAddress -notmatch '^https?://') { $serverAddress = 'http://' + $serverAddress }
+        $server = $null
+        if (-not [Uri]::TryCreate($serverAddress, [UriKind]::Absolute, [ref]$server) -or $server.Scheme -notin @('http','https')) { throw 'Configure a valid OnPrem server hostname before OData discovery.' }
+        $scheme = if ([string]$Settings.ODataServicesSSLEnabled -ieq 'true') { 'https' } else { 'http' }
+        $instance = [string]$Configuration.serverInstance -replace '^MicrosoftDynamicsNavServer\$', ''
+        $baseUrl = "${scheme}://$($server.Authority -replace ':\d+$', ''):${port}/$([Uri]::EscapeDataString($instance))/ODataV4"
+    }
+    # Validate using the same credential/hostname policy as manually configured URLs.
+    $candidate = [pscustomobject]@{serverType='OnPrem';server=$Configuration.server;authentication=$Configuration.authentication;bcData=@{baseUrl=$baseUrl}}
+    return (Get-BcDataEndpoint -Configuration $candidate).BaseUrl
+}
+
+function Initialize-BcDataBaseUrl {
+    param($Configuration)
+    if ($Configuration.serverType -ne 'OnPrem' -or -not [string]::IsNullOrWhiteSpace([string]$Configuration.bcData.baseUrl)) { return }
+    try { $settings = Get-BcDataODataSettings -Configuration $Configuration }
+    catch { throw 'BC Data OData discovery failed before deployment. Check managementServer, WinRM credentials and the selected service administration tools, or configure bcData.baseUrl explicitly. No settings were changed.' }
+    $baseUrl = Resolve-BcDataDiscoveredBaseUrl -Configuration $Configuration -Settings $settings
+    try { $match = Find-BcConfigurationDocument -configuration $Configuration }
+    catch { throw 'Could not locate a unique, readable original configuration for OData discovery. Check the configuration name and settings file access. No companion was deployed and no settings were changed.' }
+    # Preserve a value added while the administrative connection was running.
+    if (-not [string]::IsNullOrWhiteSpace([string]$match.Configuration.bcData.baseUrl)) {
+        $Configuration | Add-Member NoteProperty bcData $match.Configuration.bcData -Force
+        return
+    }
+    if ($null -eq $match.Configuration.bcData) { $match.Configuration | Add-Member NoteProperty bcData ([pscustomobject]@{}) }
+    if ($match.Configuration.bcData -is [System.Collections.IDictionary]) { $match.Configuration.bcData['baseUrl'] = $baseUrl }
+    else { $match.Configuration.bcData | Add-Member NoteProperty baseUrl $baseUrl -Force }
+    # Find-BcConfigurationDocument authorizes this original settings path with root containment.
+    try { $currentText = [IO.File]::ReadAllText($match.Path) }
+    catch { throw 'Could not recheck the original settings file before saving OData discovery. Check file access and initialize again. No companion was deployed and no settings were changed.' }
+    if ($currentText -cne $match.Text) { throw 'Configuration changed during OData discovery. No settings were changed; initialize again.' }
+    try { [IO.File]::WriteAllText($match.Path, ($match.Document | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false)) }
+    catch { throw 'Could not save the discovered bcData.baseUrl. No companion was deployed. Inspect the configuration file before retrying initialization.' }
+    $Configuration | Add-Member NoteProperty bcData $match.Configuration.bcData -Force
+}
+
 function Get-BcDataEndpoint {
     param($Configuration)
     foreach ($key in @('baseUrl','tenant')) {
@@ -156,6 +223,7 @@ function Get-BcDataInitializationReadiness {
 function Initialize-BcDataCompanion {
     param([string] $ToolsetRoot, $Configuration, $SettingsJSON)
     Assert-BcDataConfiguration -Configuration $Configuration
+    Initialize-BcDataBaseUrl -Configuration $Configuration
     $endpoint = Get-BcDataEndpoint -Configuration $Configuration
     $bundle = Get-ValidatedBcDataPackage -ToolsetRoot $ToolsetRoot
     $credential = $null

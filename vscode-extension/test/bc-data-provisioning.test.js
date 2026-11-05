@@ -332,6 +332,7 @@ test('runtime preparation accepts current embedded sources and blocks stale same
     try{
       Copy-Item -LiteralPath ${quote(builder)} -Destination (Join-Path $folder 'vscode-extension/build/prepare-bc-data-package.ps1')
       Copy-Item -LiteralPath ${quote(packageHelper)} -Destination (Join-Path $folder 'common/BcDataPackage.ps1')
+      Copy-Item -LiteralPath ${quote(path.resolve(__dirname, '../../common/PublishingDiagnostics.ps1'))} -Destination (Join-Path $folder 'common/PublishingDiagnostics.ps1')
       Copy-Item -LiteralPath ${quote(compatibility)} -Destination (Join-Path $folder 'bc-data/compatibility.json')
       $expected=Get-Content -LiteralPath (Join-Path $folder 'bc-data/compatibility.json') -Raw|ConvertFrom-Json
       @{id=$expected.appId;name=$expected.name;publisher=$expected.publisher;version=$expected.version;runtime=$expected.runtime;application=$expected.application}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $folder 'al/BCData/app.json')

@@ -10,6 +10,7 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'vscode-extension/build/prepare-bc-data-symbols.ps1') -Destination (Join-Path $fixtureRoot 'vscode-extension/build')
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'common/BcDataPackage.ps1') -Destination (Join-Path $fixtureRoot 'common')
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'common/PublishingDiagnostics.ps1') -Destination (Join-Path $fixtureRoot 'common')
     $inputs=Get-Content -LiteralPath (Join-Path $repositoryRoot 'bc-data/build-inputs.json') -Raw | ConvertFrom-Json
     $sourceZip=Join-Path $fixtureRoot 'source.zip'
     $zip=[IO.Compression.ZipFile]::Open($sourceZip,[IO.Compression.ZipArchiveMode]::Create)

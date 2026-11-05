@@ -30,6 +30,7 @@ param(
 
 $scriptPath = $PSScriptRoot
 . (Join-Path (Join-Path $scriptPath 'common') 'WorkspaceMgt.ps1')
+. (Join-Path (Join-Path $scriptPath 'common') 'PublishingDiagnostics.ps1')
 
 $operations = @(Get-OperationDefinitions -ScriptPath $scriptPath)
 
@@ -116,6 +117,13 @@ try {
     Write-Host "Workspace: $($env:BCDEVTOOLSET_WORKSPACE_PATH)" -ForegroundColor Gray
 
     & $selectedOperation.ScriptPath
+} catch {
+    if (-not $_.Exception.Data['BcDevToolsetExpectedFailure']) { throw }
+    # Render reviewed diagnostics without PowerShell's exception/source decoration.
+    # Keep a failed script exit status for terminal, task and MCP callers.
+    Write-Host "$($selectedOperation.title) failed during $($_.Exception.Data['Stage'])." -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Yellow
+    exit 1
 } finally {
     $env:BCDEVTOOLSET_WORKSPACE_PATH = $previousWorkspacePath
     $env:BCDEVTOOLSET_WORKSPACE_FILE = $previousWorkspaceFile
