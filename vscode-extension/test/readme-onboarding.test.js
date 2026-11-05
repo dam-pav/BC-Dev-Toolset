@@ -21,3 +21,22 @@ test('onboarding keeps settings brief and links to the detailed reference', () =
     assert.ok(settings.includes('`' + setting + '`'), `${setting} must remain documented`);
   }
 });
+
+test('operation and settings references use two-column tables', () => {
+  const reference = readme.split('\n## Operations')[1];
+  const operations = reference.split('\n## Settings')[0];
+  const settings = reference.split('\n## Settings')[1];
+
+  for (const category of operations.split('\n### ').slice(1)) {
+    assert.match(category, /\| Operation \| Description \|\r?\n\| --- \| --- \|/);
+    assert.match(category, /^\| `[^`]+` \| .+ \|$/m);
+  }
+  assert.doesNotMatch(reference, /^- `[^`]+`:/m);
+  for (const name of ['VS Code extension settings', 'Workspace settings', 'Local settings']) {
+    const section = settings.split('### ' + name)[1].split('\n### ')[0];
+    assert.match(section, /\| Setting \| Description \|\r?\n\| --- \| --- \|/);
+  }
+  for (const row of reference.split(/\r?\n/).filter(line => line.startsWith('|'))) {
+    assert.equal(row.split(/(?<!\\)\|/).length, 4, 'reference table rows must have two columns');
+  }
+});
