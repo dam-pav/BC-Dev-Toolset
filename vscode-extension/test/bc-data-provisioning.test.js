@@ -94,6 +94,54 @@ test('management sessions honor the selected identity and never retry a rejected
   }
 });
 
+test('typed WinRM failures preserve codes and distinct guidance through inspection without leaking backend text or retrying', () => {
+  const rows = run(`
+    $results=@()
+    foreach($transportCode in @(5,0x80070005,0x80338012,0x8009030E,0x80338171,12345)) {
+      foreach($wrapped in @($false,$true)) {
+        $script:calls=0;$script:continued=$false
+        function New-PSSession {
+          $script:calls++
+          $transport=[System.Management.Automation.Remoting.PSRemotingTransportException]::new('private backend payload synthetic-secret')
+          $transport.ErrorCode=$transportCode
+          if($wrapped){throw [InvalidOperationException]::new('private wrapper',$transport)}
+          throw $transport
+        }
+        try {
+          Invoke-BcPublishingStep -Configuration ([pscustomobject]@{serverType='OnPrem'}) -Stage Inspection -Action {
+            New-SelectedManagementSession -ComputerName 'fixture.example' -Configuration ([pscustomobject]@{useManagementCredentials='currentWindows'}) -OperationName 'BC Data inspection'
+            $script:continued=$true
+          }
+          throw 'Expected inspection failure'
+        } catch {
+          $results+=@{code=$_.Exception.Data['RemotingErrorCode'];message=$_.Exception.Message;stage=$_.Exception.Data['Stage'];expected=$_.Exception.Data['BcDevToolsetExpectedFailure'];state=$_.Exception.Data['DeploymentState'];calls=$script:calls;continued=$script:continued}
+        }
+      }
+    }
+    ConvertTo-Json -InputObject $results -Compress
+  `);
+  const cases = [
+    ['0x00000005', /access was denied/], ['0x80070005', /access was denied/],
+    ['0x80338012', /destination could not be reached/], ['0x8009030E', /authentication logon session/],
+    ['0x80338171', /HTTP 400/], ['0x00003039', /failure cause is unknown/]
+  ];
+  assert.equal(rows.length, cases.length * 2);
+  for (const [index, row] of rows.entries()) {
+    const [code, guidance] = cases[Math.floor(index / 2)];
+    assert.equal(row.code, code);
+    assert.ok(row.message.includes('WinRM error ' + code));
+    assert.match(row.message, guidance);
+    assert.match(row.message, /No management session was established/);
+    assert.match(row.message, /No alternate identity was attempted/);
+    assert.doesNotMatch(row.message, /private|synthetic-secret/);
+    assert.equal(row.stage, 'Inspection');
+    assert.equal(row.expected, true);
+    assert.equal(row.state, 'NotStarted');
+    assert.equal(row.calls, 1);
+    assert.equal(row.continued, false);
+  }
+});
+
 test('initialization uses the selected data identity and does not deploy after selected credential lookup fails', () => {
   const result = run(fixture + `
     function Get-BcDataOnPremApps { [pscustomobject]@{Name='Base Application';Publisher='Microsoft';Version='23.0.0.0';IsInstalled=$true} }

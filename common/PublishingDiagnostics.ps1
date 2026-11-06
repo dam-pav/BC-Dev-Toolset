@@ -22,11 +22,14 @@ function Invoke-BcPublishingStep {
     catch {
         $status = 0
         $safeDetail = ''
+        $remotingCode = $null
         $cause = $_.Exception
         for ($depth = 0; $null -ne $cause -and $depth -lt 8; $depth++) {
-            # Preserve only reviewed Toolset diagnostics for this stage, never backend text.
-            if ($cause.Data['BcDevToolsetExpectedFailure'] -eq $true -and $cause.Data['Stage'] -eq $Stage -and -not $safeDetail) {
+            # Authentication can fail inside inspection/publishing; preserve its
+            # reviewed Toolset guidance as well as same-stage diagnostics.
+            if ($cause.Data['BcDevToolsetExpectedFailure'] -eq $true -and $cause.Data['Stage'] -in @($Stage,'Authentication') -and -not $safeDetail) {
                 $safeDetail = $cause.Message
+                if ([string]$cause.Data['RemotingErrorCode'] -cmatch '^0x[0-9A-F]{8}$') { $remotingCode = $cause.Data['RemotingErrorCode'] }
                 $reviewedStatus = 0
                 if ([int]::TryParse([string]$cause.Data['HttpStatus'], [ref]$reviewedStatus) -and $reviewedStatus -ge 100 -and $reviewedStatus -le 599) { $status = $reviewedStatus }
             }
@@ -71,6 +74,7 @@ function Invoke-BcPublishingStep {
         $failure.Data['Stage'] = $Stage
         $failure.Data['HttpStatus'] = $status
         $failure.Data['DeploymentState'] = $DeploymentState
+        if ($remotingCode) { $failure.Data['RemotingErrorCode'] = $remotingCode }
         throw $failure
     }
 }

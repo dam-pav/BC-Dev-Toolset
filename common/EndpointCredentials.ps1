@@ -68,6 +68,28 @@ function New-SelectedManagementSession {
     if ($selected.Credential) { $parameters.Credential = $selected.Credential }
     try { return New-PSSession @parameters }
     catch {
-        throw (New-BcExpectedFailure -Stage Authentication -Message "$OperationName failed: the management WinRM connection could not be established using $($selected.Kind). Check the selected identity, host permissions, WinRM trust, DNS and firewall configuration. No alternate identity was attempted.")
+        $cause = $_.Exception
+        $transportCode = $null
+        for ($depth = 0; $null -ne $cause -and $depth -lt 8; $depth++) {
+            # Only the numeric code of the runtime's remoting exception is safe;
+            # messages, ErrorDetails and arbitrary Data entries can contain secrets.
+            if ($cause -is [System.Management.Automation.Remoting.PSRemotingTransportException]) {
+                $transportCode = '0x{0:X8}' -f ([long]$cause.ErrorCode -band 0xFFFFFFFFL)
+                break
+            }
+            $cause = $cause.InnerException
+        }
+        $guidance = switch ($transportCode) {
+            '0x00000005' { 'WinRM access was denied. Check the selected identity and its endpoint/remoting permissions.' }
+            '0x80070005' { 'WinRM access was denied. Check the selected identity and its endpoint/remoting permissions.' }
+            '0x80338012' { 'The WinRM destination could not be reached. Check the hostname, WinRM service/listener, port and firewall access.' }
+            '0x8009030E' { 'WinRM could not establish the authentication logon session. Check the selected credentials, domain/SPN configuration and approved HTTPS or host-trust configuration.' }
+            '0x80338171' { 'The WinRM endpoint returned HTTP 400 without fault details. Check the management hostname, listener and any proxy routing.' }
+            default { 'The WinRM failure cause is unknown. Check the selected identity, host permissions, WinRM trust, DNS and firewall configuration.' }
+        }
+        $status = if ($transportCode) { " WinRM error $transportCode." } else { '' }
+        $failure = New-BcExpectedFailure -Stage Authentication -Message "$OperationName failed: the management WinRM connection could not be established using $($selected.Kind).$status $guidance No management session was established; dependent management work was not started. No alternate identity was attempted."
+        if ($transportCode) { $failure.Data['RemotingErrorCode'] = $transportCode }
+        throw $failure
     } finally { $selected = $null }
 }
