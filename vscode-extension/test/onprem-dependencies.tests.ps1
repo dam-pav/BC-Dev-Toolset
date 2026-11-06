@@ -24,7 +24,7 @@ try {
     $settings=@{configurations=@($configuration);dependenciesPaths=@($fixtureRoot,$zipPath)}
     function Test-IsLocalSqlServer { $false }
     function Initialize-OnPremPublishingManagement { throw 'Remote dependencies must not load local management tools' }
-    function New-RemoteBackupSession {
+    function New-SelectedManagementSession {
         param($computerName,$configuration,$OperationName)
         Assert ($computerName -eq $script:expectedHost -and $configuration.remoteCredential -and $OperationName -eq 'Dependency publishing') 'Wrong remoting target or credential context'
         if ($script:scenario -eq 'connect') { throw 'Connection failed' }

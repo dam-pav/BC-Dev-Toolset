@@ -9,6 +9,60 @@ const test = require('node:test');
 
 const backupMgtPath = path.resolve(__dirname, '..', '..', 'common', 'BackupMgt.ps1');
 
+test('BC Data OnPrem inspection uses the real remoting helper and closes sessions on failure', () => {
+  for (const scenario of ['success', 'inspection-failure', 'connection-failure']) {
+    const script = `
+      $ErrorActionPreference = 'Stop'
+      . ${quotePowerShell(backupMgtPath)}
+      . ${quotePowerShell(path.resolve(__dirname, '../../common/PublishApps.ps1'))}
+      . ${quotePowerShell(path.resolve(__dirname, '../../common/BcDataMgt.ps1'))}
+      $script:calls = [collections.generic.list[string]]::new()
+      function Test-IsLocalSqlServer { $false }
+      function Get-ConfigurationCredential { $null }
+      function Test-RemotingAgentWorkflow { $true }
+      function New-PSSession {
+        param($ComputerName, $ErrorAction)
+        $script:calls.Add('connect:' + $ComputerName)
+        ${scenario === 'connection-failure' ? "throw 'Connection failed'" : "'session'"}
+      }
+      function Initialize-RemoteOnPremManagement {
+        param($Session, $ServerInstance, $RequiredCommands)
+        $script:calls.Add('management:' + $ServerInstance + ':' + $RequiredCommands[0])
+      }
+      function Invoke-Command {
+        param($Session, $ErrorAction, $ArgumentList, $ScriptBlock)
+        $script:calls.Add('inspect:' + $ArgumentList[0] + ':' + $ArgumentList[1])
+        ${scenario === 'inspection-failure' ? "throw 'Inspection failed'" : "[pscustomobject]@{ Name='Base Application'; IsInstalled=$true }"}
+      }
+      function Remove-PSSession { param($Session) $script:calls.Add('close:' + $Session) }
+      $failure = $null
+      $apps = @()
+      try {
+        $apps = @(Get-BcDataOnPremApps -Configuration ([pscustomobject]@{
+          name='taopaipai'; serverType='OnPrem'; server='http://taopaipai:8080/BC230';
+          serverInstance='BC230'; authentication='Windows'; useManagementCredentials='currentWindows';
+          bcData=@{baseUrl='http://taopaipai:8048/BC230/ODataV4'}
+        }) -SettingsJSON ([pscustomobject]@{}))
+      } catch { $failure = $_.Exception.Message }
+      @{ Calls=@($script:calls); Failure=$failure; AppCount=$apps.Count } | ConvertTo-Json -Compress
+    `;
+    const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 30000, windowsHide: true });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stderr);
+    const output = JSON.parse(result.stdout);
+    assert.deepEqual(output.Calls, scenario === 'connection-failure'
+      ? ['connect:taopaipai']
+      : ['connect:taopaipai', 'management:BC230:Get-NAVAppInfo', 'inspect:BC230:default', 'close:session']);
+    assert.equal(output.AppCount, scenario === 'success' ? 1 : 0);
+    if (scenario === 'success') assert.equal(output.Failure, null);
+    else if (scenario === 'inspection-failure') assert.equal(output.Failure, 'Inspection failed');
+    else {
+      assert.match(output.Failure, /BC Data initialization failed: the management WinRM connection could not be established using currentWindows/);
+      assert.match(output.Failure, /No alternate identity was attempted/);
+    }
+  }
+});
+
 test('remoting recovery cancels cleanly or repairs and retries with explicit credentials', () => {
   for (const repair of [false, true]) {
     const script = `
@@ -43,6 +97,23 @@ test('remoting recovery cancels cleanly or repairs and retries with explicit cre
       ? { Session: 'connected', Repairs: 1, Attempts: 2 }
       : { Cancelled: true, Repairs: 0, Attempts: 1 });
   }
+});
+
+test('backup remoting retains its remote credential rules independently of publishing and data selectors', () => {
+  const script = `
+    $ErrorActionPreference='Stop'
+    . ${quotePowerShell(backupMgtPath)}
+    function Get-ConfigurationCredential {
+      param($configuration,$kind)
+      if($kind -ne 'remote'){throw 'Backup changed its credential purpose'}
+      [pscredential]::new('backup-remote',(ConvertTo-SecureString 'synthetic' -AsPlainText -Force))
+    }
+    function New-PSSession { param($ComputerName,$Credential) @{Host=$ComputerName;User=$Credential.UserName} }
+    New-RemoteBackupSession -computerName 'backup-host' -configuration ([pscustomobject]@{useManagementCredentials='bc';useDataCredentials='currentWindows';remoteCredential=$true})|ConvertTo-Json -Compress
+  `;
+  const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 30000, windowsHide: true });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { Host: 'backup-host', User: 'backup-remote' });
 });
 
 test('successful remote sessions are returned without recovery actions', () => {

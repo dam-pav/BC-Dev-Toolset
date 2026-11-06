@@ -42,7 +42,7 @@ const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
 const mcpServerDefinitionRevision = 44;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 57;
+const runtimeToolsetRevision = 61;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -984,7 +984,7 @@ async function signInBcData() {
   }
 }
 
-async function readBcDataStoredCredential({ container, configuration }) {
+async function readBcDataStoredCredential({ container, configuration, kind = 'bc' }) {
   const provider = getBcDataCredentialProvider();
   if (!configuration) return provider.read(container);
   // The selected workspace authorizes this fixed credential-scope file. Only
@@ -993,7 +993,7 @@ async function readBcDataStoredCredential({ container, configuration }) {
   const scopePath = resolveWithinRoot(root, '.bcdevtoolset', 'credential-scope.json');
   const scope = JSON.parse(fs.readFileSync(scopePath, 'utf8')); // nosemgrep -- fixed scope file confined to the selected workspace root above
   if (typeof scope.id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(scope.id)) throw new Error('Invalid credential scope.');
-  return provider.readConfiguration(configuration, scope.id);
+  return provider.readConfiguration(configuration, scope.id, kind);
 }
 
 function getMcpToolConfiguration() {

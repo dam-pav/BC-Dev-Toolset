@@ -5,10 +5,11 @@ const { spawn } = require('node:child_process');
 const { authorizeRoot, resolveWithinRoot } = require('./path-security');
 
 class DataCredentialError extends Error {
-  constructor(category = 'credential_unavailable') {
+  constructor(category = 'credential_unavailable', kind = 'bc') {
+    const label = kind === 'remote' ? 'remote' : 'BC';
     super(category === 'credential_missing'
-      ? 'Stored BC credentials are missing. Use Configure stored credentials for this configuration; plaintext settings are ignored.'
-      : 'Stored BC credentials could not be read. Check Windows Credential Manager and the configured PowerShell executable; plaintext settings are ignored.');
+      ? `Stored ${label} credentials are missing. Use Configure stored credentials for this configuration; plaintext settings are ignored.`
+      : `Stored ${label} credentials could not be read. Check Windows Credential Manager and the configured PowerShell executable; plaintext settings are ignored.`);
     this.name = 'DataCredentialError';
     this.category = category;
   }
@@ -28,7 +29,7 @@ function createCredentialProvider({ toolsetRoot, powershellExecutable = 'pwsh', 
     if (!current || current.stopped) return;
     current.stopped = true;
     if (worker === current) worker = undefined;
-    for (const pending of current.pending.values()) { clearTimeout(pending.timer); pending.reject(pending.http ? new DataTransportError('connection_failure') : new DataCredentialError()); }
+    for (const pending of current.pending.values()) { clearTimeout(pending.timer); pending.reject(pending.http ? new DataTransportError('connection_failure') : new DataCredentialError('credential_unavailable', pending.kind)); }
     current.pending.clear();
     current.output = '';
     try { current.child.kill(); } catch { /* Worker already exited; pending calls are rejected above. */ }
@@ -56,7 +57,7 @@ function createCredentialProvider({ toolsetRoot, powershellExecutable = 'pwsh', 
         const pending = current.pending.get(reply?.id);
         if (!pending) { stop(current); return; }
         const keys = Object.keys(reply);
-        const failed = keys.length === 2 && keys.includes('error') && ['credential_missing', 'credential_unavailable', 'transport_failure'].includes(reply.error);
+        const failed = keys.length === 2 && keys.includes('error') && ['credential_missing', 'credential_unavailable', 'transport_failure', 'authentication_failure'].includes(reply.error);
         const success = !pending.http && keys.length === 3 && keys.includes('username') && keys.includes('password') &&
           typeof reply.username === 'string' && reply.username.length > 0 && reply.username.length <= 513 && !reply.username.includes(':') &&
           typeof reply.password === 'string' && reply.password.length > 0 && reply.password.length <= 1280;
@@ -64,7 +65,7 @@ function createCredentialProvider({ toolsetRoot, powershellExecutable = 'pwsh', 
         if (!failed && !success && !http) { stop(current); return; }
         current.pending.delete(reply.id);
         clearTimeout(pending.timer);
-        if (failed) pending.reject(pending.http ? new DataTransportError('connection_failure') : new DataCredentialError(reply.error));
+        if (failed) pending.reject(pending.http ? new DataTransportError(reply.error === 'authentication_failure' ? 'authentication_failure' : 'connection_failure') : new DataCredentialError(reply.error, pending.kind));
         else if (http) pending.resolve({ status: reply.status, body: Buffer.from(reply.body, 'base64') });
         else pending.resolve({ username: reply.username, password: reply.password });
       }
@@ -76,23 +77,23 @@ function createCredentialProvider({ toolsetRoot, powershellExecutable = 'pwsh', 
     child.on('close', () => stop(current));
     return current;
   }
-  function exchange(payload, http = false) {
+  function exchange(payload, http = false, kind = 'bc') {
       let current;
-      try { current = worker || start(); } catch { return Promise.reject(http ? new DataTransportError('connection_failure') : new DataCredentialError()); }
+      try { current = worker || start(); } catch { return Promise.reject(http ? new DataTransportError('connection_failure') : new DataCredentialError('credential_unavailable', kind)); }
       if (current.pending.size >= 16) return Promise.reject(new DataCredentialError());
       return new Promise((resolve, reject) => {
         const id = crypto.randomUUID();
         const timer = setTimeout(() => stop(current), http ? 35000 : timeoutMs);
-        current.pending.set(id, { resolve, reject, timer, http });
+        current.pending.set(id, { resolve, reject, timer, http, kind });
         try { current.child.stdin.write(JSON.stringify({ id, ...payload }) + '\n'); }
         catch { stop(current); }
       });
   }
   return {
     request(request) { return exchange({ http: request }, true); },
-    readConfiguration(configuration, projectScope) {
-      if (!configuration || configuration.serverType !== 'OnPrem' || typeof projectScope !== 'string' || !/^[0-9a-f-]{36}$/i.test(projectScope)) return Promise.reject(new DataCredentialError());
-      return exchange({ configuration, projectScope });
+    readConfiguration(configuration, projectScope, kind = 'bc') {
+      if (!configuration || configuration.serverType !== 'OnPrem' || !['bc', 'remote'].includes(kind) || typeof projectScope !== 'string' || !/^[0-9a-f-]{36}$/i.test(projectScope)) return Promise.reject(new DataCredentialError());
+      return exchange({ configuration, projectScope, ...(kind === 'remote' ? { kind } : {}) }, false, kind);
     },
     read(container) {
       if (typeof container !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(container)) return Promise.reject(new DataCredentialError());

@@ -10,7 +10,9 @@ function run(body) {
     $ErrorActionPreference='Stop'
     . ${quote(path.join(common, 'BackupMgt.ps1'))}
     . ${quote(path.join(common, 'BcDataMgt.ps1'))}
-    $config=[pscustomobject]@{name='Remote';serverType='OnPrem';server='bc.example';managementServer='admin.example';serverInstance='BC';authentication='Windows'}
+    $script:output=@()
+    function Write-Host { param($Object,$ForegroundColor) $script:output += [string]$Object }
+    $config=[pscustomobject]@{name='Remote';serverType='OnPrem';server='bc.example';managementServer='admin.example';serverInstance='BC';authentication='Windows';useManagementCredentials='currentWindows';useDataCredentials='currentWindows'}
     $settings=[pscustomobject]@{PublicODataBaseUrl='';ODataServicesPort='7448';ODataServicesSSLEnabled='true';ODataServicesEnabled='true';ODataServicesV4EndpointEnabled='true'}
     ${body}
   `], { encoding: 'utf8', timeout: 30000, windowsHide: true });
@@ -56,7 +58,7 @@ test('remote OData discovery uses existing administrative session, selected inst
   const result = run(`
     $script:closed=0;$script:keys=@();$script:fail=$false
     function Test-IsLocalSqlServer { $false }
-    function New-RemoteBackupSession { param($computerName,$configuration)
+    function New-SelectedManagementSession { param($computerName,$configuration)
       if($computerName -ne 'admin.example' -or $configuration.name -ne 'Remote'){throw 'Wrong connection'}
       'session'
     }
@@ -72,13 +74,15 @@ test('remote OData discovery uses existing administrative session, selected inst
     $found=Get-BcDataODataSettings $config
     $script:fail=$true
     try { Initialize-BcDataBaseUrl $config;throw 'Unexpected continuation' } catch { $message=$_.Exception.Message }
-    @{settings=$found;keys=$script:keys;closed=$script:closed;message=$message}|ConvertTo-Json -Depth 10 -Compress
+    @{settings=$found;keys=$script:keys;closed=$script:closed;message=$message;output=$script:output}|ConvertTo-Json -Depth 10 -Compress
   `);
   assert.equal(result.settings.ODataServicesPort, '7448');
   assert.deepEqual(result.keys.slice(0, 5), ['PublicODataBaseUrl', 'ODataServicesPort', 'ODataServicesSSLEnabled', 'ODataServicesEnabled', 'ODataServicesV4EndpointEnabled']);
   assert.equal(result.closed, 2);
   assert.match(result.message, /discovery failed before deployment/);
   assert.doesNotMatch(result.message, /synthetic backend secret/);
+  assert.match(result.output.join('\n'), /no bcData.baseUrl found.*Starting OData discovery/);
+  assert.doesNotMatch(result.output.join('\n'), /resolved and validated|baseUrl saved|request succeeded|synthetic backend secret/);
 });
 
 test('initialization persists discovered URL in original configuration while preserving BC Data permissions and explicit overrides', () => {
@@ -95,19 +99,25 @@ test('initialization persists discovered URL in original configuration while pre
       $saved=([IO.File]::ReadAllText($file)|ConvertFrom-Json).configurations[0].bcData
       function Get-BcDataODataSettings { throw 'Explicit URL must skip discovery' }
       Initialize-BcDataBaseUrl $config
-      @{saved=$saved;memory=$config.bcData}|ConvertTo-Json -Depth 10 -Compress
+      @{saved=$saved;memory=$config.bcData;output=$script:output}|ConvertTo-Json -Depth 10 -Compress
     } finally { Remove-Item -LiteralPath $file -Force; Remove-Item -LiteralPath $root -Force }
   `);
   const expected = { tenant: 'one', allowedMutationOperations: ['insert'], baseUrl: 'https://bc.example:7448/BC/ODataV4' };
   assert.deepEqual(result.saved, expected);
   assert.deepEqual(result.memory, expected);
+  assert.match(result.output.join('\n'), /no bcData.baseUrl found.*Starting OData discovery/);
+  assert.match(result.output.join('\n'), /discovery resolved and validated https:\/\/bc.example:7448\/BC\/ODataV4/);
+  assert.match(result.output.join('\n'), /discovered bcData.baseUrl saved/);
+  assert.match(result.output.join('\n'), /existing bcData.baseUrl found; OData discovery skipped/);
+  assert.match(result.output.join('\n'), /using configured OData endpoint https:\/\/bc.example:7448\/BC\/ODataV4/);
+  assert.doesNotMatch(result.output.join('\n'), /attempting OData readiness request|request succeeded/);
 });
 
 test('local discovery unwraps values and initialization stops before package or deployment work when OData is disabled', () => {
   const result = run(`
     function Test-IsLocalSqlServer { $true }
     function Import-BcServiceBackupDiscoveryModules {}
-    function New-RemoteBackupSession { throw 'Unexpected remote connection' }
+    function New-SelectedManagementSession { throw 'Unexpected remote connection' }
     function Get-NAVServerConfiguration {
       [CmdletBinding()]param($ServerInstance,$KeyName)
       [pscustomobject]@{Value=$settings.$KeyName}
@@ -162,6 +172,7 @@ test('missing stored remote credentials retain their safe recovery guidance thro
     $env:OS='Windows_NT'
     Add-Type 'namespace BcDevToolset { public static class CredentialStore { public static object Read(string target) { return null; } } }'
     $config|Add-Member NoteProperty remoteCredential $true
+    $config.useManagementCredentials='remote'
     $script:connections=0
     function Get-ConfigurationCredentialTarget { 'fixture' }
     function Test-IsLocalSqlServer { $false }

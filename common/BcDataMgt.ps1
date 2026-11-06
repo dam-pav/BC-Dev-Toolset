@@ -1,5 +1,6 @@
 . (Join-Path $PSScriptRoot 'BcDataPackage.ps1')
 . (Join-Path $PSScriptRoot 'PublishingDiagnostics.ps1')
+. (Join-Path $PSScriptRoot 'EndpointCredentials.ps1')
 
 function Select-BcDataInitializationConfiguration {
     param($SettingsJSON)
@@ -68,8 +69,10 @@ function Get-BcDataODataSettings {
     param($Configuration, $SettingsJSON)
     $keys = @('PublicODataBaseUrl','ODataServicesPort','ODataServicesSSLEnabled','ODataServicesEnabled','ODataServicesV4EndpointEnabled')
     $hostName = if ($Configuration.managementServer) { $Configuration.managementServer } else { Get-RemoteComputerNameFromServer -server $Configuration.server }
-    if (-not (Test-IsLocalSqlServer -databaseServer $hostName)) {
-        return Get-BcServiceDatabaseInfoRemote -computerName $hostName -serverInstance $Configuration.serverInstance -configuration $Configuration -configurationKeys $keys
+    if (-not (Test-IsLocalSqlServer -databaseServer $hostName) -or (Test-ManagementIdentityRequiresRemoting $Configuration)) {
+        return Get-BcServiceDatabaseInfoRemote -computerName $hostName -serverInstance $Configuration.serverInstance -configuration $Configuration -configurationKeys $keys -SessionFactory {
+            New-SelectedManagementSession -ComputerName $hostName -Configuration $Configuration -OperationName 'BC Data discovery'
+        }
     }
     if (-not (Get-Command Get-NAVServerConfiguration -ErrorAction SilentlyContinue)) {
         . (Join-Path $PSScriptRoot 'PublishApps.ps1')
@@ -111,18 +114,28 @@ function Resolve-BcDataDiscoveredBaseUrl {
 
 function Initialize-BcDataBaseUrl {
     param($Configuration, $SettingsJSON)
-    if ($Configuration.serverType -ne 'OnPrem' -or -not [string]::IsNullOrWhiteSpace([string]$Configuration.bcData.baseUrl)) { return }
+    if ($Configuration.serverType -ne 'OnPrem') { return }
+    if (-not [string]::IsNullOrWhiteSpace([string]$Configuration.bcData.baseUrl)) {
+        Write-Host 'BC Data: existing bcData.baseUrl found; OData discovery skipped. Validating the configured endpoint.'
+        $endpoint = Get-BcDataEndpoint -Configuration $Configuration
+        Write-Host "BC Data: using configured OData endpoint $($endpoint.BaseUrl). Readiness will be attempted after app inspection/deployment."
+        return
+    }
+    Write-Host 'BC Data: no bcData.baseUrl found. Starting OData discovery from the selected BC service configuration; no endpoint request has been attempted.'
     try { $settings = Get-BcDataODataSettings -Configuration $Configuration -SettingsJSON $SettingsJSON }
     catch {
         if ($_.Exception.Data['BcDevToolsetExpectedFailure']) { throw }
         throw (New-BcExpectedFailure -Stage 'OData discovery' -Message 'BC Data OData discovery failed before deployment; the cause could not be safely classified. Check managementServer, WinRM credentials and the selected service administration tools, or configure bcData.baseUrl explicitly. No settings were changed.')
     }
     $baseUrl = Resolve-BcDataDiscoveredBaseUrl -Configuration $Configuration -Settings $settings
+    Write-Host "BC Data: OData discovery resolved and validated $baseUrl. Saving bcData.baseUrl in the original configuration."
     try { $match = Find-BcConfigurationDocument -configuration $Configuration }
     catch { throw (New-BcExpectedFailure -Stage 'OData settings persistence' -Message 'Could not locate a unique, readable original configuration for OData discovery. Check the configuration name and settings file access. No companion was deployed and no settings were changed.') }
     # Preserve a value added while the administrative connection was running.
     if (-not [string]::IsNullOrWhiteSpace([string]$match.Configuration.bcData.baseUrl)) {
         $Configuration | Add-Member NoteProperty bcData $match.Configuration.bcData -Force
+        $endpoint = Get-BcDataEndpoint -Configuration $Configuration
+        Write-Host "BC Data: bcData.baseUrl was added during discovery; preserving and using $($endpoint.BaseUrl). The discovered URL was not saved."
         return
     }
     if ($null -eq $match.Configuration.bcData) { $match.Configuration | Add-Member NoteProperty bcData ([pscustomobject]@{}) }
@@ -135,6 +148,7 @@ function Initialize-BcDataBaseUrl {
     try { [IO.File]::WriteAllText($match.Path, ($match.Document | ConvertTo-Json -Depth 100) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false)) }
     catch { throw (New-BcExpectedFailure -Stage 'OData settings persistence' -Message 'Could not save the discovered bcData.baseUrl. No companion was deployed. Inspect the configuration file before retrying initialization.') }
     $Configuration | Add-Member NoteProperty bcData $match.Configuration.bcData -Force
+    Write-Host 'BC Data: discovered bcData.baseUrl saved. Readiness will be attempted after app inspection/deployment.'
 }
 
 function Get-BcDataEndpoint {
@@ -173,8 +187,40 @@ function Get-BcDataEndpoint {
     return [pscustomobject]@{ BaseUrl = $baseUrl; Tenant = $tenant }
 }
 
+function Get-BcDataReadinessTransportReason {
+    param([Exception] $Exception)
+    # Use typed runtime categories only. Exception messages can contain backend
+    # payloads or credentials and must never become user-facing diagnostics.
+    $cause = $Exception
+    for ($depth = 0; $null -ne $cause -and $depth -lt 8; $depth++) {
+        if ($cause -is [Net.Http.HttpRequestException]) {
+            switch ([string]$cause.HttpRequestError) {
+                'UserAuthenticationError' { return 'OData authentication negotiation failed (.NET UserAuthenticationError). Check the selected Windows identity, BC access and the service authentication configuration.' }
+                'NameResolutionError' { return 'The OData hostname could not be resolved (.NET NameResolutionError). Check the endpoint hostname and DNS.' }
+                'ConnectionError' { return 'The OData connection failed (.NET ConnectionError). Check the listener, port, firewall and network access.' }
+                'SecureConnectionError' { return 'The OData TLS connection failed (.NET SecureConnectionError). Check HTTPS configuration, certificate trust and the endpoint hostname.' }
+                'ResponseEnded' { return 'The OData response ended prematurely (.NET ResponseEnded). Check the BC listener and any intermediary closing the connection.' }
+            }
+        }
+        if ($cause -is [OperationCanceledException]) { return 'The OData request was cancelled or timed out. Check OData service responsiveness and network connectivity.' }
+        $cause = $cause.InnerException
+    }
+    return 'The OData request could not complete. Check DNS, connectivity, TLS and the OData listener; the transport failure cause is unknown.'
+}
+
+function Get-BcDataODataCredential {
+    param($Configuration)
+    if ($Configuration.serverType -eq 'OnPrem') {
+        return (Get-SelectedEndpointCredential -Configuration $Configuration -Purpose data -AllowCurrentWindows ($Configuration.authentication -eq 'Windows')).Credential
+    }
+    if ($Configuration.authentication -ne 'Windows' -or $Configuration.bcCredential -eq $true -or $Configuration.bcUser) {
+        return Get-BcConfigurationCredential -configuration $Configuration
+    }
+    return $null
+}
+
 function Get-BcDataInitializationReadiness {
-    param($Configuration, [pscredential] $Credential, $Expected, [string] $AccessToken)
+    param($Configuration, [pscredential] $Credential, $Expected, [string] $AccessToken, [ValidateSet('bc','remote','currentWindows')][string] $IdentityKind)
     $endpoint = Get-BcDataEndpoint -Configuration $Configuration
     $handler = [Net.Http.HttpClientHandler]::new()
     $handler.AllowAutoRedirect = $false
@@ -202,11 +248,30 @@ function Get-BcDataInitializationReadiness {
     $request.Headers.TryAddWithoutValidation('Accept-Encoding','identity') | Out-Null
     $request.Content = [Net.Http.StringContent]::new('{"inputJson":"{}"}', [Text.Encoding]::UTF8, 'application/json')
     $response = $null
+    $status = 0
+    $reason = 'The OData request could not complete. Check DNS, connectivity, TLS and the OData listener; a timeout or transport failure may have occurred.'
     try {
         $response = $client.SendAsync($request).GetAwaiter().GetResult()
-        if ([int]$response.StatusCode -ne 200) { throw 'BC Data readiness was rejected. Check companion service registration, credentials and permissions.' }
+        $status = [int]$response.StatusCode
+        if ($status -ne 200) {
+            $reason = switch ($status) {
+                401 {
+                    if ($Configuration.authentication -eq 'Windows' -and -not $Credential) {
+                        'OData authentication was rejected for the current Windows identity. Check useDataCredentials and configure the selected credential set, or grant this identity BC access.'
+                    } else { 'OData authentication was rejected. Check the configured BC credentials and the service authentication mode.' }
+                }
+                403 { 'OData access was forbidden. Check the BC identity, BCD DATA permission set and execute permission on the BCDData service.' }
+                404 { 'The OData readiness endpoint was not found. Check bcData.baseUrl, the selected tenant, OData V4 enablement and the published BCDData service.' }
+                { $_ -ge 300 -and $_ -lt 400 } { 'The OData endpoint returned a redirect, which was not followed. Configure bcData.baseUrl with the final OData V4 endpoint.' }
+                429 { 'OData throttled the readiness request. Wait for the service retry window before explicitly checking readiness again.' }
+                default { 'OData rejected the readiness request. Check BC service health, the BCDData service registration and BC server diagnostics.' }
+            }
+            throw 'Readiness HTTP failure.'
+        }
+        $reason = 'OData returned an invalid readiness response. Check that bcData.baseUrl targets the BC OData V4 service and BCDData exposes the companion readiness action.'
         $envelope = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult() | ConvertFrom-Json -ErrorAction Stop
         $readiness = $envelope.value | ConvertFrom-Json -ErrorAction Stop
+        $reason = 'The companion readiness contract, version or capabilities are incompatible. Inspect the installed BC Dev Toolset Data version and the BCDData service binding before attempting another deployment.'
         if (($readiness.contractVersion -isnot [int] -and $readiness.contractVersion -isnot [long]) -or
             $readiness.contractVersion -ne $Expected.contractVersion -or $readiness.mutationsEnabled -isnot [bool] -or
             ($Expected.mutationsEnabled -eq $true -and ($readiness.mutationsEnabled -ne $true -or $readiness.mutationProtocolVersion -ne 1 -or
@@ -218,7 +283,18 @@ function Get-BcDataInitializationReadiness {
         return $readiness
     } catch {
         # Never surface raw HTTP/BC exception text or credentials into a transcript.
-        throw 'BC Data readiness verification failed. Check service BCDData, compatible contract 1, endpoint, credentials and execute/table permissions. No automatic retry was attempted.'
+        if (-not $response) { $reason = Get-BcDataReadinessTransportReason -Exception $_.Exception }
+        $identity = if ($Configuration.authentication -eq 'Windows') {
+            if ($Credential -and $IdentityKind -eq 'remote') { 'OData Windows authentication selected remote credentials.' }
+            elseif ($Credential) { 'OData Windows authentication selected explicit BC credentials.' }
+            else { 'OData Windows authentication selected the current process Windows identity. Check useDataCredentials and configure the selected credential set if impersonation is required.' }
+        } elseif ($AccessToken) { 'OData authentication selected the configured OAuth access token.' }
+        else { 'OData authentication selected explicit BC credentials.' }
+        $http = if ($status) { " HTTP $status." } else { '' }
+        $failure = New-BcExpectedFailure -Stage Readiness -Message "BC Data readiness verification failed.$http $reason $identity"
+        $failure.Data['HttpStatus'] = $status
+        $failure.Data['AuthenticationRejected'] = Test-WindowsEndpointAuthenticationFailure $_.Exception
+        throw $failure
     } finally {
         $password = $null; $basic = $null
         if ($response) { $response.Dispose() }
@@ -229,10 +305,16 @@ function Get-BcDataInitializationReadiness {
 function Initialize-BcDataCompanion {
     param([string] $ToolsetRoot, $Configuration, $SettingsJSON)
     Assert-BcDataConfiguration -Configuration $Configuration
+    $credential = $null
+    if ($Configuration.serverType -eq 'OnPrem') {
+        # Resolve data first so a missing default BC identity stops before OData
+        # discovery, persisted endpoint settings, inspection or deployment.
+        $credential = Get-BcDataODataCredential -Configuration $Configuration
+        Get-SelectedEndpointCredential -Configuration $Configuration -Purpose management | Out-Null
+    }
     Initialize-BcDataBaseUrl -Configuration $Configuration -SettingsJSON $SettingsJSON
     $endpoint = Get-BcDataEndpoint -Configuration $Configuration
     $bundle = Get-ValidatedBcDataPackage -ToolsetRoot $ToolsetRoot
-    $credential = $null
     $authContext = $null
     if ($Configuration.serverType -eq 'Cloud') {
         $authContext = Invoke-BcPublishingStep -Configuration $Configuration -Stage Authentication -Operation 'BC Data initialization' -Action {
@@ -253,8 +335,8 @@ function Initialize-BcDataCompanion {
             Get-BcContainerAppInfo -containerName $Configuration.container -tenant $endpoint.Tenant -tenantSpecificProperties -ErrorAction Stop
         })
     }
-    if ($Configuration.serverType -ne 'Cloud' -and ($Configuration.authentication -ne 'Windows' -or $Configuration.bcCredential -eq $true -or $Configuration.bcUser)) {
-        $credential = Get-BcConfigurationCredential -configuration $Configuration
+    if ($Configuration.serverType -eq 'Container') {
+        $credential = Get-BcDataODataCredential -Configuration $Configuration
     }
     $base = @($apps | Where-Object { $_.Name -eq 'Base Application' -and $_.Publisher -eq 'Microsoft' -and $_.IsInstalled })
     if ($base.Count -ne 1 -or [version]$base[0].Version -lt [version]$bundle.Manifest.application) { throw 'BC Data requires Business Central application 23 or newer.' }
@@ -281,11 +363,14 @@ function Initialize-BcDataCompanion {
         } | Out-Null
     }
     $readinessParameters = @{ Configuration=$Configuration; Credential=$credential; Expected=$bundle.Manifest }
+    if ($Configuration.serverType -eq 'OnPrem') { $readinessParameters.IdentityKind = Get-EndpointCredentialSource -Configuration $Configuration -Purpose data }
     if ($authContext) { $readinessParameters.AccessToken = $authContext.AccessToken }
     $deploymentState = if ($action -eq 'unchanged') { 'NotStarted' } else { 'Returned' }
+    Write-Host "BC Data: attempting OData readiness request using $($endpoint.BaseUrl)."
     $readiness = Invoke-BcPublishingStep -Configuration $Configuration -Stage Readiness -Operation 'BC Data initialization' -DeploymentState $deploymentState -Action {
         Get-BcDataInitializationReadiness @readinessParameters
     }
+    Write-Host 'BC Data: OData readiness request succeeded; companion contract verified.'
     Write-Host "BC Data $action on '$($Configuration.name)': contract $($readiness.contractVersion), app $($readiness.appVersion). MCP tool exposure is configured separately; no tool switches were changed."
     return [pscustomobject]@{ ConnectionId = [string]$Configuration.name; Action = $action; AppVersion = [string]$readiness.appVersion; ContractVersion = $readiness.contractVersion }
 }
@@ -310,12 +395,12 @@ function Get-BcDataOnPremApps {
     param($Configuration, $SettingsJSON)
     $endpoint = Get-BcDataEndpoint -Configuration $Configuration
     $hostName = if ($Configuration.managementServer) { $Configuration.managementServer } else { Get-RemoteComputerNameFromServer -server $Configuration.server }
-    if (Test-IsLocalSqlServer -databaseServer $hostName) {
+    if ((Test-IsLocalSqlServer -databaseServer $hostName) -and -not (Test-ManagementIdentityRequiresRemoting $Configuration)) {
         Initialize-OnPremPublishingManagement -SettingsJSON $SettingsJSON -Configuration $Configuration
         return Get-NAVAppInfo -ServerInstance $Configuration.serverInstance -Tenant $endpoint.Tenant -TenantSpecificProperties -ErrorAction Stop
     }
     if ([string]$hostName -notmatch '^[a-zA-Z0-9][a-zA-Z0-9.:-]*$') { throw 'BC Data requires a valid OnPrem management hostname.' }
-    $session = New-RemoteBackupSession -computerName $hostName -configuration $Configuration -OperationName 'BC Data initialization'
+    $session = New-SelectedManagementSession -computerName $hostName -configuration $Configuration -OperationName 'BC Data initialization'
     try {
         Initialize-RemoteOnPremManagement -Session $session -ServerInstance $Configuration.serverInstance -RequiredCommands @('Get-NAVAppInfo')
         Invoke-Command -Session $session -ErrorAction Stop -ArgumentList $Configuration.serverInstance,$endpoint.Tenant -ScriptBlock {
@@ -329,7 +414,7 @@ function Publish-BcDataOnPremCompanion {
     param($Configuration, $SettingsJSON, $Bundle, [bool] $Upgrade)
     $endpoint = Get-BcDataEndpoint -Configuration $Configuration
     $hostName = if ($Configuration.managementServer) { $Configuration.managementServer } else { Get-RemoteComputerNameFromServer -server $Configuration.server }
-    if (-not (Test-IsLocalSqlServer -databaseServer $hostName)) {
+    if (-not (Test-IsLocalSqlServer -databaseServer $hostName) -or (Test-ManagementIdentityRequiresRemoting $Configuration)) {
         # Reuse the confined remote staging, tenant install/upgrade and cleanup path.
         $selected = @{}
         if ($Configuration -is [System.Collections.IDictionary]) {

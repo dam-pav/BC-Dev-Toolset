@@ -21,9 +21,19 @@ function Invoke-BcPublishingStep {
     try { & $Action }
     catch {
         $status = 0
+        $safeDetail = ''
+        $remotingCode = $null
         $cause = $_.Exception
         for ($depth = 0; $null -ne $cause -and $depth -lt 8; $depth++) {
-            foreach ($candidate in @($cause.Response.StatusCode, $cause.StatusCode)) {
+            # Authentication can fail inside inspection/publishing; preserve its
+            # reviewed Toolset guidance as well as same-stage diagnostics.
+            if ($cause.Data['BcDevToolsetExpectedFailure'] -eq $true -and $cause.Data['Stage'] -in @($Stage,'Authentication') -and -not $safeDetail) {
+                $safeDetail = $cause.Message
+                if ([string]$cause.Data['RemotingErrorCode'] -cmatch '^0x[0-9A-F]{8}$') { $remotingCode = $cause.Data['RemotingErrorCode'] }
+                $reviewedStatus = 0
+                if ([int]::TryParse([string]$cause.Data['HttpStatus'], [ref]$reviewedStatus) -and $reviewedStatus -ge 100 -and $reviewedStatus -le 599) { $status = $reviewedStatus }
+            }
+            foreach ($candidate in @($cause.Response.StatusCode, $cause.StatusCode, $cause.Data['HttpStatus'])) {
                 $code = 0
                 if ([int]::TryParse([string]$candidate, [ref]$code) -and $code -ge 400 -and $code -le 599) { $status = $code }
                 elseif ($null -ne $candidate.value__ -and [int]$candidate.value__ -ge 400 -and [int]$candidate.value__ -le 599) { $status = [int]$candidate.value__ }
@@ -58,11 +68,13 @@ function Invoke-BcPublishingStep {
             default { 'No app was submitted by this step.' }
         }
         if ($Stage -eq 'Readiness') { $guidance = 'Check for an incompatible companion contract, service BCDData registration, the OData endpoint, credentials and execute/table permissions.' }
-        $http = if ($status) { " HTTP $status." } else { '' }
+        if ($safeDetail) { $guidance = $safeDetail }
+        $http = if ($status -and -not $safeDetail) { " HTTP $status." } else { '' }
         $failure = New-BcExpectedFailure -Stage $Stage -Message "$Operation failed during $Stage ($target).$http $guidance $targetGuidance $stateGuidance No automatic retry or alternate deployment was attempted."
         $failure.Data['Stage'] = $Stage
         $failure.Data['HttpStatus'] = $status
         $failure.Data['DeploymentState'] = $DeploymentState
+        if ($remotingCode) { $failure.Data['RemotingErrorCode'] = $remotingCode }
         throw $failure
     }
 }

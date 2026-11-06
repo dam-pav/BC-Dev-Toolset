@@ -4,6 +4,28 @@ const test = require('node:test');
 const localSettings = require('../schemas/bcdevtoolset-settings.schema.json');
 const extension = require('../package.json');
 
+test('credential selectors are configuration-level fields with matching defaults and no automatic option', () => {
+  const shared = extension.contributes.configuration.flatMap(group => Object.values(group.properties || {}))
+    .find(property => property.properties?.configurations).properties.configurations.items;
+  for (const [key, expectedDefault] of [['useManagementCredentials', 'remote'], ['useDataCredentials', 'bc']]) {
+    const definition = localSettings.definitions.configuration.properties[key];
+    assert.deepEqual(shared.properties[key], definition);
+    assert.equal(definition.default, expectedDefault);
+    assert.equal(definition.type, 'string');
+    assert.deepEqual(definition.enum, ['bc', 'remote', 'currentWindows']);
+  }
+  assert.equal(localSettings.definitions.configuration.properties.credentialSources, undefined);
+  for (const configuration of [localSettings.definitions.configuration, shared]) {
+    assert.equal(configuration.properties.bcUser.type, 'string');
+    assert.equal(configuration.properties.bcPassword.type, 'string');
+    const containerOnly = configuration.allOf?.find(rule => rule.if?.not?.properties?.serverType?.const === 'Container');
+    assert.equal(containerOnly?.then?.properties?.bcUser, undefined);
+    assert.equal(containerOnly?.then?.properties?.bcPassword, undefined);
+  }
+  const restriction = localSettings.definitions.configuration.allOf.find(rule => rule.then?.properties?.bcUser?.errorMessage === 'Field "bcUser" is valid only for Container or OnPrem targets.');
+  assert.deepEqual(restriction.if.not.properties.serverType.enum, ['Container', 'OnPrem']);
+});
+
 test('OnPrem port accepts strings and valid numeric TCP ports in local and shared settings', () => {
   const sharedConfiguration = extension.contributes.configuration
     .flatMap(group => Object.values(group.properties || {}))

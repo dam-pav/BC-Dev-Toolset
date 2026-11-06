@@ -1195,12 +1195,13 @@ function Get-BcServiceDatabaseInfoRemote {
         [string] $serverInstance,
         [Parameter(Mandatory=$true)]
         [PSObject] $configuration,
-        [string[]] $configurationKeys
+        [string[]] $configurationKeys,
+        [scriptblock] $SessionFactory
     )
 
-    $session = New-RemoteBackupSession `
+    $session = if ($SessionFactory) { & $SessionFactory } else { New-RemoteBackupSession `
         -computerName $computerName `
-        -configuration $configuration
+        -configuration $configuration }
 
     try {
         Invoke-Command -Session $session -ErrorAction Stop -ScriptBlock {
@@ -1407,7 +1408,7 @@ function New-RemoteBackupSession {
         [string] $computerName,
         [Parameter(Mandatory=$true)]
         [PSObject] $configuration,
-        [ValidateSet('Backup', 'Unpublish', 'Dependency publishing')]
+        [ValidateSet('Backup', 'Unpublish', 'Dependency publishing', 'BC Data initialization')]
         [string] $OperationName = 'Backup'
     )
 

@@ -51,23 +51,41 @@ function createDataRuntime({ getConfigurations, getToolSettings, createClient, g
       captured.password = undefined;
       return captured;
     }
-    const container = value.container;
-    if (value.bcCredential === true) {
-      // Stored credentials are scoped to the configured server, so an endpoint
-      // override must not redirect that identity to another host.
-      let endpoint;
-      try { endpoint = new URL(baseUrl); } catch { throw error('invalid_configuration', 'Stored BC credentials require a valid ODataV4 endpoint.'); }
-      if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash ||
-          !endpoint.pathname.endsWith('/ODataV4') || (value.serverType === 'Container' && endpoint.hostname.toLowerCase() !== container.toLowerCase())) {
-        throw error('invalid_configuration', 'Stored BC credentials require an ODataV4 endpoint on the configured server hostname.');
+    const onPrem = value.serverType === 'OnPrem';
+    const source = onPrem ? (value.useDataCredentials === undefined ? 'bc' : value.useDataCredentials) : 'bc';
+    if (!['bc', 'remote', 'currentWindows'].includes(source)) throw error('invalid_configuration', 'useDataCredentials must be bc, remote or currentWindows.');
+    if (source === 'currentWindows') {
+      if (authentication !== 'Windows') throw error('invalid_configuration', 'useDataCredentials currentWindows requires Windows authentication.');
+      captured.username = undefined; captured.password = undefined;
+      return captured;
+    }
+    const flag = value[source + 'Credential'];
+    if (flag !== undefined && typeof flag !== 'boolean') throw error('invalid_configuration', source + 'Credential must be a boolean.');
+    const legacyBc = source === 'bc' && value.bcUser === undefined && value.bcPassword === undefined;
+    captured.username = legacyBc ? value.admin : value[source + 'User'];
+    captured.password = legacyBc ? value.password : value[source + 'Password'];
+    if (flag === true) {
+      const label = source === 'remote' ? 'remote' : 'BC';
+      // Endpoint host authorization is established by resolveDataTarget; container
+      // overrides must also remain on the configured container hostname.
+      const endpoint = new URL(baseUrl);
+      if (value.serverType === 'Container' && endpoint.hostname.toLowerCase() !== value.container.toLowerCase()) {
+        throw error('invalid_configuration', 'Stored BC credentials require an endpoint on the configured container hostname.');
       }
-      if (typeof getStoredCredential !== 'function') throw error('credential_unavailable', 'Stored BC credential support is unavailable. Reload the matching extension host; plaintext settings are ignored.');
-      const credential = await getStoredCredential(value.serverType === 'Container' ? { container } : { configuration: { serverType: value.serverType, server: value.server, managementServer: value.managementServer, serverInstance: value.serverInstance } });
+      if (typeof getStoredCredential !== 'function') throw error('credential_unavailable', `Stored ${label} credential support is unavailable. Reload the matching extension host; no alternate identity was attempted.`);
+      const credential = await getStoredCredential(value.serverType === 'Container' ? { container: value.container } : {
+        configuration: { serverType: value.serverType, server: value.server, managementServer: value.managementServer, serverInstance: value.serverInstance },
+        ...(source === 'remote' ? { kind: source } : {})
+      });
       if (typeof credential?.username !== 'string' || !credential.username || typeof credential.password !== 'string' || !credential.password) {
-        throw error('credential_unavailable', 'Stored BC credentials could not be read; plaintext settings are ignored.');
+        throw error('credential_unavailable', `Selected ${label} credentials could not be read; no alternate identity was attempted.`);
       }
-      captured.username = credential.username;
-      captured.password = credential.password;
+      captured.username = credential.username; captured.password = credential.password;
+    } else if (!onPrem && authentication === 'Windows' && !captured.username && !captured.password) {
+      // The explicit selectors apply to OnPrem; retain container Windows auth.
+      captured.username = undefined; captured.password = undefined;
+    } else if (typeof captured.username !== 'string' || !captured.username || typeof captured.password !== 'string' || !captured.password) {
+      throw error('credential_unavailable', 'Selected data credentials (' + source + ') are missing or incomplete. Configure their username/password or stored credential entry, or explicitly set useDataCredentials to remote or currentWindows as appropriate. No alternate identity was attempted.');
     }
     return captured;
   }

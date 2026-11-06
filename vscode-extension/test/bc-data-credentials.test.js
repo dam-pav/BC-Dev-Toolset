@@ -69,6 +69,19 @@ test('issue 170: project-scoped credentials and Windows HTTP reuse one worker', 
   assert.equal(f.requests.length, 3);
   f.provider.dispose();
 });
+test('remote stored credential selection crosses the private worker protocol and retains its failure source', async () => {
+  const f = fixture();
+  const configuration = { serverType: 'OnPrem', server: 'http://bc.example', serverInstance: 'BC' };
+  const pending = f.provider.readConfiguration(configuration, crypto.randomUUID(), 'remote');
+  assert.equal(f.requests[0].kind, 'remote');
+  f.reply(f.requests[0], { error: 'credential_missing' });
+  await assert.rejects(pending, { category: 'credential_missing', message: /Stored remote credentials are missing/ });
+  assert.equal(f.requests.length, 1);
+  await assert.rejects(f.provider.readConfiguration(configuration, crypto.randomUUID(), 'database'));
+  assert.equal(f.requests.length, 1);
+  f.provider.dispose();
+});
+
 test('credential worker is lazy, private and reused; each read receives the current value', async () => {
   const f = fixture();
   assert.equal(f.starts.length, 0);
@@ -146,6 +159,31 @@ test('invalid container names and excessive concurrency cannot bypass the bounde
   f.provider.dispose();
   assert.ok((await results).every(result => result.status === 'rejected'));
 });
+test('native OnPrem worker reads the selected remote identity without consulting the BC store', { skip: process.platform !== 'win32', timeout: 90000 }, async () => {
+  const scope = crypto.randomUUID();
+  const configuration = { serverType: 'OnPrem', server: 'http://fixture-' + crypto.randomUUID() + '.example', serverInstance: 'BC' };
+  const manager = path.join(root, 'common/CredentialMgt.ps1').replaceAll("'", "''");
+  const configJson = JSON.stringify(configuration).replaceAll("'", "''");
+  const setup = `$ErrorActionPreference='Stop'; . '${manager}'; Initialize-WindowsCredentialStore; $script:credentialProjectScope='${scope}'; $configuration=ConvertFrom-Json '${configJson}'; `;
+  function store(remove = false) {
+    const script = setup + `foreach($kind in @('bc','remote')) { $target=Get-ConfigurationCredentialTarget -configuration $configuration -kind $kind; ` +
+      (remove ? '[BcDevToolset.CredentialStore]::Delete($target)' : "[BcDevToolset.CredentialStore]::Write($target,($kind+'-fixture'),(ConvertTo-SecureString ('synthetic-'+$kind) -AsPlainText -Force))") + ' }';
+    const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', windowsHide: true, timeout: 30000 });
+    assert.equal(result.status, 0, `Synthetic OnPrem credential fixture ${remove ? 'cleanup' : 'setup'} failed.`);
+  }
+  const provider = createCredentialProvider({ toolsetRoot: root });
+  try {
+    store();
+    assert.deepEqual(await provider.readConfiguration(configuration, scope, 'remote'), { username: 'remote-fixture', password: 'synthetic-remote' });
+    assert.deepEqual(await provider.readConfiguration(configuration, scope), { username: 'bc-fixture', password: 'synthetic-bc' });
+    store(true);
+    await assert.rejects(provider.readConfiguration(configuration, scope, 'remote'), { category: 'credential_missing', message: /Stored remote credentials are missing/ });
+  } finally {
+    provider.dispose();
+    store(true);
+  }
+});
+
 test('native helper reuses Toolset credential identity, supports Unicode/rotation and never falls back', { skip: process.platform !== 'win32', timeout: 180000 }, async () => {
   const container = 'fixture-' + crypto.randomUUID();
   const manager = path.join(root, 'common', 'CredentialMgt.ps1').replaceAll("'", "''");

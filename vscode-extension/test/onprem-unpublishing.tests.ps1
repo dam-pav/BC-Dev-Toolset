@@ -12,7 +12,7 @@ function Get-AppJSON { param($scriptPath,$appPath,[ref]$appJSON) $appJSON.Value=
 function Get-AppDependencies { $workspaceApps }
 function Test-IsLocalSqlServer { $false }
 function Initialize-OnPremPublishingManagement { throw 'Remote unpublishing must not require local administration tools' }
-function New-RemoteBackupSession {
+function New-SelectedManagementSession {
     param($computerName,$configuration,$OperationName)
     Assert ($computerName -eq $script:expectedHost -and $configuration.remoteCredential -and $OperationName -eq 'Unpublish') 'Selected host/credential context was not passed to remoting'
     if ($script:scenario -eq 'connect') { throw 'Connection failed' }
