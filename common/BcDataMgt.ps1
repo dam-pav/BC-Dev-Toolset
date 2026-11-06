@@ -220,7 +220,7 @@ function Get-BcDataODataCredential {
 }
 
 function Get-BcDataInitializationReadiness {
-    param($Configuration, [pscredential] $Credential, $Expected, [string] $AccessToken, [string] $CredentialSource)
+    param($Configuration, [pscredential] $Credential, $Expected, [string] $AccessToken, [ValidateSet('bc','remote','currentWindows')][string] $IdentityKind)
     $endpoint = Get-BcDataEndpoint -Configuration $Configuration
     $handler = [Net.Http.HttpClientHandler]::new()
     $handler.AllowAutoRedirect = $false
@@ -285,7 +285,7 @@ function Get-BcDataInitializationReadiness {
         # Never surface raw HTTP/BC exception text or credentials into a transcript.
         if (-not $response) { $reason = Get-BcDataReadinessTransportReason -Exception $_.Exception }
         $identity = if ($Configuration.authentication -eq 'Windows') {
-            if ($Credential -and $CredentialSource -eq 'remote') { 'OData Windows authentication selected remote credentials.' }
+            if ($Credential -and $IdentityKind -eq 'remote') { 'OData Windows authentication selected remote credentials.' }
             elseif ($Credential) { 'OData Windows authentication selected explicit BC credentials.' }
             else { 'OData Windows authentication selected the current process Windows identity. Check useDataCredentials and configure the selected credential set if impersonation is required.' }
         } elseif ($AccessToken) { 'OData authentication selected the configured OAuth access token.' }
@@ -363,7 +363,7 @@ function Initialize-BcDataCompanion {
         } | Out-Null
     }
     $readinessParameters = @{ Configuration=$Configuration; Credential=$credential; Expected=$bundle.Manifest }
-    if ($Configuration.serverType -eq 'OnPrem') { $readinessParameters.CredentialSource = Get-EndpointCredentialSource -Configuration $Configuration -Purpose data }
+    if ($Configuration.serverType -eq 'OnPrem') { $readinessParameters.IdentityKind = Get-EndpointCredentialSource -Configuration $Configuration -Purpose data }
     if ($authContext) { $readinessParameters.AccessToken = $authContext.AccessToken }
     $deploymentState = if ($action -eq 'unchanged') { 'NotStarted' } else { 'Returned' }
     Write-Host "BC Data: attempting OData readiness request using $($endpoint.BaseUrl)."

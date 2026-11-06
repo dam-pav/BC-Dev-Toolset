@@ -99,7 +99,7 @@ test('initialization uses the selected data identity and does not deploy after s
     function Get-BcDataOnPremApps { [pscustomobject]@{Name='Base Application';Publisher='Microsoft';Version='23.0.0.0';IsInstalled=$true} }
     function Get-ConfigurationCredential { param($configuration,$kind) if($script:missing){throw 'private lookup error'}; if($kind -ne 'remote'){throw 'Wrong credential set'}; [pscredential]::new('remote-user',(ConvertTo-SecureString 'synthetic' -AsPlainText -Force)) }
     function Publish-BcDataOnPremCompanion { $script:writes++ }
-    function Get-BcDataInitializationReadiness { param($Configuration,$Credential,$Expected,$CredentialSource) $script:readiness++; if($Credential.UserName -ne 'remote-user' -or $CredentialSource -ne 'remote'){throw 'Wrong OData identity'}; [pscustomobject]@{contractVersion=1;appVersion='0.1.3.0'} }
+    function Get-BcDataInitializationReadiness { param($Configuration,$Credential,$Expected,$IdentityKind) $script:readiness++; if($Credential.UserName -ne 'remote-user' -or $IdentityKind -ne 'remote'){throw 'Wrong OData identity'}; [pscustomobject]@{contractVersion=1;appVersion='0.1.3.0'} }
     $config=[pscustomobject]@{name='Remote';serverType='OnPrem';targetType='Dev';server='http://bc.example';serverInstance='BC';authentication='Windows';useDataCredentials='remote';remoteCredential=$true;bcData=@{baseUrl='http://bc.example:8048/BC/ODataV4'}}
     $results=@()
     foreach($script:missing in @($false,$true)) {
@@ -500,7 +500,8 @@ test('initialization readiness uses exact HTTP/1.0 and validates the actual cont
   t.after(() => server.close());
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdata-readiness-'));
   t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
-  const script = path.join(folder, 'readiness.ps1');
+  const script = resolveWithinRoot(authorizeRoot(folder, 'Owned readiness fixture'), 'readiness.ps1');
+  // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- fixed filename confined to this test's owned temporary root above
   fs.writeFileSync(script, `param([switch]$RequireMutations,[switch]$WindowsIdentity)
     $ErrorActionPreference='Stop'; . ${quote(helper)}
     $config=[pscustomobject]@{container='unused';bcData=[pscustomobject]@{baseUrl='http://127.0.0.1:${server.address().port}/BC/ODataV4';tenant='fixture'}}
@@ -549,7 +550,7 @@ test('initialization readiness uses exact HTTP/1.0 and validates the actual cont
     assert.equal(failure.stage, 'Readiness');
     assert.equal(failure.deploymentState, 'Returned');
     assert.equal(failure.httpStatus, httpStatus);
-    assert.match(failure.error, new RegExp('HTTP ' + httpStatus));
+    assert.ok(failure.error.includes('HTTP ' + httpStatus + '.'), 'Readiness diagnostic must preserve the exact HTTP status');
     assert.match(failure.error, guidance);
     assert.match(failure.error, /Deployment returned, but readiness was not verified/);
     assert.match(failure.error, /No automatic retry or alternate deployment/);

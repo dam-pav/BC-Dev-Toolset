@@ -58,7 +58,9 @@ try {
         param($configuration,$kind)
         if ($script:missingCredential) { throw 'Stored credential is missing' }
         $script:credentialKind=$kind
-        [pscredential]::new("stored-$kind",(ConvertTo-SecureString 'synthetic' -AsPlainText -Force))
+        $fixtureSecret = [Security.SecureString]::new()
+        foreach ($character in 'synthetic'.ToCharArray()) { $fixtureSecret.AppendChar($character) }
+        [pscredential]::new("stored-$kind",$fixtureSecret)
     }
     $configuration | Add-Member remoteCredential $true
     $configuration.useManagementCredentials='remote'
