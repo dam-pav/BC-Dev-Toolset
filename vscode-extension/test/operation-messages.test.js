@@ -220,12 +220,13 @@ for (const success of [true, false]) {
   });
 }
 
-for (const invocation of ['terminal', 'file']) {
-  test(`disabled OData initialization renders guidance without an exception and preserves failure (${invocation})`, (t) => {
+for (const missingData of [false, true]) for (const invocation of ['terminal', 'file']) {
+  test(`initialization ${missingData ? 'missing data credentials' : 'disabled OData'} renders clean guidance and preserves failure (${invocation})`, (t) => {
+    const stage = missingData ? 'Authentication' : 'OData configuration';
     const { root, write } = fixture(t);
     const operation = operations.find(operation => operation.id === 'initializeBcData');
     write('operations/operations.json', JSON.stringify([operation]));
-    for (const relative of [operation.script, 'common/BcDataMgt.ps1', 'common/BcDataPackage.ps1']) {
+    for (const relative of [operation.script, 'common/BcDataMgt.ps1', 'common/BcDataPackage.ps1', 'common/EndpointCredentials.ps1']) {
       write(relative, fs.readFileSync(resolveWithinRoot(repositoryRoot, relative), 'utf8')); // nosemgrep -- contained by repository root
     }
     const workspaceHelper = resolveWithinRoot(root, 'common/WorkspaceMgt.ps1');
@@ -233,7 +234,7 @@ for (const invocation of ['terminal', 'file']) {
     write('common/WorkspaceMgt.ps1', workspaceSource + `
       function Write-Host {
         param($Object, [ConsoleColor]$ForegroundColor)
-        if ($Object -eq 'Initialize BC Data Access failed during OData configuration.') {
+        if ($Object -eq 'Initialize BC Data Access failed during ${stage}.') {
           if ($ForegroundColor -ne [ConsoleColor]::Red) { throw 'Expected failure heading must be red' }
           [Console]::WriteLine('FAILURE HEADING COLOR: Red')
         }
@@ -242,7 +243,7 @@ for (const invocation of ['terminal', 'file']) {
       function Initialize-Context {
         param($scriptPath,[ref]$settingsJSON,[ref]$workspaceJSON)
         $settingsJSON.Value=@{configurations=@(
-          [pscustomobject]@{name='taopaipai';serverType='OnPrem';targetType='Dev';server='bc.example';serverInstance='BC';authentication='Windows'}
+          [pscustomobject]@{name='taopaipai';serverType='OnPrem';targetType='Dev';server='bc.example';serverInstance='BC';authentication='Windows';${missingData ? "remoteUser='remote-fixture';remotePassword='synthetic-remote'" : "useManagementCredentials='currentWindows';useDataCredentials='currentWindows'"}}
         )}
       }
       function Request-BcDevToolsetMcpPrompt { 'taopaipai' }
@@ -277,11 +278,15 @@ for (const invocation of ['terminal', 'file']) {
     assert.equal(result.status, 1, result.stderr || result.stdout);
     assert.equal(result.stderr, '');
     assert.match(result.stdout, /FAILURE HEADING COLOR: Red/);
-    assert.match(result.stdout, /Initialize BC Data Access failed during OData configuration\./);
-    assert.match(result.stdout, /no bcData.baseUrl found.*Starting OData discovery/);
+    assert.ok(result.stdout.includes('Initialize BC Data Access failed during ' + stage + '.'));
+    if (missingData) {
+      assert.match(result.stdout, /Selected data credentials \(bc\) are not configured/);
+      assert.match(result.stdout, /useDataCredentials/);
+      assert.doesNotMatch(result.stdout, /Starting OData discovery|baseUrl saved|attempting OData readiness/);
+    } else assert.match(result.stdout, /no bcData.baseUrl found.*Starting OData discovery/);
     assert.doesNotMatch(result.stdout, /resolved and validated|baseUrl saved|attempting OData readiness request|request succeeded/);
-    assert.match(result.stdout, /Enable ODataServicesEnabled and ODataServicesV4EndpointEnabled/);
-    assert.match(result.stdout, /No companion was deployed[. ]/);
+    if (!missingData) assert.match(result.stdout, /Enable ODataServicesEnabled and ODataServicesV4EndpointEnabled/);
+    if (!missingData) assert.match(result.stdout, /No companion was deployed[. ]/);
     assert.doesNotMatch(result.stdout, /Exception:|Line\s*\||BcDataMgt\.ps1:\d|DONE|UNEXPECTED/);
     if (invocation === 'terminal') assert.match(result.stdout, /CALLER CONTINUES WITH FAILED STATUS AND RESTORED ENVIRONMENT/);
   });
@@ -321,13 +326,13 @@ for (const failure of ['unreadable', 'changed', 'write-failure']) {
     write('operations/operations.json', JSON.stringify([
       { id: 'initializeBcData', title: 'Initialize BC Data Access', script: 'operations/Test.ps1' }
     ]));
-    for (const relative of ['common/BcDataMgt.ps1', 'common/BcDataPackage.ps1']) {
+    for (const relative of ['common/BcDataMgt.ps1', 'common/BcDataPackage.ps1', 'common/EndpointCredentials.ps1']) {
       write(relative, fs.readFileSync(resolveWithinRoot(repositoryRoot, relative), 'utf8')); // nosemgrep -- contained by repository root
     }
     write('settings/config.json', 'original');
     write('operations/Test.ps1', `
       . (Join-Path $PSScriptRoot '../common/BcDataMgt.ps1')
-      $config=[pscustomobject]@{name='Remote';serverType='OnPrem';server='bc.example';serverInstance='BC';authentication='Windows'}
+      $config=[pscustomobject]@{name='Remote';serverType='OnPrem';server='bc.example';serverInstance='BC';authentication='Windows';useManagementCredentials='currentWindows';useDataCredentials='currentWindows'}
       $script:settingsPath=Join-Path $PSScriptRoot '../settings/config.json'
       function Get-BcDataODataSettings {
         [pscustomobject]@{PublicODataBaseUrl='https://bc.example/BC/ODataV4';ODataServicesEnabled='true';ODataServicesV4EndpointEnabled='true'}

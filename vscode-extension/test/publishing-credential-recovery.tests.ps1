@@ -39,44 +39,13 @@ try {
         $script:prompts=0; $script:storagePrompts=0; $script:uploads=0; $script:saves=0
         $script:missing=$true; $script:cancel=$false; $script:failUpload=$false; $script:storageDecision='y'
     }
-    foreach ($kind in @('remote','bc')) {
-        foreach ($authentication in @('Windows','UserPassword')) {
-            if ($kind -eq 'remote' -and $authentication -eq 'UserPassword') { continue }
-            Reset-Scenario
-            $script:expectedKind=$kind
-            $configuration = [pscustomobject]@{name='manual';server='https://bc-host';port=8049;serverInstance='BC230';authentication=$authentication}
-            $configuration | Add-Member "${kind}Credential" $true
-            Publish-OnPremDevelopmentApps $configuration $packages
-            Assert ($script:prompts -eq 1 -and $script:uploads -eq 2 -and $script:saves -eq 1) 'Manual publishing must prompt once, reuse the credential, and offer storage after success'
-        }
-    }
+    # Explicit OnPrem selectors report lookup failure without prompting or trying another identity.
     Reset-Scenario
-    $script:storageDecision='n'
-    Publish-OnPremDevelopmentApps $configuration $packages
-    Assert ($script:uploads -eq 2 -and $script:storagePrompts -eq 1 -and $script:saves -eq 0) 'Declining storage should keep the entered credential session-only'
-
-    foreach ($scenario in @('cancel','upload-failure','agent','noninteractive')) {
-        Reset-Scenario
-        $script:cancel=$scenario -eq 'cancel'; $script:failUpload=$scenario -eq 'upload-failure'
-        $env:BCDEVTOOLSET_MCP_SESSION_ID=if ($scenario -eq 'agent') {'test-agent'} else {''}
-        $env:BCDEVTOOLSET_NON_INTERACTIVE=if ($scenario -eq 'noninteractive') {'true'} else {''}
-        $caught=$false
-        try { Publish-OnPremDevelopmentApps $configuration $packages } catch { $caught=$true }
-        Assert $caught "$scenario must stop publishing"
-        Assert ($script:storagePrompts -eq 0 -and $script:saves -eq 0) "$scenario offered to save an unverified credential"
-        if ($scenario -in @('agent','noninteractive')) {
-            Assert ($script:prompts -eq 0 -and $script:uploads -eq 0) "$scenario must not prompt or upload"
-        } elseif ($scenario -eq 'cancel') {
-            Assert ($script:prompts -eq 1 -and $script:uploads -eq 0) 'Cancelling credential entry must prevent uploads'
-        }
-    }
+    $configuration=[pscustomobject]@{name='manual';server='https://bc-host';port=8049;serverInstance='BC230';authentication='UserPassword';useManagementCredentials='bc';bcCredential=$true}
+    $caught=$false
+    try { Publish-OnPremDevelopmentApps $configuration $packages } catch { $caught=$true }
+    Assert ($caught -and $script:prompts -eq 0 -and $script:uploads -eq 0) 'Explicit credential selection must fail without another identity or upload'
     $env:BCDEVTOOLSET_MCP_SESSION_ID=''; $env:BCDEVTOOLSET_NON_INTERACTIVE=''
-    Reset-Scenario
-    $script:missing=$false
-    Publish-OnPremDevelopmentApps $configuration $packages
-    Assert ($script:prompts -eq 0 -and $script:uploads -eq 2 -and $script:storagePrompts -eq 0) 'Existing stored credentials should not prompt'
-
-    # Container Dev publishing uses the same human recovery and save-after-success rule.
     function Get-SortedApps { @([pscustomobject]@{Name='one';Dependencies=@()},[pscustomobject]@{Name='two';Dependencies=@()}) }
     function Get-PackageParams {
         param($scriptPath,$settingsJSON,$appJSON,$runtime,[ref]$packageName,[ref]$packagePath)

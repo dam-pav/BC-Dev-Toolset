@@ -31,6 +31,86 @@ function fixture(options = {}) {
     }, ...options });
   return { runtime, configurations, requests, get imports() { return imports; }, setSettings: value => { settings = resolveToolSettings(value); } };
 }
+test('OnPrem data selector resolves stored and plaintext sources without identity fallback', async () => {
+  const { DataCredentialError } = require('../bc-data-credentials');
+  for (const source of [undefined, 'bc', 'remote', 'currentWindows']) {
+    for (const storage of ['plain', 'stored', 'missing', 'unconfigured', 'rejected']) {
+      const reads = [], requests = [];
+      const selected = source || 'bc';
+      const f = fixture({ getStoredCredential: async input => {
+        reads.push(input.kind || 'bc');
+        if (storage === 'missing') throw new DataCredentialError('credential_missing', selected);
+        return { username: selected + '-stored', password: 'synthetic-stored' };
+      }, windowsTransport: async request => {
+        requests.push(request);
+        if (storage === 'rejected') return { status: 401, body: Buffer.from('private denial') };
+        const value = request.url.includes('_Readiness') ? { contractVersion: 1, capabilities: ['companies'], mutationsEnabled: false } : { companies: [] };
+        return { status: 200, body: Buffer.from(JSON.stringify({ value: JSON.stringify(value) })) };
+      } });
+      const configuration = { name: 'Remote', serverType: 'OnPrem', targetType: 'Dev', server: 'http://bc.example', serverInstance: 'BC', authentication: 'Windows',
+        ...(source === undefined ? {} : { useDataCredentials: source }), bcData: { baseUrl: 'http://bc.example:8048/BC/ODataV4' } };
+      if (storage !== 'unconfigured') Object.assign(configuration, { bcUser: 'bc-plain', bcPassword: 'synthetic-bc', remoteUser: 'remote-plain', remotePassword: 'synthetic-remote' });
+      if (['stored','missing'].includes(storage) && selected !== 'currentWindows') configuration[selected + 'Credential'] = true;
+      f.configurations.splice(0, 2, configuration);
+      const result = await f.runtime.call('bc_dev_toolset_data_list_companies', { connectionId: 'Remote' });
+      const missing = ['missing', 'unconfigured'].includes(storage) && selected !== 'currentWindows';
+      assert.equal(result.isError, missing || storage === 'rejected', JSON.stringify(result));
+      assert.deepEqual(reads, ['stored','missing'].includes(storage) && selected !== 'currentWindows' ? [selected] : []);
+      assert.equal(requests.length, missing ? 0 : storage === 'rejected' ? 1 : 2);
+      const expectedUser = selected === 'currentWindows' || storage === 'unconfigured' ? undefined : selected + (storage === 'stored' ? '-stored' : '-plain');
+      assert.ok(requests.every(request => request.username === expectedUser));
+      assert.doesNotMatch(JSON.stringify(result), /synthetic-|private denial/);
+    }
+  }
+});
+
+test('container Windows authentication keeps its existing current-identity behavior', async () => {
+  const requests = [];
+  const f = fixture({ windowsTransport: async request => {
+    requests.push(request);
+    const value = request.url.includes('Readiness') ? { contractVersion: 1, capabilities: ['companies'], mutationsEnabled: false } : { companies: [] };
+    return { status: 200, body: Buffer.from(JSON.stringify({ value: JSON.stringify(value) })) };
+  } });
+  f.configurations[0].authentication = 'Windows';
+  delete f.configurations[0].bcUser; delete f.configurations[0].bcPassword;
+  assert.equal((await f.runtime.call('bc_dev_toolset_data_list_companies', { connectionId: 'Test A' })).isError, false);
+  assert.equal(requests.length, 2);
+  assert.ok(requests.every(request => request.username === undefined && request.password === undefined));
+});
+
+test('invalid and incompatible data selectors stop before credentials or HTTP', async () => {
+  const f = fixture({ getStoredCredential: () => assert.fail('invalid selector requested credentials') });
+  f.configurations.splice(0, 2, { name: 'Remote', serverType: 'OnPrem', targetType: 'Dev', server: 'https://bc.example', serverInstance: 'BC', authentication: 'UserPassword',
+    bcUser: 'fixture', bcPassword: 'synthetic', bcData: { baseUrl: 'https://bc.example:8048/BC/ODataV4' } });
+  for (const useDataCredentials of ['automatic', 'currentWindows', true, null]) {
+    f.configurations[0].useDataCredentials = useDataCredentials;
+    assert.equal((await f.runtime.call('bc_dev_toolset_data_list_companies', { connectionId: 'Remote' })).structuredContent.error.category, 'invalid_configuration');
+  }
+  assert.equal(f.requests.length, 0);
+});
+
+test('UserPassword data can explicitly select plaintext or stored remote credentials', async () => {
+  for (const stored of [false, true]) {
+    const reads = [];
+    const f = fixture({ getStoredCredential: async input => { reads.push(input.kind); return { username: 'stored-remote', password: 'synthetic' }; } });
+    f.configurations.splice(0, 2, { name: 'Remote', serverType: 'OnPrem', targetType: 'Dev', server: 'https://bc.example', serverInstance: 'BC', authentication: 'UserPassword',
+      useDataCredentials: 'remote', remoteCredential: stored, remoteUser: 'plain-remote', remotePassword: 'synthetic', bcUser: 'trap', bcPassword: 'trap',
+      bcData: { baseUrl: 'https://bc.example:8048/BC/ODataV4' } });
+    assert.equal((await f.runtime.call('bc_dev_toolset_data_list_companies', { connectionId: 'Remote' })).isError, false);
+    assert.deepEqual(reads, stored ? ['remote'] : []);
+    assert.ok(f.requests.every(request => request.username === (stored ? 'stored-remote' : 'plain-remote')));
+  }
+});
+
+test('UserPassword OData continues to use BC credentials without selecting remote credentials', async () => {
+  const f = fixture({ getStoredCredential: () => assert.fail('UserPassword selected remote credentials') });
+  f.configurations.splice(0, 2, { name: 'Remote', serverType: 'OnPrem', targetType: 'Dev', server: 'https://bc.example', serverInstance: 'BC',
+    authentication: 'UserPassword', remoteCredential: true, bcUser: 'bc-user', bcPassword: 'bc-secret',
+    bcData: { baseUrl: 'https://bc.example:8048/BC/ODataV4' } });
+  assert.equal((await f.runtime.call('bc_dev_toolset_data_list_companies', { connectionId: 'Remote' })).isError, false);
+  assert.ok(f.requests.every(request => request.username === 'bc-user' && request.password === 'bc-secret'));
+});
+
 test('disabled runtime neither resolves targets nor imports or connects the client', async () => {
   const runtime = createDataRuntime({ getConfigurations: () => assert.fail('resolved disabled targets'), getToolSettings: () => ({}) });
   const result = await runtime.call('bc_dev_toolset_data_list_companies', { connectionId: 'x' });
@@ -377,7 +457,7 @@ test('issue 170: Windows requests use negotiated transport rather than Basic aut
     return { status: 200, body: Buffer.from(JSON.stringify({ value: JSON.stringify(request.url.includes('Readiness')
       ? { contractVersion: 1, capabilities: ['companies'], mutationsEnabled: false } : { companies: [] }) })) };
   } });
-  f.configurations.splice(0, 2, { name: 'Windows', serverType: 'OnPrem', targetType: 'Test', server: 'https://bc.example', serverInstance: 'BC', authentication: 'Windows', bcData: { baseUrl: 'https://bc.example/BC/ODataV4' } });
+  f.configurations.splice(0, 2, { name: 'Windows', serverType: 'OnPrem', targetType: 'Test', server: 'https://bc.example', serverInstance: 'BC', authentication: 'Windows', useDataCredentials: 'currentWindows', bcData: { baseUrl: 'https://bc.example/BC/ODataV4' } });
   assert.equal((await f.runtime.call('bc_dev_toolset_data_list_companies', { connectionId: 'Windows' })).isError, false);
   assert.equal(requests.length, 2);
   assert.equal(f.requests.length, 0);

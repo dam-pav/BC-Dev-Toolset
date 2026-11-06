@@ -16,7 +16,7 @@ try {
     Set-Content -LiteralPath $moduleFile -Value '# mock administration shell'
     $configuration = [pscustomobject]@{
         name='remote';serverType='OnPrem';targetType='Dev';server='http://bc-host:8080/BC230';
-        port='8049';serverInstance='BC230';authentication='Windows'
+        port='8049';serverInstance='BC230';authentication='Windows';useManagementCredentials='currentWindows'
     }
     $settings = @{configurations=@($configuration)} # No loadOnPremMgtModule, as in the reported failure.
     function Get-SortedApps { @([pscustomobject]@{Name='Workspace';Dependencies=@()}) }
@@ -58,12 +58,14 @@ try {
         param($configuration,$kind)
         if ($script:missingCredential) { throw 'Stored credential is missing' }
         $script:credentialKind=$kind
-        [pscredential]::new("stored-$kind",[Security.SecureString]::new())
+        [pscredential]::new("stored-$kind",(ConvertTo-SecureString 'synthetic' -AsPlainText -Force))
     }
     $configuration | Add-Member remoteCredential $true
+    $configuration.useManagementCredentials='remote'
     Publish-OnPremDevelopmentApps $configuration @(@{Root=$fixtureRoot;Path=$appFile})
     Assert ($script:credentialKind -eq 'remote' -and $script:requests[-1].Credential.UserName -eq 'stored-remote' -and -not $script:requests[-1].Windows) 'Stored Windows credential was ignored'
     $configuration | Add-Member bcCredential $true
+    $configuration.useManagementCredentials='bc'
     Publish-OnPremDevelopmentApps $configuration @(@{Root=$fixtureRoot;Path=$appFile})
     Assert ($script:credentialKind -eq 'bc' -and $script:requests[-1].Credential.UserName -eq 'stored-bc') 'BC credential must take precedence over remote credential'
     $script:missingCredential=$true
@@ -71,7 +73,7 @@ try {
     $originalSession = $env:BCDEVTOOLSET_MCP_SESSION_ID
     try {
         $env:BCDEVTOOLSET_MCP_SESSION_ID='test-agent'
-        Assert-Throws { Publish-OnPremDevelopmentApps $configuration @(@{Root=$fixtureRoot;Path=$appFile}) } 'Stored credential is missing'
+        Assert-Throws { Publish-OnPremDevelopmentApps $configuration @(@{Root=$fixtureRoot;Path=$appFile}) } 'Selected management credentials'
     } finally { $env:BCDEVTOOLSET_MCP_SESSION_ID=$originalSession }
     Assert ($script:requests.Count -eq $requestCount) 'Missing stored credentials must not fall back to another identity'
     $script:missingCredential=$false
@@ -88,9 +90,8 @@ try {
     $configuration.server='http://bc-host'; $configuration.authentication='UserPassword'
     Assert-Throws { Publish-OnPremDevelopmentApps $configuration @(@{Root=$fixtureRoot;Path=$appFile}) } 'HTTPS'
     $configuration.server='https://bc-host'
-    function Get-BcConfigurationCredential { [pscredential]::new('bcuser',[Security.SecureString]::new()) }
     Publish-OnPremDevelopmentApps $configuration @(@{Root=$fixtureRoot;Path=$appFile})
-    Assert ($script:requests[-1].Authentication -eq 'Basic' -and $script:requests[-1].Credential.UserName -eq 'bcuser') 'Configured BC credential was not used'
+    Assert ($script:requests[-1].Authentication -eq 'Basic' -and $script:requests[-1].Credential.UserName -eq 'stored-bc') 'Configured BC credential was not used'
     Assert (-not $script:requests[-1].AllowHttp) 'UserPassword must not enable unencrypted authentication'
     Assert-Throws { Publish-OnPremDevelopmentApps $configuration @(@{Root=$fixtureRoot;Path=(Join-Path $fixtureRoot '../outside.app')}) } 'authorized package folder'
     Assert-Throws { Publish-OnPremDevelopmentApps $configuration @(@{Root=$fixtureRoot;Path=$moduleFile}) } 'authorized package folder'

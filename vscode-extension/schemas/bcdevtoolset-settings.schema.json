@@ -491,6 +491,34 @@
               "description": "Explicitly permitted mutation operations for this connection. Ignored when allowedAllMutationOperations is true; otherwise empty or omitted disables all writes. Also requires the mutation MCP tool switch and native BC permissions."
             }
           }
+        },
+        "useManagementCredentials": {
+          "type": "string",
+          "enum": [
+            "bc",
+            "remote",
+            "currentWindows"
+          ],
+          "default": "remote",
+          "description": "OnPrem management credential source (default remote). bc/remote requires its stored entry when the corresponding Credential flag is true, otherwise its username/password settings. Select currentWindows explicitly for integrated Windows authentication. Missing selected credentials stop before endpoint requests; rejected credentials fail without switching identities. SQL backup/restore is unaffected."
+        },
+        "useDataCredentials": {
+          "type": "string",
+          "enum": [
+            "bc",
+            "remote",
+            "currentWindows"
+          ],
+          "default": "bc",
+          "description": "OnPrem data credential source (default bc). bc/remote requires its stored entry when the corresponding Credential flag is true, otherwise its username/password settings. Select currentWindows explicitly for integrated Windows authentication. Missing selected credentials stop before endpoint requests; rejected credentials fail without switching identities. SQL backup/restore is unaffected."
+        },
+        "bcUser": {
+          "type": "string",
+          "description": "Business Central username for Container or OnPrem targets when bcCredential is false or omitted."
+        },
+        "bcPassword": {
+          "type": "string",
+          "description": "Business Central password for Container or OnPrem targets when bcCredential is false or omitted."
         }
       },
       "allOf": [
@@ -794,16 +822,6 @@
                 "errorMessage": "Field \"multitenant\" is not valid when \"serverType\" is not \"Container\".",
                 "doNotSuggest": true
               },
-              "bcUser": {
-                "not": {},
-                "errorMessage": "Field \"bcUser\" is not valid when \"serverType\" is not \"Container\".",
-                "doNotSuggest": true
-              },
-              "bcPassword": {
-                "not": {},
-                "errorMessage": "Field \"bcPassword\" is not valid when \"serverType\" is not \"Container\".",
-                "doNotSuggest": true
-              },
               "sqlBackupPath": {
                 "not": {},
                 "errorMessage": "Field \"sqlBackupPath\" is not valid when \"serverType\" is not \"Container\".",
@@ -1020,6 +1038,37 @@
             "required": [
               "databaseName"
             ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "serverType"
+            ],
+            "not": {
+              "properties": {
+                "serverType": {
+                  "enum": [
+                    "Container",
+                    "OnPrem"
+                  ]
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "bcUser": {
+                "not": {},
+                "errorMessage": "Field \"bcUser\" is valid only for Container or OnPrem targets.",
+                "doNotSuggest": true
+              },
+              "bcPassword": {
+                "not": {},
+                "errorMessage": "Field \"bcPassword\" is valid only for Container or OnPrem targets.",
+                "doNotSuggest": true
+              }
+            }
           }
         }
       ]

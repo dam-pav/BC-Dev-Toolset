@@ -1,4 +1,5 @@
 . (Join-Path $PSScriptRoot 'PublishingDiagnostics.ps1')
+. (Join-Path $PSScriptRoot 'EndpointCredentials.ps1')
 
 function Get-OnPremDevelopmentPublishUri {
     param($Configuration)
@@ -61,18 +62,8 @@ function Publish-OnPremDevelopmentApps {
 
     $uri = Get-OnPremDevelopmentPublishUri -Configuration $Configuration
     $parameters = @{ Uri=$uri; Method='Post'; ErrorAction='Stop'; MaximumRedirection=0 }
-    $resolvedCredential = $null
-    $credentialKind = 'bc'
     switch ($Configuration.authentication) {
         'Windows' {
-            if ($Configuration.bcCredential -eq $true) {
-                $resolvedCredential = Resolve-PublishingCredential -Configuration $Configuration -Kind bc
-            } elseif ($Configuration.remoteCredential -eq $true) {
-                $credentialKind = 'remote'
-                $resolvedCredential = Resolve-PublishingCredential -Configuration $Configuration -Kind remote
-            } else {
-                $parameters.UseDefaultCredentials = $true
-            }
             # The selected configuration explicitly uses Windows authentication over
             # HTTP. PowerShell requires this switch even for negotiated Windows auth.
             if ($uri.Scheme -eq 'http') { $parameters.AllowUnencryptedAuthentication = $true }
@@ -80,11 +71,12 @@ function Publish-OnPremDevelopmentApps {
         'UserPassword' {
             if ($uri.Scheme -ne 'https') { throw 'OnPrem UserPassword Dev publishing requires an HTTPS developer endpoint.' }
             $parameters.Authentication = 'Basic'
-            $resolvedCredential = Resolve-PublishingCredential -Configuration $Configuration -Kind bc
         }
         default { throw "OnPrem Dev publishing requires Windows or UserPassword authentication for '$($Configuration.name)'." }
     }
-    if ($resolvedCredential) { $parameters.Credential = $resolvedCredential.Credential }
+    $selectedEndpointCredential = Get-SelectedEndpointCredential -Configuration $Configuration -Purpose management -AllowCurrentWindows ($Configuration.authentication -eq 'Windows')
+    if ($selectedEndpointCredential.Credential) { $parameters.Credential = $selectedEndpointCredential.Credential }
+    elseif ($Configuration.authentication -eq 'Windows') { $parameters.UseDefaultCredentials = $true }
     foreach ($package in $Packages) {
         # Root comes from the selected workspace app folder (or configured package output).
         # Confine the manifest-derived package name before accessing its file contents.
@@ -94,11 +86,12 @@ function Publish-OnPremDevelopmentApps {
             throw 'The publishing package must be a regular .app file.'
         }
         Write-Host "Publishing '$($file.Name)' to '$uri'." -ForegroundColor Blue
-        Invoke-WebRequest @parameters -Form @{ $file.Name = $file } | Out-Null
+        try { Invoke-WebRequest @parameters -Form @{ $file.Name = $file } | Out-Null }
+        catch {
+            if (-not (Test-WindowsEndpointAuthenticationFailure $_.Exception)) { throw }
+            throw (New-BcExpectedFailure -Stage Authentication -Message "Publishing endpoint access was rejected using $($selectedEndpointCredential.Kind) management credentials. Check useManagementCredentials and that identity's BC permissions. No alternate identity was attempted. Earlier packages may have completed; inspect the target before retrying.")
+        }
         Write-Host "Successfully published '$($file.Name)' to '$($Configuration.name)'." -ForegroundColor Green
-    }
-    if ($resolvedCredential.Prompted -and $Packages.Count -gt 0) {
-        Offer-ConfigurationCredentialStorage -configuration $Configuration -kind $credentialKind -credential $resolvedCredential.Credential
     }
 }
 
@@ -369,7 +362,7 @@ function Publish-Dependencies {
                     $managementHost = if (-not [string]::IsNullOrWhiteSpace($configuration.managementServer)) {
                         $configuration.managementServer
                     } else { Get-RemoteComputerNameFromServer -server $configuration.server }
-                    if (-not (Test-IsLocalSqlServer -databaseServer $managementHost)) {
+                    if (-not (Test-IsLocalSqlServer -databaseServer $managementHost) -or (Test-ManagementIdentityRequiresRemoting $configuration)) {
                         Publish-RemoteOnPremDependencies -Configuration $configuration -AppFiles $appList
                         break
                     }
@@ -564,6 +557,11 @@ function Publish-Apps {
                         Publish-OnPremDevelopmentApps -Configuration $configuration -Packages $packages
                         break
                     }
+                    $managementHost = if ($configuration.managementServer) { $configuration.managementServer } else { Get-RemoteComputerNameFromServer -server $configuration.server }
+                    if (-not (Test-IsLocalSqlServer -databaseServer $managementHost) -or (Test-ManagementIdentityRequiresRemoting $configuration)) {
+                        Publish-RemoteOnPremDependencies -Configuration $configuration -AppFiles $appList
+                        break
+                    }
                     Initialize-OnPremPublishingManagement -SettingsJSON $settingsJSON -Configuration $configuration
                     foreach ($appFile in $appList) {
                         $App = Get-NAVAppInfo -Path $appFile
@@ -633,7 +631,7 @@ function Publish-RemoteOnPremDependencies {
     if ($validatedFiles.Count -eq 0) { return }
     $tenant = if ([string]::IsNullOrWhiteSpace($Configuration.tenant)) { 'default' } else { $Configuration.tenant }
     $stageName = 'BCDevToolsetDependencies-' + [guid]::NewGuid().ToString('D')
-    $session = New-RemoteBackupSession -computerName $computerName -configuration $Configuration -OperationName 'Dependency publishing'
+    $session = New-SelectedManagementSession -computerName $computerName -configuration $Configuration -OperationName 'Dependency publishing'
     $stagingStarted = $false
     try {
         Initialize-RemoteOnPremManagement -Session $session -ServerInstance $Configuration.serverInstance `
@@ -752,7 +750,7 @@ function Unpublish-RemoteOnPremWorkspaceApps {
         throw 'Remote OnPrem unpublishing requires a valid server or managementServer hostname.'
     }
     $tenant = if ([string]::IsNullOrWhiteSpace($Configuration.tenant)) { 'default' } else { $Configuration.tenant }
-    $session = New-RemoteBackupSession -computerName $computerName -configuration $Configuration -OperationName Unpublish
+    $session = New-SelectedManagementSession -computerName $computerName -configuration $Configuration -OperationName Unpublish
     try {
         Initialize-RemoteOnPremManagement -Session $session -ServerInstance $Configuration.serverInstance -RequiredCommands @('Get-NAVAppInfo','Uninstall-NAVApp','Unpublish-NAVApp')
         $results = @(Invoke-Command -Session $session -ErrorAction Stop -ArgumentList @($Configuration.serverInstance, $tenant, $Apps) -ScriptBlock {
@@ -868,7 +866,7 @@ function Unpublish-Apps {
                     $managementHost = if (-not [string]::IsNullOrWhiteSpace($configuration.managementServer)) {
                         $configuration.managementServer
                     } else { Get-RemoteComputerNameFromServer -server $configuration.server }
-                    if (-not (Test-IsLocalSqlServer -databaseServer $managementHost)) {
+                    if (-not (Test-IsLocalSqlServer -databaseServer $managementHost) -or (Test-ManagementIdentityRequiresRemoting $configuration)) {
                         Unpublish-RemoteOnPremWorkspaceApps -Configuration $configuration -Apps @($sortedApps)
                         break
                     }

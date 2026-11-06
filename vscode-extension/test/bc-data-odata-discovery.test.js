@@ -12,7 +12,7 @@ function run(body) {
     . ${quote(path.join(common, 'BcDataMgt.ps1'))}
     $script:output=@()
     function Write-Host { param($Object,$ForegroundColor) $script:output += [string]$Object }
-    $config=[pscustomobject]@{name='Remote';serverType='OnPrem';server='bc.example';managementServer='admin.example';serverInstance='BC';authentication='Windows'}
+    $config=[pscustomobject]@{name='Remote';serverType='OnPrem';server='bc.example';managementServer='admin.example';serverInstance='BC';authentication='Windows';useManagementCredentials='currentWindows';useDataCredentials='currentWindows'}
     $settings=[pscustomobject]@{PublicODataBaseUrl='';ODataServicesPort='7448';ODataServicesSSLEnabled='true';ODataServicesEnabled='true';ODataServicesV4EndpointEnabled='true'}
     ${body}
   `], { encoding: 'utf8', timeout: 30000, windowsHide: true });
@@ -58,7 +58,7 @@ test('remote OData discovery uses existing administrative session, selected inst
   const result = run(`
     $script:closed=0;$script:keys=@();$script:fail=$false
     function Test-IsLocalSqlServer { $false }
-    function New-RemoteBackupSession { param($computerName,$configuration)
+    function New-SelectedManagementSession { param($computerName,$configuration)
       if($computerName -ne 'admin.example' -or $configuration.name -ne 'Remote'){throw 'Wrong connection'}
       'session'
     }
@@ -117,7 +117,7 @@ test('local discovery unwraps values and initialization stops before package or 
   const result = run(`
     function Test-IsLocalSqlServer { $true }
     function Import-BcServiceBackupDiscoveryModules {}
-    function New-RemoteBackupSession { throw 'Unexpected remote connection' }
+    function New-SelectedManagementSession { throw 'Unexpected remote connection' }
     function Get-NAVServerConfiguration {
       [CmdletBinding()]param($ServerInstance,$KeyName)
       [pscustomobject]@{Value=$settings.$KeyName}
@@ -172,6 +172,7 @@ test('missing stored remote credentials retain their safe recovery guidance thro
     $env:OS='Windows_NT'
     Add-Type 'namespace BcDevToolset { public static class CredentialStore { public static object Read(string target) { return null; } } }'
     $config|Add-Member NoteProperty remoteCredential $true
+    $config.useManagementCredentials='remote'
     $script:connections=0
     function Get-ConfigurationCredentialTarget { 'fixture' }
     function Test-IsLocalSqlServer { $false }

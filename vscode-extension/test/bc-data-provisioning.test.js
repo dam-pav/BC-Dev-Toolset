@@ -9,6 +9,113 @@ const { spawnSync, spawn } = require('node:child_process');
 const { authorizeRoot, resolveWithinRoot } = require('../path-security');
 const helper = path.resolve(__dirname, '../../common/BcDataMgt.ps1');
 const quote = value => "'" + value.replaceAll("'", "''") + "'";
+test('endpoint credential selectors default by purpose and honor stored or plaintext configuration', () => {
+  const result = run(`
+    function Get-ConfigurationCredential { param($configuration,$kind) $script:reads.Add($kind); if($script:missing){throw 'private lookup error'}; [pscredential]::new(($kind+'-user'),(ConvertTo-SecureString 'synthetic' -AsPlainText -Force)) }
+    $results=@()
+    foreach($purpose in @('management','data')) {
+      foreach($source in @('default','bc','remote','currentWindows')) {
+        foreach($mode in @('unconfigured','plain','stored','missing')) {
+          $script:reads=[collections.generic.list[string]]::new();$script:missing=$mode -eq 'missing';$message=$null;$selected=$null
+          $config=[pscustomobject]@{}
+          $key=if($purpose -eq 'management'){'useManagementCredentials'}else{'useDataCredentials'}
+          if($source -ne 'default'){$config|Add-Member $key $source}
+          $kind=if($source -eq 'default'){if($purpose -eq 'management'){'remote'}else{'bc'}}else{$source}
+          if($kind -ne 'currentWindows' -and $mode -ne 'unconfigured'){
+            if($mode -eq 'plain'){$config|Add-Member ($kind+'User') 'fixture';$config|Add-Member ($kind+'Password') 'synthetic'}else{$config|Add-Member ($kind+'Credential') $true}
+          }
+          try{$selected=Get-SelectedEndpointCredential -Configuration $config -Purpose $purpose}catch{$message=$_.Exception.Message}
+          $results+=@{purpose=$purpose;source=$source;mode=$mode;kind=$selected.Kind;user=$selected.Credential.UserName;reads=@($script:reads);message=$message}
+        }
+      }
+    }
+    ConvertTo-Json -InputObject $results -Compress -Depth 5
+  `);
+  for (const row of result) {
+    const source = row.source === 'default' ? row.purpose === 'management' ? 'remote' : 'bc' : row.source;
+    const current = source === 'currentWindows';
+    assert.deepEqual(row.reads, current || row.mode === 'unconfigured' ? [] : [source]);
+    if (row.mode === 'unconfigured' && !current) {
+      assert.match(row.message, /Selected .* credentials .* are not configured/);
+      continue;
+    }
+    if (row.mode === 'missing' && !current) {
+      assert.match(row.message, /Selected .* credentials .* missing, incomplete or unreadable/);
+      assert.doesNotMatch(row.message, /private/);
+    } else {
+      assert.equal(row.message, null);
+      assert.equal(row.kind, current ? 'currentWindows' : source);
+      assert.equal(row.user, current ? null : source + '-user');
+    }
+  }
+});
+
+test('text credential selectors use the real credential resolver for object and dictionary configurations', () => {
+  const result = run(`
+    . ${quote(path.resolve(__dirname, '../../common/CredentialMgt.ps1'))}
+    $config=@{bcUser='bc-reader';bcPassword='synthetic-bc';remoteUser='remote-admin';remotePassword='synthetic-remote';useManagementCredentials='remote';useDataCredentials='bc'}
+    $results=@()
+    foreach($configuration in @($config,([pscustomobject]$config))) {
+      $management=Get-SelectedEndpointCredential $configuration management
+      $data=Get-SelectedEndpointCredential $configuration data
+      $results+=@{management=$management.Credential.UserName;data=$data.Credential.UserName;managementPassword=$management.Credential.GetNetworkCredential().Password -eq 'synthetic-remote';dataPassword=$data.Credential.GetNetworkCredential().Password -eq 'synthetic-bc'}
+    }
+    ConvertTo-Json -InputObject $results -Compress
+  `);
+  assert.deepEqual(result, Array.from({ length: 2 }, () => ({ management: 'remote-admin', data: 'bc-reader', managementPassword: true, dataPassword: true })));
+});
+
+test('management sessions honor the selected identity and never retry a rejected connection', () => {
+  const result = run(`
+    function Get-ConfigurationCredential { param($configuration,$kind) [pscredential]::new(($kind+'-user'),(ConvertTo-SecureString 'synthetic' -AsPlainText -Force)) }
+    function New-PSSession { param($ComputerName,$Credential) $script:calls++;$script:user=$Credential.UserName;if($script:reject){throw 'private remoting payload'};'session' }
+    $results=@()
+    foreach($source in @('default','bc','remote','currentWindows','automatic')) {
+      foreach($script:reject in @($false,$true)) {
+        $script:calls=0;$script:user=$null;$message=$null
+        $config=[pscustomobject]@{bcCredential=$true;remoteCredential=$true}
+        if($source -ne 'default'){$config|Add-Member useManagementCredentials $source}
+        try{New-SelectedManagementSession -ComputerName 'fixture.example' -Configuration $config|Out-Null}catch{$message=$_.Exception.Message}
+        $results+=@{source=$source;reject=$script:reject;calls=$script:calls;user=$script:user;message=$message}
+      }
+    }
+    ConvertTo-Json -InputObject $results -Compress -Depth 5
+  `);
+  for (const row of result) {
+    assert.equal(row.calls, row.source === 'automatic' ? 0 : 1);
+    if (row.source === 'automatic') assert.match(row.message, /useManagementCredentials must be/);
+    else {
+      const expected = row.source === 'currentWindows' ? null : (row.source === 'default' ? 'remote' : row.source) + '-user';
+      assert.equal(row.user, expected);
+      if (row.reject) assert.match(row.message, /No alternate identity was attempted/);
+      else assert.equal(row.message, null);
+    }
+    assert.doesNotMatch(row.message || '', /private/);
+  }
+});
+
+test('initialization uses the selected data identity and does not deploy after selected credential lookup fails', () => {
+  const result = run(fixture + `
+    function Get-BcDataOnPremApps { [pscustomobject]@{Name='Base Application';Publisher='Microsoft';Version='23.0.0.0';IsInstalled=$true} }
+    function Get-ConfigurationCredential { param($configuration,$kind) if($script:missing){throw 'private lookup error'}; if($kind -ne 'remote'){throw 'Wrong credential set'}; [pscredential]::new('remote-user',(ConvertTo-SecureString 'synthetic' -AsPlainText -Force)) }
+    function Publish-BcDataOnPremCompanion { $script:writes++ }
+    function Get-BcDataInitializationReadiness { param($Configuration,$Credential,$Expected,$CredentialSource) $script:readiness++; if($Credential.UserName -ne 'remote-user' -or $CredentialSource -ne 'remote'){throw 'Wrong OData identity'}; [pscustomobject]@{contractVersion=1;appVersion='0.1.3.0'} }
+    $config=[pscustomobject]@{name='Remote';serverType='OnPrem';targetType='Dev';server='http://bc.example';serverInstance='BC';authentication='Windows';useDataCredentials='remote';remoteCredential=$true;bcData=@{baseUrl='http://bc.example:8048/BC/ODataV4'}}
+    $results=@()
+    foreach($script:missing in @($false,$true)) {
+      $script:writes=0;$script:readiness=0;$message=$null;$script:output=@()
+      try{Initialize-BcDataCompanion -ToolsetRoot fixed -Configuration $config|Out-Null}catch{$message=$_.Exception.Message}
+      $results+=@{writes=$script:writes;readiness=$script:readiness;message=$message;output=$script:output}
+    }
+    ConvertTo-Json -InputObject $results -Compress -Depth 5
+  `);
+  assert.equal(result[0].message, null, JSON.stringify(result[0]));
+  assert.equal(result[0].writes, 1); assert.equal(result[0].readiness, 1);
+  assert.equal(result[1].writes, 0); assert.equal(result[1].readiness, 0);
+  assert.match(result[1].message, /Selected data credentials .*remote/);
+  assert.doesNotMatch(result[1].output.join('\n'), /attempting OData readiness|succeeded|installed/);
+});
+
 test('companion objects reserve 99100..99149 independently of the test app range', () => {
   const companion = require('../../al/BCData/app.json');
   const tests = require('../../al/BCData.Tests/app.json');
@@ -42,6 +149,7 @@ const fixture = `
   $config=[pscustomobject]@{name='Dedicated';serverType='Container';targetType='Test';container='dedicated';authentication='UserPassword'}
   function Get-ValidatedBcDataPackage { param($ToolsetRoot) [pscustomobject]@{Path='fixed/BCData.app';Manifest=[pscustomobject]@{appId='0f92aea5-4cc0-459b-ae98-ca9e5c2b0304';version='0.1.3.0';application='23.0.0.0';contractVersion=1}} }
   function Get-BcConfigurationCredential { param($configuration) [pscredential]::new('fixture',(ConvertTo-SecureString 'synthetic-secret' -AsPlainText -Force)) }
+  function Get-ConfigurationCredential { param($configuration,$kind) if($kind -ne 'bc'){throw 'Unexpected credential source'}; Get-BcConfigurationCredential $configuration }
   function Get-BcContainerAppInfo { param($containerName,$tenant,[switch]$tenantSpecificProperties)
     $script:reads++; if($containerName -ne 'dedicated' -or $tenant -ne 'default' -or -not $tenantSpecificProperties){throw 'Wrong target'}
     [pscustomobject]@{Name='Base Application';Publisher='Microsoft';AppId='base';Version='23.18.32409.0';IsInstalled=$true}
@@ -374,28 +482,39 @@ test('initialization readiness uses exact HTTP/1.0 and validates the actual cont
   const requests = [];
   let compatible = true;
   let mutationMode = 'off';
+  let status = 200;
+  let responseBody;
+  let disconnect = false;
   const server = http.createServer(async (request, response) => {
     let body = '';
     for await (const part of request) body += part;
     requests.push({ version: request.httpVersion, body, authorization: request.headers.authorization, url: request.url });
+    if (disconnect) { request.socket.destroy(); return; }
     const bytes = JSON.stringify({ value: JSON.stringify({ contractVersion: compatible ? 1 : 2, appVersion: '0.1.4.0',
       mutationsEnabled: mutationMode !== 'off', mutationProtocolVersion: mutationMode === 'string' ? '1' : mutationMode === 'on' ? 1 : 2,
       capabilities: ['companies','schema','table-search','read-primary-key', ...(['on', 'string'].includes(mutationMode) ? ['mutation-scopes-v1'] : [])] }) });
-    response.writeHead(200, { 'Content-Length': Buffer.byteLength(bytes) }).end(bytes);
+    const payload = responseBody === undefined ? bytes : responseBody;
+    response.writeHead(status, { 'Content-Length': Buffer.byteLength(payload) }).end(payload);
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => server.close());
   const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'bcdata-readiness-'));
   t.after(() => fs.rmSync(folder, { recursive: true, force: true }));
   const script = path.join(folder, 'readiness.ps1');
-  fs.writeFileSync(script, `param([switch]$RequireMutations)
+  fs.writeFileSync(script, `param([switch]$RequireMutations,[switch]$WindowsIdentity)
     $ErrorActionPreference='Stop'; . ${quote(helper)}
     $config=[pscustomobject]@{container='unused';bcData=[pscustomobject]@{baseUrl='http://127.0.0.1:${server.address().port}/BC/ODataV4';tenant='fixture'}}
     $credential=[pscredential]::new('fixture',(ConvertTo-SecureString 'synthetic-secret' -AsPlainText -Force))
-    try{$r=Get-BcDataInitializationReadiness -Configuration $config -Credential $credential -Expected ([pscustomobject]@{contractVersion=1;version='0.1.3.0';mutationsEnabled=$RequireMutations.IsPresent}); @{version=$r.appVersion}|ConvertTo-Json -Compress}catch{@{error=$_.Exception.Message}|ConvertTo-Json -Compress}
+    if($WindowsIdentity){$config|Add-Member authentication Windows;$credential=$null}
+    try{
+      $r=Invoke-BcPublishingStep -Configuration $config -Stage Readiness -Operation 'BC Data initialization' -DeploymentState Returned -Action {
+        Get-BcDataInitializationReadiness -Configuration $config -Credential $credential -Expected ([pscustomobject]@{contractVersion=1;version='0.1.3.0';mutationsEnabled=$RequireMutations.IsPresent})
+      }
+      @{version=$r.appVersion}|ConvertTo-Json -Compress
+    }catch{@{error=$_.Exception.Message;stage=$_.Exception.Data['Stage'];deploymentState=$_.Exception.Data['DeploymentState'];httpStatus=$_.Exception.Data['HttpStatus'];expected=$_.Exception.Data['BcDevToolsetExpectedFailure']}|ConvertTo-Json -Compress}
   `);
-  const invoke = (requireMutations = false) => new Promise((resolve, reject) => {
-    const child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', script, ...(requireMutations ? ['-RequireMutations'] : [])], { windowsHide: true });
+  const invoke = (requireMutations = false, windowsIdentity = false) => new Promise((resolve, reject) => {
+    const child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', script, ...(requireMutations ? ['-RequireMutations'] : []), ...(windowsIdentity ? ['-WindowsIdentity'] : [])], { windowsHide: true });
     let out = '', err = '';
     child.stdout.on('data', part => { out += part; }); child.stderr.on('data', part => { err += part; });
     child.on('error', reject); child.on('exit', code => code === 0 ? resolve(JSON.parse(out)) : reject(new Error(err)));
@@ -414,6 +533,75 @@ test('initialization readiness uses exact HTTP/1.0 and validates the actual cont
   assert.ok(!failed.error.includes('synthetic-secret'));
   assert.ok(requests.every(request => request.version === '1.0' && request.body === '{"inputJson":"{}"}' && request.url.endsWith('tenant=fixture')));
   assert.ok(requests.every(request => request.authorization === 'Basic ' + Buffer.from('fixture:synthetic-secret').toString('base64')));
+  assert.match(failed.error, /contract, version or capabilities are incompatible/);
+  compatible = true;
+  for (const [httpStatus, guidance] of [
+    [401, /authentication was rejected/], [403, /BCD DATA permission set/],
+    [404, /endpoint was not found/], [302, /redirect, which was not followed/],
+    [429, /throttled/], [500, /BC service health/]
+  ]) {
+    status = httpStatus;
+    responseBody = 'private backend payload synthetic-secret';
+    const before = requests.length;
+    const failure = await invoke(false, httpStatus === 401);
+    assert.equal(requests.length, before + 1, 'Readiness must not retry or follow redirects');
+    assert.equal(failure.expected, true);
+    assert.equal(failure.stage, 'Readiness');
+    assert.equal(failure.deploymentState, 'Returned');
+    assert.equal(failure.httpStatus, httpStatus);
+    assert.match(failure.error, new RegExp('HTTP ' + httpStatus));
+    assert.match(failure.error, guidance);
+    assert.match(failure.error, /Deployment returned, but readiness was not verified/);
+    assert.match(failure.error, /No automatic retry or alternate deployment/);
+    assert.doesNotMatch(failure.error, /private backend payload|synthetic-secret/);
+    if (httpStatus === 401) {
+      assert.match(failure.error, /current Windows identity/);
+      assert.match(failure.error, /useDataCredentials/);
+      assert.equal(requests.at(-1).version, '1.1');
+      assert.equal(requests.at(-1).authorization, undefined);
+    }
+  }
+  status = 200;
+  const malformed = await invoke();
+  assert.match(malformed.error, /invalid readiness response/);
+  assert.doesNotMatch(malformed.error, /private backend payload|synthetic-secret/);
+  assert.equal(malformed.stage, 'Readiness');
+  assert.equal(malformed.deploymentState, 'Returned');
+  assert.equal(malformed.httpStatus, 200);
+  disconnect = true;
+  const transport = await invoke();
+  assert.match(transport.error, /response ended prematurely|request could not complete/);
+  assert.match(transport.error, /listener/);
+  assert.doesNotMatch(transport.error, /HTTP \d|private backend payload|synthetic-secret/);
+  assert.equal(transport.httpStatus, 0);
+  assert.equal(transport.stage, 'Readiness');
+  assert.equal(transport.deploymentState, 'Returned');
+  const windowsTransport = await invoke(false, true);
+  assert.match(windowsTransport.error, /current process Windows identity/);
+  assert.match(windowsTransport.error, /useDataCredentials/);
+  assert.match(transport.error, /selected explicit BC credentials/);
+});
+
+test('readiness transport diagnostics classify typed authentication failures without guessing from messages', () => {
+  const result = run(`
+    . ${quote(helper)}
+    $auth=[Net.Http.HttpRequestException]::new([Net.Http.HttpRequestError]::UserAuthenticationError,'private backend payload synthetic-secret',$null,$null)
+    $wrapped=[Exception]::new('private wrapper',[Exception]::new('private inner',$auth))
+    $dns=[Net.Http.HttpRequestException]::new([Net.Http.HttpRequestError]::NameResolutionError,'private DNS payload',$null,$null)
+    $unknown=[Exception]::new('Access is denied; bad credentials; synthetic-secret')
+    @{
+      auth=Get-BcDataReadinessTransportReason $wrapped
+      dns=Get-BcDataReadinessTransportReason $dns
+      unknown=Get-BcDataReadinessTransportReason $unknown
+      timeout=Get-BcDataReadinessTransportReason ([OperationCanceledException]::new('private cancellation'))
+    }|ConvertTo-Json -Compress
+  `);
+  assert.match(result.auth, /authentication negotiation failed \(.NET UserAuthenticationError\)/);
+  assert.match(result.dns, /hostname could not be resolved/);
+  assert.match(result.unknown, /cause is unknown/);
+  assert.doesNotMatch(result.unknown, /authentication negotiation failed/);
+  assert.match(result.timeout, /cancelled or timed out/);
+  assert.doesNotMatch(JSON.stringify(result), /private|synthetic-secret|Access is denied/);
 });
 test('initialization metadata, command, switches and scopes are aligned', () => {
   const metadata = require('../../operations/operations.json').find(op => op.id === 'initializeBcData');
@@ -473,7 +661,7 @@ test('issue 170: Cloud and OnPrem initialization dispatch deployment and preserv
       [pscustomobject]@{contractVersion=1;appVersion='0.1.3.0'}
     }
     $cloud=[pscustomobject]@{name='Cloud';serverType='Cloud';targetType='Production';tenant='tenant.example';environmentName='Production'}
-    $onprem=[pscustomobject]@{name='OnPrem';serverType='OnPrem';targetType='Test';server='https://bc.example';serverInstance='BC';authentication='UserPassword';tenant='tenant';bcData=@{baseUrl='https://bc.example:7448/BC/ODataV4'}}
+    $onprem=[pscustomobject]@{name='OnPrem';serverType='OnPrem';targetType='Test';server='https://bc.example';serverInstance='BC';authentication='UserPassword';useManagementCredentials='currentWindows';bcUser='fixture';bcPassword='synthetic';tenant='tenant';bcData=@{baseUrl='https://bc.example:7448/BC/ODataV4'}}
     foreach($candidate in @($cloud,$onprem)) {
       $script:version=$null; Initialize-BcDataCompanion -ToolsetRoot fixed -Configuration $candidate 6>$null | Out-Null
       $script:version='0.1.2.0'; Initialize-BcDataCompanion -ToolsetRoot fixed -Configuration $candidate 6>$null | Out-Null
@@ -505,7 +693,7 @@ test('issue 170: local OnPrem uses tenant-scoped additive deployment and native 
     function Sync-NAVApp { param($ServerInstance,$Tenant,$Name,$Publisher,$Version,$Mode) $script:calls+=@{command='sync';mode=$Mode;tenant=$Tenant} }
     function Install-NAVApp { param($ServerInstance,$Tenant,$Name,$Publisher,$Version) $script:calls+=@{command='install';tenant=$Tenant} }
     function Start-NAVAppDataUpgrade { param($ServerInstance,$Tenant,$Name,$Publisher,$Version) $script:calls+=@{command='upgrade';tenant=$Tenant} }
-    $config=[pscustomobject]@{name='Local';serverType='OnPrem';server='bc.example';serverInstance='BC';authentication='Windows';tenant='ignored';bcData=@{baseUrl='http://bc.example:7448/BC/ODataV4';tenant='selected'}}
+    $config=[pscustomobject]@{name='Local';serverType='OnPrem';server='bc.example';serverInstance='BC';authentication='Windows';useManagementCredentials='currentWindows';tenant='ignored';bcData=@{baseUrl='http://bc.example:7448/BC/ODataV4';tenant='selected'}}
     $bundle=[pscustomobject]@{Path='fixed.app';Manifest=@{appId='0f92aea5-4cc0-459b-ae98-ca9e5c2b0304';version='0.1.12.0'}}
     Publish-BcDataOnPremCompanion -Configuration $config -Bundle $bundle -Upgrade $false
     Publish-BcDataOnPremCompanion -Configuration $config -Bundle $bundle -Upgrade $true
@@ -535,7 +723,7 @@ test('issue 170: remote OnPrem reuses publishing with effective tenant and prese
 test('issue 170: inaccessible publishing management stops initialization without a deployment fallback', () => {
   const result = run(fixture + `
     function Get-BcDataOnPremApps { param($Configuration,$SettingsJSON) throw 'Management host is unreachable; check the existing publishing/WinRM prerequisites.' }
-    $config=[pscustomobject]@{name='Data only';serverType='OnPrem';targetType='Production';server='bc.example';serverInstance='BC';authentication='Windows';bcData=@{baseUrl='https://bc.example/BC/ODataV4'}}
+    $config=[pscustomobject]@{name='Data only';serverType='OnPrem';targetType='Production';server='bc.example';serverInstance='BC';authentication='Windows';useManagementCredentials='currentWindows';useDataCredentials='currentWindows';bcData=@{baseUrl='https://bc.example/BC/ODataV4'}}
     try{Initialize-BcDataCompanion -ToolsetRoot fixed -Configuration $config|Out-Null}catch{$message=$_.Exception.Message}
     @{message=$message;containerReads=$script:reads;containerWrites=$script:published.Count;output=$script:output}|ConvertTo-Json -Compress
   `);
