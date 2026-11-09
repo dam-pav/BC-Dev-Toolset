@@ -358,7 +358,7 @@ test('restore distinguishes the template database from mounted tenants and rejec
     const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     if (mounted.length) assert.equal(result.stdout.trim(), `repair:${mounted.join(',')}`);
-    else assert.match(result.stdout, /error:Database restore completed, but restored tenants are not mounted.*default/);
+    else assert.match(result.stdout, /Database restore completed, but restored tenants are not mounted.*default/);
   }
 });
 
@@ -894,4 +894,85 @@ test('human service backup asks for the destination even with one eligible confi
   assert.equal(output.Count, 1);
   assert.match(output.Title, /destination configuration/);
   assert.equal(output.Destination, 'Local');
+});
+
+
+test('unified backup defaults to its source folder and rejects invalid agent selections', () => {
+  for (const mode of ['human', 'agent', 'missing', 'duplicate', 'wrong-case']) {
+    const script = `
+      . ${quotePowerShell(backupMgtPath)}
+      $script:titles=@(); $script:default=-1
+      function Test-RemotingAgentWorkflow { '${mode}' -ne 'human' }
+      $env:BCDEVTOOLSET_BACKUP_INPUTS=${quotePowerShell(JSON.stringify({'backup.source': mode === 'wrong-case' ? 'source' : 'Source', 'backup.destination': mode === 'missing' ? '' : 'Source'}))}
+      function Select-IndexFromList {
+        param($Title,$Options,$DefaultIndex)
+        $script:titles += $Title
+        if ($Title -like 'Select source*') { return 1 }
+        $script:default=$DefaultIndex
+        return $DefaultIndex
+      }
+      function Get-SqlBackupRootPath { param($sqlBackupPath) if ($sqlBackupPath -ne 'source-folder') {throw 'Wrong destination'}; 'validated-root' }
+      $settings=@{configurations=@(
+        [pscustomobject]@{name='Other';serverType='Container';container='other';sqlBackupPath='other-folder'},
+        [pscustomobject]@{name='Source';serverType='Container';container='selected';sqlBackupPath='source-folder'}
+        ${mode === 'duplicate' ? ",[pscustomobject]@{name='Source';serverType='Container';container='duplicate';sqlBackupPath='source-folder'}" : ''}
+      )}
+      try { $selection=Select-SqlBackupConfigurations -scriptPath unused -settingsJSON $settings }
+      catch { $failure=$_.Exception.Message }
+      @{Failure=$failure;Source=$selection.Source.name;Destination=$selection.Destination.name;Default=$script:default;Prompts=$script:titles.Count} | ConvertTo-Json -Compress
+    `;
+    const result = spawnSync('pwsh',['-NoProfile','-NonInteractive','-Command',script],{encoding:'utf8',windowsHide:true,timeout:30000});
+    assert.equal(result.status,0,result.stderr);
+    const output=JSON.parse(result.stdout);
+    assert.equal(output.Prompts,mode === 'human' ? 2 : 0);
+    if (['human','agent'].includes(mode)) {
+      assert.equal(output.Failure,null);
+      assert.equal(output.Source,'Source');
+      assert.equal(output.Destination,'Source');
+      if (mode === 'human') assert.equal(output.Default,1);
+    } else assert.match(output.Failure,/exact unique.*No backup or container startup was started/s);
+  }
+});
+
+
+test('selected container export uses the destination path and cleans up on SQL and transfer failures', () => {
+  for (const mode of ['success','sql-error','move-error']) {
+    const root=fs.mkdtempSync(path.join(os.tmpdir(),'bc-selected-backup-'));
+    try {
+      const script=`
+        . ${quotePowerShell(backupMgtPath)}
+        $ErrorActionPreference='Stop'
+        $hostHelperFolder=${quotePowerShell(root)}
+        $destination=Join-Path $hostHelperFolder 'export'
+        $script:working=''; $script:moves=0
+        function Test-DockerContainerRunning { $true }
+        function Select-ContainerSqlBackupConfigurations { throw 'UNEXPECTED picker' }
+        function Get-SqlBackupRootPath { throw 'UNEXPECTED source path access' }
+        function Backup-BcContainerDatabases {
+          [CmdletBinding()]param($containerName,$bakFolder)
+          $script:working=$bakFolder
+          if ('${mode}' -eq 'sql-error') { Write-Error 'fixture SQL error' }
+          Set-Content -LiteralPath (Join-Path $bakFolder 'database.bak') -Value 'fixture'
+        }
+        function Get-BcContainerDatabaseBackupMap { [pscustomobject]@{HelperFileName='database.bak';ExportFileName='selected.CRONUS.database.bak'} }
+        ${mode === 'move-error' ? "function Move-Item { [CmdletBinding()]param($Path,$Destination,[switch]$Force) $script:moves++; Write-Error 'fixture transfer failure' }" : ''}
+        $source=[pscustomobject]@{name='Source';serverType='Container';container='selected'}
+        try {
+          Export-BcContainerSqlBackupSet -scriptPath unused -settingsJSON @{} -Selection ([pscustomobject]@{Source=$source;Destination=[pscustomobject]@{name='Dest'};BackupRootPath=$destination}) 6>$null
+        } catch { $failure=$_.Exception.Message }
+        $manifestPath=Join-Path $destination 'bcdevtoolset-backup-source.json'
+        $kind=if (Test-Path -LiteralPath $manifestPath) {(Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json).kind} else {''}
+        @{Failure=$failure;WorkingExists=(Test-Path -LiteralPath $script:working);Exported=(Test-Path -LiteralPath (Join-Path $destination 'selected.CRONUS.database.bak'));Kind=$kind;Moves=$script:moves} | ConvertTo-Json -Compress
+      `;
+      const result=spawnSync('pwsh',['-NoProfile','-NonInteractive','-Command',script],{encoding:'utf8',windowsHide:true,timeout:30000});
+      assert.equal(result.status,0,result.stderr);
+      const output=JSON.parse(result.stdout);
+      assert.equal(output.WorkingExists,false);
+      assert.equal(output.Exported,mode === 'success');
+      assert.equal(output.Kind,mode === 'success' ? 'container' : mode === 'move-error' ? 'incomplete' : '');
+      if (mode === 'success') assert.equal(output.Failure,null);
+      else assert.match(output.Failure,/fixture (SQL error|transfer failure)/);
+      if (mode === 'move-error') assert.equal(output.Moves,1);
+    } finally { fs.rmSync(root,{recursive:true,force:true}); }
+  }
 });

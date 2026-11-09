@@ -1,5 +1,18 @@
 . (Join-Path $PSScriptRoot 'CredentialMgt.ps1')
 . (Join-Path $PSScriptRoot 'RemotingMgt.ps1')
+. (Join-Path $PSScriptRoot 'PublishingDiagnostics.ps1')
+
+function New-BcRestoreFailure {
+    param([string] $Stage, [string] $State, [string] $Detail = '', $Cause)
+    # Only reviewed Toolset diagnostics may be displayed by the operation launcher.
+    # Backend exception bodies can contain SQL connection details or credentials.
+    $status = if ($null -ne $Cause) { " Error code: $($Cause.HResult)." } else { '' }
+    if (-not $Detail -and $Cause -is [TypeLoadException]) {
+        $Detail = 'The container administration module could not load a required .NET type. Check its assembly dependencies and PowerShell runtime compatibility.'
+    }
+    if (-not $Detail) { $Detail = 'The underlying cause has not been established from safe structured diagnostics.' }
+    return (New-BcExpectedFailure -Stage $Stage -Message "SQL backup restore failed during $Stage.$status $Detail $State Check the target database, BC service state and container administration-module compatibility before an explicitly approved retry. Preserve the backup set; do not assume the target database is usable. No automatic retry or alternate restore was attempted.")
+}
 
 function Get-SqlBackupRootPath {
     Param (
@@ -25,7 +38,7 @@ function Get-SqlBackupRootPath {
         $pathSegments -match '[:<>"|?*\x00-\x1f]' -or
         $pathSegments -match '(?i)(^|\\)(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])(?:[ .]|$)' -or
         @($pathSegments.Split('\') | Where-Object { $_ -notin @('.', '..', '') -and $_ -match '[ .]$' }).Count -gt 0) {
-        throw "sqlBackupPath must be a local drive-absolute path or a relative folder path; unsafe path kinds are not supported."
+        throw (New-BcExpectedFailure -Stage 'backup path validation' -Message 'sqlBackupPath must be a local drive-absolute path or a relative folder path; unsafe path kinds are not supported. Correct the selected backup folder configuration and retry. No backup folder was accessed by path validation.')
     }
 
     try {
@@ -38,7 +51,7 @@ function Get-SqlBackupRootPath {
             $validatedBackupRootPath = [System.IO.Path]::GetFullPath((Join-Path $workspaceRootPath.FullName $sqlBackupPath))
         }
         if ($validatedBackupRootPath -notmatch '^[A-Za-z]:[\\/]') {
-            throw "sqlBackupPath must resolve to a local drive path."
+            throw (New-BcExpectedFailure -Stage 'backup path validation' -Message 'sqlBackupPath must resolve to a local drive path. Correct the selected backup folder configuration and retry. No backup folder was accessed by path validation.')
         }
     }
     catch {
@@ -417,6 +430,7 @@ function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {
     Write-Host "Evaluating restored database application versions in container '$containerName'." -ForegroundColor Green
     try {
         $state = Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
+            $ErrorActionPreference = 'Stop'
             $serverInstance = "BC"
             $tenant = "default"
             $packageDefinitions = @(
@@ -452,11 +466,14 @@ function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {
                 InstalledApps = $installedApps
                 PackageApps = $packageApps
             }
-        }
+        } -ErrorAction Stop
     }
     catch {
-        Write-Host "Could not evaluate the restored database for a system application upgrade: $($_.Exception.Message)" -ForegroundColor Yellow
-        return
+        throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Cause $_.Exception)
+    }
+
+    if ([string]::IsNullOrWhiteSpace($state.PlatformVersion) -or [string]::IsNullOrWhiteSpace($state.DatabaseApplicationVersion)) {
+        throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Detail 'The administration commands returned an empty platform or database application version. Inspect Get-NAVApplication and the BC administration tools for this container; no version was inferred from app packages.')
     }
 
     $assessment = Get-BcSystemApplicationUpgradeAssessment `
@@ -718,32 +735,46 @@ function Restore-BcContainerSqlBackupEntries {
         [PSObject] $configuration
     )
 
-    $restoreParameters = Get-BcContainerSqlBackupRestoreParameters `
-        -containerName $containerName `
-        -bakFolder $bakFolder `
-        -backupEntries $backupEntries
+    $ErrorActionPreference = 'Stop'
+    $stage = 'restore preparation'
+    $state = 'SQL restoration was not started; the BC service may have been stopped during preparation.'
+    try {
+        $restoreParameters = Get-BcContainerSqlBackupRestoreParameters `
+            -containerName $containerName `
+            -bakFolder $bakFolder `
+            -backupEntries $backupEntries
 
-    if ($restoreParameters.ContainsKey("bakFile")) {
-        $restoreParameters.databaseName = Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
-            $customConfigFile = Join-Path (Get-Item "C:\Program Files\Microsoft Dynamics NAV\*\Service").FullName "CustomSettings.config"
-            [xml]$customConfig = [System.IO.File]::ReadAllText($customConfigFile)
-            $server = Get-NAVServerInstance -ServerInstance BC
-            if ($server.State -ne "Stopped") {
-                Set-NAVServerInstance -ServerInstance BC -Stop | Out-Null
+        if ($restoreParameters.ContainsKey("bakFile")) {
+            $restoreParameters.databaseName = Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
+                $customConfigFile = Join-Path (Get-Item "C:\Program Files\Microsoft Dynamics NAV\*\Service").FullName "CustomSettings.config"
+                [xml]$customConfig = [System.IO.File]::ReadAllText($customConfigFile)
+                $server = Get-NAVServerInstance -ServerInstance BC
+                if ($server.State -ne "Stopped") {
+                    Set-NAVServerInstance -ServerInstance BC -Stop | Out-Null
+                }
+                return $customConfig.SelectSingleNode("//appSettings/add[@key='DatabaseName']").Value
             }
-            return $customConfig.SelectSingleNode("//appSettings/add[@key='DatabaseName']").Value
+        }
+
+        $stage = 'SQL restoration'
+        $state = 'SQL restoration may have partially completed or removed the target database, and the BC service may be stopped. Inspect and reconcile the target before retrying.'
+        Restore-DatabasesInBcContainer @restoreParameters -ErrorAction Stop
+
+        $stage = 'BC service start'
+        $state = 'SQL restore returned; service readiness, application versions and administrator access have not been verified.'
+        if ($restoreParameters.ContainsKey("bakFile")) {
+            Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
+                Set-NAVServerInstance -ServerInstance BC -Start
+            }
         }
     }
-
-    Restore-DatabasesInBcContainer @restoreParameters
-
-    if ($restoreParameters.ContainsKey("bakFile")) {
-        Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
-            Set-NAVServerInstance -ServerInstance BC -Start
-        }
+    catch {
+        if ($_.Exception.Data['BcDevToolsetExpectedFailure']) { throw }
+        throw (New-BcRestoreFailure -Stage $stage -State $state -Cause $_.Exception)
     }
 
     Invoke-BcContainerSystemApplicationUpgradeAfterRestore -containerName $containerName
+    $stage = 'restored tenant verification'
     $tenants = @($backupEntries | Where-Object DatabaseRole -eq "tenant" | Select-Object -ExpandProperty DatabaseName)
     if ($tenants.Count -eq 0) { $tenants = @("default") }
     else {
@@ -756,10 +787,10 @@ function Restore-BcContainerSqlBackupEntries {
         $tenants = @($tenants | Where-Object { $_ -ne "tenant" -or $_ -in $mountedTenantIds })
         $missingTenants = @($tenants | Where-Object { $_ -notin $mountedTenantIds })
         if ($missingTenants.Count -gt 0) {
-            throw "Database restore completed, but restored tenants are not mounted in container '$containerName': $($missingTenants -join ', '). Check tenant mounting before repairing administrator access."
+            throw (New-BcRestoreFailure -Stage $stage -State $state -Detail "Database restore completed, but restored tenants are not mounted in container '$containerName': $($missingTenants -join ', '). Check tenant mounting before repairing administrator access.")
         }
         if ($tenants.Count -eq 0) {
-            throw "Database restore completed, but no restored tenants are mounted in container '$containerName'. Check tenant mounting before repairing administrator access."
+            throw (New-BcRestoreFailure -Stage $stage -State $state -Detail "Database restore completed, but no restored tenants are mounted in container '$containerName'. Check tenant mounting before repairing administrator access.")
         }
     }
     Repair-BcContainerAdministratorAfterRestore -configuration $configuration -tenants $tenants
@@ -987,59 +1018,70 @@ function Export-BcContainerSqlBackupSet {
         [Parameter(Mandatory=$true)]
         [string] $scriptPath,
         [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON
+        [PSObject] $settingsJSON,
+        [PSObject] $Selection
     )
 
     $ErrorActionPreference = 'Stop'
-    $selectedConfigurations = @(Select-ContainerSqlBackupConfigurations `
+    $selectedConfigurations = if ($Selection) { @($Selection.Source) } else { @(Select-ContainerSqlBackupConfigurations `
         -scriptPath $scriptPath `
         -settingsJSON $settingsJSON `
         -operationName "SQL backup export" `
-        -IncludeAllOption)
+        -IncludeAllOption) }
 
     foreach ($configuration in $selectedConfigurations) {
         if (-not (Test-DockerContainerRunning -containerName $configuration.container)) {
+            if ($Selection) {
+                throw (New-BcExpectedFailure -Stage 'source container readiness' -Message 'Selected source container is no longer running. No SQL backup was started. Inspect and recover the selected source container before retrying.')
+            }
             continue
         }
 
-        Assert-SqlBackupPath `
+        if (-not $Selection) { Assert-SqlBackupPath `
             -sqlBackupPath $configuration.sqlBackupPath `
             -operationName "creating a SQL backup" `
-            -configurationName $configuration.name
+            -configurationName $configuration.name }
 
-        $exportRootPath = Get-SqlBackupRootPath `
+        $exportRootPath = if ($Selection) { $Selection.BackupRootPath } else { Get-SqlBackupRootPath `
             -scriptPath $scriptPath `
-            -sqlBackupPath $configuration.sqlBackupPath
+            -sqlBackupPath $configuration.sqlBackupPath }
 
-        $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        $timestamp = [guid]::NewGuid().ToString('N')
         $sharedBackupPath = Join-Path $hostHelperFolder "Extensions\$($configuration.container)\SqlBackups\$timestamp"
-        New-Item -ItemType Directory -Path $sharedBackupPath -Force | Out-Null
-        New-Item -ItemType Directory -Path $exportRootPath -Force | Out-Null
+        # This path uses the trusted helper root and the selected, validated
+        # container name. Cleanup owns only this operation's working folder.
+        try {
+            New-Item -ItemType Directory -Path $sharedBackupPath -Force | Out-Null
+            New-Item -ItemType Directory -Path $exportRootPath -Force | Out-Null
 
-        Write-Host ""
-        Write-Host "Creating SQL backup set for container '$($configuration.container)'." -ForegroundColor Green
-        Write-Host "Shared working folder: $sharedBackupPath" -ForegroundColor Gray
-        Write-Host "Export folder: $exportRootPath" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "Creating SQL backup set for container '$($configuration.container)'." -ForegroundColor Green
+            Write-Host "Shared working folder: $sharedBackupPath" -ForegroundColor Gray
+            Write-Host "Export folder: $exportRootPath" -ForegroundColor Gray
 
-        Backup-BcContainerDatabases `
-            -containerName $configuration.container `
-            -bakFolder $sharedBackupPath
+            Backup-BcContainerDatabases `
+                -containerName $configuration.container `
+                -bakFolder $sharedBackupPath
 
-        Write-SqlBackupSetSource -validatedBackupRootPath $exportRootPath -kind incomplete
-        Get-ChildItem -Path $exportRootPath -Filter "*.bak" -File -ErrorAction SilentlyContinue |
-            Remove-Item -Force
+            Write-SqlBackupSetSource -validatedBackupRootPath $exportRootPath -kind incomplete
+            Get-ChildItem -Path $exportRootPath -Filter "*.bak" -File -ErrorAction Stop |
+                Remove-Item -Force
 
-        $backupMap = @(Get-BcContainerDatabaseBackupMap -containerName $configuration.container)
-        foreach ($backupItem in $backupMap) {
-            $sourceFile = Join-Path $sharedBackupPath $backupItem.HelperFileName
-            if (-not (Test-Path -Path $sourceFile -PathType Leaf)) {
-                throw "Expected backup file '$sourceFile' was not created; SQL backup export is incomplete."
+            $backupMap = @(Get-BcContainerDatabaseBackupMap -containerName $configuration.container)
+            foreach ($backupItem in $backupMap) {
+                $sourceFile = Join-Path $sharedBackupPath $backupItem.HelperFileName
+                if (-not (Test-Path -Path $sourceFile -PathType Leaf)) {
+                    throw "Expected backup file '$sourceFile' was not created; SQL backup export is incomplete."
+                }
+                Move-Item -Path $sourceFile -Destination (Join-Path $exportRootPath $backupItem.ExportFileName) -Force
             }
-            Move-Item -Path $sourceFile -Destination (Join-Path $exportRootPath $backupItem.ExportFileName) -Force
-        }
 
-        Write-SqlBackupSetSource -validatedBackupRootPath $exportRootPath -kind container -container $configuration.container
-        Remove-Item -Path $sharedBackupPath -Force -Recurse
+            Write-SqlBackupSetSource -validatedBackupRootPath $exportRootPath -kind container -container $configuration.container
+        } finally {
+            if (Test-Path -LiteralPath $sharedBackupPath -PathType Container) {
+                Remove-Item -LiteralPath $sharedBackupPath -Force -Recurse -ErrorAction Stop
+            }
+        }
 
         Write-Host "SQL backup set exported for container '$($configuration.container)'." -ForegroundColor Green
     }
@@ -1053,16 +1095,17 @@ function Restore-BcContainerSqlBackupSet {
         [PSObject] $settingsJSON
     )
 
+    $ErrorActionPreference = 'Stop'
     $selectedConfigurations = @(Select-ContainerSqlBackupConfigurations `
         -scriptPath $scriptPath `
         -settingsJSON $settingsJSON `
         -operationName "SQL backup restore")
 
-    foreach ($configuration in $selectedConfigurations) {
-        if (-not (Test-DockerContainerRunning -containerName $configuration.container)) {
-            continue
-        }
+    if ($selectedConfigurations.Count -eq 0) {
+        throw (New-BcExpectedFailure -Stage 'restore target selection' -Message 'No Container configurations with a non-empty sqlBackupPath are available for restore. Configure a target and backup folder before retrying. No container startup or SQL restoration was started.')
+    }
 
+    foreach ($configuration in $selectedConfigurations) {
         Assert-SqlBackupPath `
             -sqlBackupPath $configuration.sqlBackupPath `
             -operationName "restoring a SQL backup" `
@@ -1081,15 +1124,9 @@ function Restore-BcContainerSqlBackupSet {
             throw "No compatible .bak files found at sqlBackupPath '$backupRootPath'. Expected '<container>.<database>.app.bak', '<container>.<database>.tenant.bak', or '<container>.<database>.database.bak'."
         }
 
-        $sharedRestorePath = Copy-SqlBackupSetToSharedFolder `
-            -containerName $configuration.container `
-            -backupRootPath $backupRootPath `
-            -sharedFolderName "SqlRestore"
-
         Write-Host ""
         Write-Host "Preparing to restore SQL backup set to container '$($configuration.container)'." -ForegroundColor Green
         Write-Host "Backup folder: $backupRootPath" -ForegroundColor Gray
-        Write-Host "Shared restore folder: $sharedRestorePath" -ForegroundColor Gray
         Write-Host "Files:" -ForegroundColor Gray
         $backupEntries | ForEach-Object {
             Write-Host " - $($_.SourceFileName) -> $($_.DatabaseRole) database '$($_.DatabaseName)'" -ForegroundColor Gray
@@ -1100,6 +1137,23 @@ function Restore-BcContainerSqlBackupSet {
             Write-Host "Restore skipped for container '$($configuration.container)'." -ForegroundColor Blue
             continue
         }
+
+        # Only the selected, confirmed target needs to run. BC health and app
+        # provisioning may depend on the database this operation is repairing.
+        try {
+            Test-DockerProcess
+            $ready = @()
+            Ensure-ConfiguredContainers -SettingsJSON @{configurations=@($configuration)} -RequireRunningOnly -ReadyContainerNames ([ref]$ready)
+            if ($configuration.container -notin $ready) { throw 'Selected restore target was not reported running.' }
+        } catch {
+            throw (New-BcExpectedFailure -Stage 'restore target readiness' -Message "SQL restore could not prepare the selected target container. Error code: $($_.Exception.HResult). The underlying cause has not been established from safe structured diagnostics. No SQL restoration or backup staging was started; the selected container may have been started. Check Docker is running with Windows containers and inspect the selected target state before retrying. Create missing containers separately. BC health is not required for database recovery; no alternate target was attempted.")
+        }
+
+        $sharedRestorePath = Copy-SqlBackupSetToSharedFolder `
+            -containerName $configuration.container `
+            -backupRootPath $backupRootPath `
+            -sharedFolderName "SqlRestore"
+        Write-Host "Shared restore folder: $sharedRestorePath" -ForegroundColor Gray
 
         Restore-BcContainerSqlBackupEntries `
             -containerName $configuration.container `
@@ -1740,17 +1794,18 @@ function Export-BcServiceSqlBackupSet {
         [Parameter(Mandatory=$true)]
         [string] $scriptPath,
         [Parameter(Mandatory=$true)]
-        [PSObject] $settingsJSON
+        [PSObject] $settingsJSON,
+        [PSObject] $Selection
     )
 
     $ErrorActionPreference = 'Stop'
-    $selection = Select-BcServiceSqlBackupConfigurations -settingsJSON $settingsJSON
+    if (-not $Selection) { $Selection = Select-BcServiceSqlBackupConfigurations -settingsJSON $settingsJSON }
     $configuration = $selection.Source
     $previousCredentialContext = $script:backupCredentialContext
     $script:backupCredentialContext = [pscustomobject]@{ Configuration=$configuration; Remote=$null }
     try {
         $serverInstance = $configuration.serverInstance
-        $exportRootPath = Get-SqlBackupRootPath -scriptPath $scriptPath -sqlBackupPath $selection.Destination.sqlBackupPath
+        $exportRootPath = if ($Selection.BackupRootPath) { $Selection.BackupRootPath } else { Get-SqlBackupRootPath -scriptPath $scriptPath -sqlBackupPath $selection.Destination.sqlBackupPath }
         Write-Host "Creating SQL backup set from '$($configuration.name)' (BC service '$serverInstance')." -ForegroundColor Green
         Write-Host "Destination: '$($selection.Destination.name)' -> $exportRootPath (existing .bak files will be replaced)." -ForegroundColor Yellow
 
@@ -1842,4 +1897,78 @@ function Export-BcServiceSqlBackupSet {
         $script:backupCredentialContext = $previousCredentialContext
     }
 
+}
+
+
+function Select-SqlBackupConfigurations {
+    param([string] $scriptPath, [PSObject] $settingsJSON)
+
+    $sources = @($settingsJSON.configurations | Where-Object {
+        ($_.serverType -eq 'Container' -and -not [string]::IsNullOrWhiteSpace($_.container)) -or
+        ($_.serverType -eq 'OnPrem' -and -not [string]::IsNullOrWhiteSpace($_.serverInstance))
+    })
+    $destinations = @(Get-ContainerSqlBackupConfigurations -settingsJSON $settingsJSON)
+    if ($sources.Count -eq 0 -or $destinations.Count -eq 0) {
+        throw (New-BcExpectedFailure -Stage 'configuration selection' -Message 'SQL backup requires a Container source with a container name or an OnPrem source with a serverInstance, and a Container destination with sqlBackupPath. Configure these settings and retry. No backup or container startup was started.')
+    }
+    if (Test-RemotingAgentWorkflow) {
+        if ([string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_BACKUP_INPUTS)) {
+            throw (New-BcExpectedFailure -Stage 'configuration selection' -Message 'Supply sourceConfiguration and destinationConfiguration to bc_dev_toolset_backup_bc_databases with execute:true. No backup or container startup was started.')
+        }
+        $inputs = $env:BCDEVTOOLSET_BACKUP_INPUTS | ConvertFrom-Json -ErrorAction Stop
+        $selectedSources = @($sources | Where-Object { -not [string]::IsNullOrWhiteSpace($inputs.'backup.source') -and $_.name -ceq $inputs.'backup.source' })
+        $selectedDestinations = @($destinations | Where-Object { -not [string]::IsNullOrWhiteSpace($inputs.'backup.destination') -and $_.name -ceq $inputs.'backup.destination' })
+    } else {
+        $sourceIndex = 0
+        if ($sources.Count -gt 1) {
+            $sourceIndex = Select-IndexFromList -Title 'Select source configuration for SQL backup:' -Options @($sources | ForEach-Object { "$($_.name) ($($_.serverType))" })
+        }
+        $source = $sources[$sourceIndex]
+        $defaultIndex = 0
+        for ($index = 0; $index -lt $destinations.Count; $index++) {
+            if ($destinations[$index] -eq $source) { $defaultIndex = $index; break }
+        }
+        $destinationIndex = Select-IndexFromList -Title 'Select destination configuration for SQL backup (existing .bak files will be replaced):' -Options @($destinations | ForEach-Object { "$($_.name) -> $($_.sqlBackupPath)" }) -DefaultIndex $defaultIndex
+        $selectedSources = @($sources | Where-Object { $_.name -ceq $source.name })
+        $selectedDestinations = @($destinations | Where-Object { $_.name -ceq $destinations[$destinationIndex].name })
+    }
+    if ($selectedSources.Count -ne 1 -or $selectedDestinations.Count -ne 1) {
+        throw (New-BcExpectedFailure -Stage 'configuration selection' -Message 'Select exact unique eligible sourceConfiguration and destinationConfiguration names. Review workspace configurations and retry with both names. No backup or container startup was started.')
+    }
+    $root = Get-SqlBackupRootPath -scriptPath $scriptPath -sqlBackupPath $selectedDestinations[0].sqlBackupPath
+    return [pscustomobject]@{ Source=$selectedSources[0]; Destination=$selectedDestinations[0]; BackupRootPath=$root }
+}
+
+function Export-SqlBackupSet {
+    param([string] $scriptPath, [PSObject] $settingsJSON)
+    $ErrorActionPreference = 'Stop'
+    $stage = 'configuration selection'
+    $state = 'No backup or container startup was started.'
+    $recovery = 'Review the source and destination settings, including the destination sqlBackupPath, and select exact unique configuration names.'
+    try {
+        $selection = Select-SqlBackupConfigurations -scriptPath $scriptPath -settingsJSON $settingsJSON
+        if ($selection.Source.serverType -eq 'Container') {
+            $stage = 'source container readiness'
+            $state = 'No SQL backup was started. The selected source container may have been started or restarted.'
+            $recovery = 'Check Docker is running with Windows containers and inspect the selected source container health; create missing containers separately before retrying.'
+            Test-DockerProcess
+            $ready = @()
+            Ensure-ConfiguredContainers -SettingsJSON @{configurations=@($selection.Source)} -SkipBcDataProvisioning -ReadyContainerNames ([ref]$ready)
+            if ($selection.Source.container -notin $ready) {
+                throw (New-BcExpectedFailure -Stage $stage -Message "The selected source container is not ready. $state $recovery")
+            }
+        }
+        $stage = 'SQL backup and export'
+        $state = 'Backup or export may have partially completed; the destination backup set may be incomplete.'
+        $recovery = 'Inspect the source SQL host, credentials and destination backup files and source manifest before retrying. For OnPrem sources, verify databaseServerHost/databaseName or BC discovery settings and WinRM connectivity. No automatic fallback was attempted.'
+        if ($selection.Source.serverType -eq 'Container') {
+            Export-BcContainerSqlBackupSet -scriptPath $scriptPath -settingsJSON $settingsJSON -Selection $selection
+        } else {
+            Export-BcServiceSqlBackupSet -scriptPath $scriptPath -settingsJSON $settingsJSON -Selection $selection
+        }
+    } catch {
+        if ($_.Exception.Data['BcDevToolsetExpectedFailure']) { throw }
+        $status = $_.Exception.HResult
+        throw (New-BcExpectedFailure -Stage $stage -Message "SQL backup failed during $stage. Error code: $status. The underlying cause has not been established from safe structured diagnostics. $state $recovery")
+    }
 }

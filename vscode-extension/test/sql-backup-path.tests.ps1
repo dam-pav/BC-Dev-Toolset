@@ -15,6 +15,10 @@ foreach ($candidate in $unsafePaths) {
     try { Get-SqlBackupRootPath -sqlBackupPath $candidate | Out-Null }
     catch {
         if ($_.Exception.Message -eq 'Unexpected filesystem probe') { throw }
+        if (-not $_.Exception.Data['BcDevToolsetExpectedFailure']) { throw 'Path rejection must be a reviewed expected failure' }
+        if ($_.Exception.Data['Stage'] -ne 'backup path validation') { throw 'Missing path validation stage' }
+        if ($_.Exception.Message -notmatch 'Correct the selected backup folder configuration and retry') { throw 'Missing path recovery guidance' }
+        if ($_.Exception.Message -notmatch 'No backup folder was accessed') { throw 'Missing filesystem side-effect state' }
         $rejected = $true
     }
     if (-not $rejected) { throw "Unsafe path accepted: $candidate" }

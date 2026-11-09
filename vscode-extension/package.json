@@ -69,8 +69,7 @@
     "onCommand:bcDevToolset.operation.updateBcLicenseContainer",
     "onCommand:bcDevToolset.operation.showActiveLicenses",
     "onCommand:bcDevToolset.operation.updateBcContainerServerConfiguration",
-    "onCommand:bcDevToolset.operation.backupBcContainerDatabases",
-    "onCommand:bcDevToolset.operation.backupBcServiceDatabases",
+    "onCommand:bcDevToolset.operation.backupBcDatabases",
     "onCommand:bcDevToolset.operation.configureWinRm",
     "onCommand:bcDevToolset.operation.configureStoredCredentials",
     "onCommand:bcDevToolset.operation.restoreBcContainerDatabases",
@@ -839,11 +838,6 @@
                     "default": false,
                     "description": "Apply configured server settings to containers."
                   },
-                  "bc_dev_toolset_backup_bc_container_databases": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Export a SQL database backup set from a container."
-                  },
                   "bc_dev_toolset_configure_stored_credentials": {
                     "type": "boolean",
                     "default": false,
@@ -854,10 +848,10 @@
                     "default": false,
                     "description": "Configure local WinRM and optionally add a host to TrustedHosts."
                   },
-                  "bc_dev_toolset_backup_bc_service_databases": {
+                  "bc_dev_toolset_backup_bc_databases": {
                     "type": "boolean",
                     "default": false,
-                    "description": "Back up an on-premises BC database to a container backup folder."
+                    "description": "Back up a Container or OnPrem configuration to a selected backup folder."
                   },
                   "bc_dev_toolset_restore_bc_container_databases": {
                     "type": "boolean",
@@ -1197,10 +1191,6 @@
         "title": "BC Dev Toolset: Update server configuration in all containers"
       },
       {
-        "command": "bcDevToolset.operation.backupBcContainerDatabases",
-        "title": "BC Dev Toolset: Create and export SQL backup set from Docker container"
-      },
-      {
         "command": "bcDevToolset.operation.configureStoredCredentials",
         "title": "BC Dev Toolset: Configure stored credentials"
       },
@@ -1209,8 +1199,8 @@
         "title": "BC Dev Toolset: Configure WinRM and TrustedHosts"
       },
       {
-        "command": "bcDevToolset.operation.backupBcServiceDatabases",
-        "title": "BC Dev Toolset: Create and export SQL backup set from BC service SQL Server"
+        "command": "bcDevToolset.operation.backupBcDatabases",
+        "title": "BC Dev Toolset: Create and export SQL backup set"
       },
       {
         "command": "bcDevToolset.operation.restoreBcContainerDatabases",

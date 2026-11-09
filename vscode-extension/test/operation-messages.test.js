@@ -45,91 +45,185 @@ function run(root, script, extraEnv = {}) {
   return result.stdout.replace(/\r/g, '');
 }
 
-for (const mode of ['single', 'selected', 'all', 'none']) {
-  test(`container backup checks readiness before offering only available targets (${mode})`, (t) => {
+for (const mode of ['prepare-error', 'sql-throw', 'sql-error', 'start-error', 'version-empty', 'version-error']) {
+  test(`single-tenant restore stops with clean recovery guidance (${mode})`, (t) => {
     const { root, write } = fixture(t);
-    const operation = operations.find(operation => operation.id === 'backupBcContainerDatabases');
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed source path validated as contained by the repository root
-    write(operation.script, fs.readFileSync(resolveWithinRoot(repositoryRoot, 'operations/BackupBcContainerDatabases.ps1'), 'utf8')); // nosemgrep -- fixed source path validated as contained by the repository root
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- fixed source path validated as contained by the repository root
-    write('common/ContainerLifecycle.ps1', fs.readFileSync(resolveWithinRoot(repositoryRoot, 'common/ContainerLifecycle.ps1'), 'utf8')); // nosemgrep -- fixed source path validated as contained by the repository root
+    write('operations/operations.json', JSON.stringify([
+      { id: 'restore', title: 'Restore SQL backup', script: 'operations/Test.ps1' }
+    ]));
+    write('common/BackupMgt.ps1', fs.readFileSync(resolveWithinRoot(repositoryRoot, 'common/BackupMgt.ps1'), 'utf8')); // nosemgrep -- fixed source contained by repository root
+    write('common/CredentialMgt.ps1', '');
+    write('common/RemotingMgt.ps1', '');
+    const stage = mode === 'prepare-error' ? 'restore preparation' : mode.startsWith('sql') ? 'SQL restoration' : mode === 'start-error' ? 'BC service start' : 'application version discovery';
+    write('operations/Test.ps1', `
+      . (Join-Path $PSScriptRoot '../common/BackupMgt.ps1')
+      function global:Write-Host {
+        param($Object,[ConsoleColor]$ForegroundColor)
+        if ($Object -eq 'Restore SQL backup failed during ${stage}.') {
+          if ($ForegroundColor -ne [ConsoleColor]::Red) { throw 'Expected red heading' }
+          [Console]::WriteLine('FAILURE HEADING COLOR: Red')
+        }
+        Microsoft.PowerShell.Utility\\Write-Host @PSBoundParameters
+      }
+      function Get-BcContainerSqlBackupRestoreParameters { @{containerName='target';bakFile='database.bak'} }
+      $script:invocations=0
+      function Invoke-ScriptInBcContainer {
+        [CmdletBinding()]param($containerName,$ScriptBlock)
+        $script:invocations++
+        if ($script:invocations -eq 1) { ${mode === 'prepare-error' ? "Write-Error 'private preparation failure'" : "return 'CRONUS'"} }
+        if ($script:invocations -eq 2) {
+          ${mode === 'start-error' ? "Write-Error 'private service error'" : "return"}
+        }
+        ${mode === 'version-error' ? "Write-Error 'private module failure'" : "[pscustomobject]@{PlatformVersion='27.0.0.0';DatabaseApplicationVersion='';InstalledApps=@();PackageApps=@()}"}
+      }
+      function Restore-DatabasesInBcContainer {
+        [CmdletBinding()]param($containerName,$bakFile,$databaseName)
+        Write-Host 'SQL ATTEMPT'
+        ${mode === 'sql-throw' ? "throw [TypeLoadException]::new('Could not load type ServiceCollection; secret connection payload')" : mode === 'sql-error' ? "Write-Error 'private SQL error'" : ''}
+      }
+      function Repair-BcContainerAdministratorAfterRestore { throw 'UNEXPECTED ADMIN REPAIR' }
+      Restore-BcContainerSqlBackupEntries -containerName target -bakFolder unused -backupEntries @() -configuration ([pscustomobject]@{})
+      Write-Host 'UNEXPECTED SUCCESS'
+    `);
+    const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', './Invoke-BcDevToolsetOperation.ps1', '-Operation', 'restore', '-NonInteractive'], {
+      cwd: root, encoding: 'utf8', windowsHide: true, timeout: 30000
+    });
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    assert.equal(result.stderr, '');
+    assert.match(result.stdout, /FAILURE HEADING COLOR: Red/);
+    assert.ok(result.stdout.includes(`failed during ${stage}.`));
+    assert.match(result.stdout, /Inspect|Check/);
+    assert.match(result.stdout, /before.*retry/);
+    assert.match(result.stdout, /No automatic retry or alternate restore/);
+    assert.equal(result.stdout.split('SQL ATTEMPT').length - 1, mode === 'prepare-error' ? 0 : 1);
+    if (mode === 'prepare-error') assert.match(result.stdout, /SQL restoration was not started/);
+    if (mode.startsWith('sql')) assert.match(result.stdout, /removed the target database.*service may be stopped/);
+    if (mode === 'sql-throw') {
+      assert.match(result.stdout, /administration module could not load a required .NET type/);
+      assert.match(result.stdout, /Error code: -2146233054/);
+    }
+    if (mode === 'version-empty') assert.match(result.stdout, /empty platform or database application version.*Get-NAVApplication/);
+    assert.doesNotMatch(result.stdout, /UNEXPECTED|Exception:|secret connection|private |DONE/);
+  });
+}
+
+
+for (const mode of ['container', 'stopped', 'unhealthy', 'service', 'invalid', 'readiness-error', 'export-error']) {
+  test(`unified backup selects first and prepares only its source (${mode})`, (t) => {
+    const { root, write } = fixture(t);
+    const operation = operations.find(operation => operation.id === 'backupBcDatabases');
+    write(operation.script, fs.readFileSync(resolveWithinRoot(repositoryRoot, operation.script), 'utf8')); // nosemgrep -- fixed source confined to repository root
+    write('common/ContainerLifecycle.ps1', fs.readFileSync(resolveWithinRoot(repositoryRoot, 'common/ContainerLifecycle.ps1'), 'utf8')); // nosemgrep -- fixed source confined to repository root
     write('common/PublishApps.ps1', '');
-    const backupPath = path.join(repositoryRoot, 'common/BackupMgt.ps1').replaceAll("'", "''");
+    const backupPath = resolveWithinRoot(repositoryRoot, 'common/BackupMgt.ps1').replaceAll("'", "''");
     write('common/WorkspaceMgt.ps1', `
       . '${backupPath}'
       $script:events = [collections.generic.list[string]]::new()
-      $hostHelperFolder = Join-Path $PSScriptRoot '../helper'
-      function Test-DockerProcess {}
+      $script:recovered = $false
       function Initialize-Context {
         param($scriptPath, [ref]$settingsJSON, [ref]$workspaceJSON)
-        $settingsJSON.Value = @{configurations=@('Core','CoreTest','Missing'${['selected', 'all'].includes(mode) ? ",'Other'" : ''} | ForEach-Object {
-          [pscustomobject]@{name=$_;serverType='Container';container=$_;sqlBackupPath=$_}
-        })}
+        $settingsJSON.Value = @{configurations=@(
+          [pscustomobject]@{name='Other';serverType='Container';container='unrelated';sqlBackupPath='other'},
+          [pscustomobject]@{name='Source';serverType='Container';container='selected'},
+          [pscustomobject]@{name='Destination';serverType='Container';container='destination';sqlBackupPath='chosen'},
+          [pscustomobject]@{name='Remote';serverType='OnPrem';serverInstance='BC230'}
+        )}
       }
-      function Get-SqlBackupRootPath { param($sqlBackupPath) Join-Path $PSScriptRoot "../exports/$sqlBackupPath" }
+      function Test-RemotingAgentWorkflow { $false }
       function Select-IndexFromList {
-        param($Options)
-        $script:events.Add('select:' + ($Options -join '|'))
-        ${mode === 'all' ? 2 : 0}
+        param($Title,$Options,$DefaultIndex)
+        $script:events.Add('select:' + $Title)
+        if ($Title -like 'Select source*') { ${mode === 'service' ? 3 : 1} } else { 1 }
       }
+      function Get-SqlBackupRootPath {
+        param($sqlBackupPath)
+        $script:events.Add('path:' + $sqlBackupPath)
+        ${mode === 'invalid' ? "throw 'private invalid path'" : "'C:\\chosen'"}
+      }
+      function Test-DockerProcess { $script:events.Add('docker') }
       function docker {
         param([Parameter(ValueFromRemainingArguments=$true)][string[]]$DockerArguments)
         $global:LASTEXITCODE=0
         $script:events.Add($DockerArguments -join ' ')
         if ($DockerArguments[0] -eq 'info') { return 'windows' }
-        if ($DockerArguments[1] -eq 'restart') { throw 'Container unavailable; recover it before retrying.' }
-        $name = $DockerArguments[-1]
-        if ($name -eq 'Missing') { throw 'No such container' }
-        @{Name="/$name";State=@{Status='running';Health=@{Status=$(if ($name -ne 'CoreTest' -and $${mode !== 'none'}) {'healthy'} else {'unhealthy'})}}} |
-          ConvertTo-Json -Depth 5 -Compress
+        if ($DockerArguments[-1] -ne 'selected') { throw 'UNEXPECTED unrelated container access' }
+        if ('${mode}' -eq 'readiness-error') { throw 'private readiness error' }
+        if ($DockerArguments[1] -in @('start','restart')) { $script:recovered=$true; return }
+        $status=if ('${mode}' -eq 'stopped' -and -not $script:recovered) {'exited'} else {'running'}
+        $health=if ('${mode}' -eq 'unhealthy' -and -not $script:recovered) {'unhealthy'} else {'healthy'}
+        @{Name='/selected';State=@{Status=$status;Health=@{Status=$health}}} | ConvertTo-Json -Depth 4 -Compress
       }
-      function Test-DockerContainerRunning { $true }
-      function Backup-BcContainerDatabases {
-        param($containerName, $bakFolder)
-        $script:events.Add("backup:$containerName")
-        Set-Content -LiteralPath (Join-Path $bakFolder 'database.bak') -Value 'fixture backup'
+      function Export-BcContainerSqlBackupSet {
+        [CmdletBinding()]param($scriptPath,$settingsJSON,$Selection)
+        $script:events.Add('container:' + $Selection.Source.name + ':' + $Selection.Destination.name + ':' + $Selection.BackupRootPath)
+        ${mode === 'export-error' ? "Write-Error 'private export failure'" : ''}
       }
-      function Get-BcContainerDatabaseBackupMap {
-        [pscustomobject]@{HelperFileName='database.bak';ExportFileName='Core.database.database.bak'}
+      function Export-BcServiceSqlBackupSet {
+        param($scriptPath,$settingsJSON,$Selection)
+        $script:events.Add('service:' + $Selection.Source.name + ':' + $Selection.Destination.name)
       }
       function Write-Done { $script:events.Add('done') }
     `);
-    const output = run(root, `
-      $ErrorActionPreference='Continue'
-      $messages=[collections.generic.list[string]]::new()
-      try {
-        . ./operations/BackupBcContainerDatabases.ps1 6>&1 | ForEach-Object { $messages.Add([string]$_) }
-        $operationExitCode=if ($?) { 0 } else { 1 }
-      } catch { $failure=$_.Exception.Message; $operationExitCode=1 }
-      @{Events=@($script:events.ToArray());Failure=$failure;ExitCode=$operationExitCode;Messages=($messages -join '|');Exported=(Test-Path './exports/Core/Core.database.database.bak')} |
-        ConvertTo-Json -Compress
-    `);
-    const result = JSON.parse(output);
-    assert.match(result.Messages, /Unavailable containers excluded:.*CoreTest/);
-    assert.match(result.Messages, /Missing.*missing; skipped/);
-    assert.ok(result.Events.includes('container restart -- CoreTest'));
-    if (mode !== 'none') {
-      assert.equal(result.Failure, null);
-      assert.equal(result.ExitCode, 0);
-      assert.equal(result.Exported, true);
-      assert.ok(result.Events.includes('backup:Core'));
-      assert.ok(result.Events.includes('done'));
-      assert.ok(!result.Events.includes('backup:CoreTest'));
-      assert.ok(!result.Events.includes('backup:Missing'));
-      assert.equal(result.Events.includes('backup:Other'), mode === 'all');
-      const picker = result.Events.find(event => event.startsWith('select:'));
-      if (mode === 'single') assert.equal(picker, undefined);
-      else {
-        assert.match(picker, /Core \(Core\).*Other \(Other\).*All qualified containers/);
-        assert.doesNotMatch(picker, /CoreTest|Missing/);
-        assert.ok(result.Events.indexOf(picker) > result.Events.indexOf('container restart -- CoreTest'));
-      }
+    const result = JSON.parse(run(root, `
+      try { . ./${operation.script} 6>$null } catch { $failure=$_.Exception; $message=$failure.Message }
+      @{Events=@($script:events);Failure=$message;Expected=$failure.Data['BcDevToolsetExpectedFailure']} | ConvertTo-Json -Compress
+    `.replace("$failure.Data['BcDevToolsetExpectedFailure']", "$(if ($failure) {$failure.Data['BcDevToolsetExpectedFailure']} else {$false})")));
+    assert.ok(result.Events[0].startsWith('select:Select source'));
+    assert.ok(result.Events[1].startsWith('select:Select destination'));
+    assert.equal(result.Events[2], 'path:chosen');
+    assert.ok(result.Events.every(event => !/unrelated|destination$/.test(event)));
+    if (mode === 'service') {
+      assert.deepEqual(result.Events.slice(3), ['service:Remote:Destination', 'done']);
+    } else if (mode === 'invalid') {
+      assert.equal(result.Events.length, 3);
+      assert.match(result.Failure, /configuration selection.*No backup or container startup was started.*Review/s);
     } else {
-      assert.equal(result.Exported, false);
-      assert.equal(result.ExitCode, 1);
-      assert.match(result.Failure, /No available containers.*No backup was started.*Recover/);
-      assert.ok(result.Events.every(event => !event.startsWith('backup:') && !event.startsWith('select:') && event !== 'done'));
+      assert.equal(result.Events[3], 'docker');
+      if (mode === 'readiness-error') {
+        assert.match(result.Failure, /source container readiness.*No SQL backup was started.*Check Docker/s);
+        assert.ok(!result.Events.some(event => event.startsWith('container:')));
+      } else {
+        assert.equal(result.Events.filter(event => event.startsWith('container:')).length, 1);
+        assert.ok(result.Events.includes('container:Source:Destination:C:\\chosen'));
+        if (mode === 'stopped') assert.ok(result.Events.includes('container start -- selected'));
+        if (mode === 'unhealthy') assert.ok(result.Events.includes('container restart -- selected'));
+      }
     }
+    if (['invalid', 'readiness-error', 'export-error'].includes(mode)) {
+      assert.equal(result.Expected, true);
+      assert.ok(!result.Events.includes('done'));
+      assert.doesNotMatch(result.Failure, /private /);
+      if (mode === 'export-error') assert.match(result.Failure, /partially completed.*Inspect.*before retrying/s);
+    } else {
+      assert.equal(result.Failure, null);
+      assert.equal(result.Events.at(-1), 'done');
+    }
+  });
+}
+
+for (const stage of ['configuration selection', 'backup path validation', 'source container readiness', 'SQL backup and export']) {
+  test(`unified backup launcher preserves failed status and red guidance (${stage})`, (t) => {
+    const { root, write } = fixture(t);
+    write('operations/operations.json', JSON.stringify([{id:'backupBcDatabases',title:'Create and export SQL backup set',script:'operations/Test.ps1'}]));
+    write('operations/Test.ps1', `
+      . (Join-Path $PSScriptRoot '../common/PublishingDiagnostics.ps1')
+      function global:Write-Host {
+        param($Object,[ConsoleColor]$ForegroundColor)
+        if ($Object -eq 'Create and export SQL backup set failed during ${stage}.') {
+          if ($ForegroundColor -ne [ConsoleColor]::Red) { throw 'Expected red heading' }
+          [Console]::WriteLine('RED HEADING')
+        }
+        Microsoft.PowerShell.Utility\\Write-Host @PSBoundParameters
+      }
+      throw (New-BcExpectedFailure -Stage '${stage}' -Message 'SQL backup failed. Inspect selected source and destination before retrying. No automatic fallback was attempted.')
+      Write-Done
+    `);
+    const result=spawnSync('pwsh',['-NoProfile','-NonInteractive','-File','./Invoke-BcDevToolsetOperation.ps1','-Operation','backupBcDatabases','-NonInteractive'],{cwd:root,encoding:'utf8',windowsHide:true,timeout:30000});
+    assert.equal(result.status,1,result.stderr || result.stdout);
+    assert.equal(result.stderr,'');
+    assert.match(result.stdout,/RED HEADING/);
+    assert.match(result.stdout,/Inspect selected source and destination before retrying/);
+    assert.doesNotMatch(result.stdout,/Exception:|DONE/);
   });
 }
 
@@ -363,5 +457,104 @@ for (const failure of ['unreadable', 'changed', 'write-failure']) {
     assert.match(result.stdout, /No companion was deployed[. ]/);
     assert.match(result.stdout, failure === 'write-failure' ? /Inspect the configuration file before retrying/ : /initialize again/);
     assert.doesNotMatch(result.stdout, /Exception:|Line\s*\||BcDataMgt\.ps1:\d|DONE|UNEXPECTED DEPLOYMENT/);
+  });
+}
+
+
+for (const mode of ['healthy', 'stopped', 'unhealthy', 'declined', 'missing', 'readiness-error', 'no-target']) {
+  test(`restore prepares only its selected and confirmed container (${mode})`, (t) => {
+    const { root, write } = fixture(t);
+    const operation=operations.find(operation => operation.id === 'restoreBcContainerDatabases');
+    write(operation.script,fs.readFileSync(resolveWithinRoot(repositoryRoot,operation.script),'utf8')); // nosemgrep -- fixed source confined to repository root
+    write('common/ContainerLifecycle.ps1',fs.readFileSync(resolveWithinRoot(repositoryRoot,'common/ContainerLifecycle.ps1'),'utf8')); // nosemgrep -- fixed source confined to repository root
+    write('common/PublishApps.ps1','');
+    write('operations/operations.json',JSON.stringify([operation]));
+    const backupPath=resolveWithinRoot(repositoryRoot,'common/BackupMgt.ps1').replaceAll("'","''");
+    write('common/WorkspaceMgt.ps1',`
+      . '${backupPath}'
+      $script:events=[collections.generic.list[string]]::new()
+      $script:started=$false
+      function Get-OperationDefinitions {
+        param($ScriptPath)
+        $definition=Get-Content (Join-Path $ScriptPath 'operations/operations.json') -Raw | ConvertFrom-Json
+        $definition | Add-Member ScriptPath (Join-Path $ScriptPath $definition.script)
+        $definition
+      }
+      function Initialize-Context {
+        param($scriptPath,[ref]$settingsJSON,[ref]$workspaceJSON)
+        if ('${mode}' -eq 'no-target') { $settingsJSON.Value=@{configurations=@()}; return }
+        $settingsJSON.Value=@{configurations=@('other','selected' | ForEach-Object {
+          [pscustomobject]@{name=$_;serverType='Container';container=$_;sqlBackupPath=$_;bcData=@{provisioningEnabled=$true}}
+        })}
+      }
+      function Select-IndexFromList { $script:events.Add('select'); 1 }
+      function Get-SqlBackupRootPath { param($sqlBackupPath) $sqlBackupPath }
+      function Test-Path { $true }
+      function Get-SqlBackupSetEntries {
+        $script:events.Add('validate-backup')
+        [pscustomobject]@{SourceFileName='CRONUS.database.bak';DatabaseRole='database';DatabaseName='CRONUS'}
+      }
+      function Confirm-Option { $script:events.Add('confirm'); $${mode !== 'declined'} }
+      function Test-DockerProcess { $script:events.Add('docker') }
+      function docker {
+        param([Parameter(ValueFromRemainingArguments=$true)][string[]]$DockerArguments)
+        $global:LASTEXITCODE=0
+        $script:events.Add($DockerArguments -join ' ')
+        if ($DockerArguments[0] -eq 'info') { return 'windows' }
+        if ($DockerArguments[-1] -ne 'selected') { throw 'UNEXPECTED unrelated access' }
+        if ('${mode}' -eq 'missing') { throw 'No such container' }
+        if ('${mode}' -eq 'readiness-error') { Write-Error 'Readiness probe failed'; return }
+        if ($DockerArguments[1] -eq 'start') { $script:started=$true; return }
+        $status=if ('${mode}' -eq 'stopped' -and -not $script:started) {'exited'} else {'running'}
+        $health=if ('${mode}' -eq 'unhealthy') {'unhealthy'} else {'healthy'}
+        @{Name='/selected';State=@{Status=$status;Health=@{Status=$health}}} | ConvertTo-Json -Depth 4 -Compress
+      }
+      function Sync-ConfiguredBcData { throw 'UNEXPECTED app provisioning' }
+      function Copy-SqlBackupSetToSharedFolder { param($containerName) $script:events.Add('stage:'+$containerName); 'staged' }
+      function Restore-BcContainerSqlBackupEntries { param($containerName) $script:events.Add('restore:'+$containerName); Write-Host 'RESTORE CALLED' }
+      function Write-Done { $script:events.Add('done'); Write-Host 'DONE' }
+      function global:Write-Host {
+        param($Object,[ConsoleColor]$ForegroundColor)
+        if ($Object -eq '${operation.title} failed during restore target readiness.') {
+          if ($ForegroundColor -ne [ConsoleColor]::Red) {throw 'Expected red failure heading'}
+          [Console]::WriteLine('RED READINESS HEADING')
+        }
+        Microsoft.PowerShell.Utility\\Write-Host @PSBoundParameters
+      }
+    `);
+    const result=JSON.parse(run(root,`
+      try { . ./${operation.script} 6>$null } catch { $failure=$_.Exception }
+      @{Events=@($script:events);Failure=$failure.Message;Expected=$(if ($failure) {$failure.Data['BcDevToolsetExpectedFailure']} else {$false})} | ConvertTo-Json -Compress
+    `));
+    if (mode === 'no-target') {
+      assert.deepEqual(result.Events,[]);
+      assert.equal(result.Expected,true);
+      assert.match(result.Failure,/Configure a target and backup folder before retrying.*No container startup or SQL restoration was started/s);
+      return;
+    }
+    assert.deepEqual(result.Events.slice(0,3),['select','validate-backup','confirm']);
+    assert.ok(result.Events.every(event => !event.includes('other')));
+    if (mode === 'declined') {
+      assert.deepEqual(result.Events,['select','validate-backup','confirm','done']);
+      assert.equal(result.Failure,null);
+    } else {
+      assert.equal(result.Events[3],'docker');
+      assert.ok(result.Events.every(event => !event.startsWith('container restart')));
+      if (['missing','readiness-error'].includes(mode)) {
+        assert.equal(result.Expected,true);
+        assert.match(result.Failure,/No SQL restoration or backup staging was started.*Check Docker.*before retrying/s);
+        assert.ok(result.Events.every(event => !/^(stage:|restore:|done)/.test(event)));
+        const launch=spawnSync('pwsh',['-NoProfile','-NonInteractive','-File','./Invoke-BcDevToolsetOperation.ps1','-Operation',operation.id,'-NonInteractive'],{cwd:root,encoding:'utf8',windowsHide:true,timeout:30000});
+        assert.equal(launch.status,1,launch.stderr || launch.stdout);
+        assert.equal(launch.stderr,'');
+        assert.match(launch.stdout,/RED READINESS HEADING/);
+        assert.match(launch.stdout,/No SQL restoration or backup staging was started/);
+        assert.doesNotMatch(launch.stdout,/RESTORE CALLED|DONE|Exception:/);
+      } else {
+        assert.equal(result.Failure,null);
+        assert.deepEqual(result.Events.slice(-3),['stage:selected','restore:selected','done']);
+        assert.equal(result.Events.includes('container start -- selected'),mode === 'stopped');
+      }
+    }
   });
 }

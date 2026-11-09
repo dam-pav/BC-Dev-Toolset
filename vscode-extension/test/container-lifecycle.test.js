@@ -292,7 +292,7 @@ test('database recovery admits running unhealthy containers without restart or a
   assert.deepEqual(calls.filter(args => ['start', 'restart'].includes(args[1])), [
     ['container', 'start', '--', 'stopped']
   ]);
-  const source = fs.readFileSync(path.resolve(__dirname, '../../operations/RestoreBcContainerDatabases.ps1'), 'utf8');
+  const source = fs.readFileSync(path.resolve(__dirname, '../../common/BackupMgt.ps1'), 'utf8');
   assert.match(source, /Ensure-ConfiguredContainers[^\r\n]*-RequireRunningOnly/);
 });
 

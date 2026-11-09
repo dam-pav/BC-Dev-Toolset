@@ -167,11 +167,6 @@
           "default": false,
           "description": "Apply configured server settings to containers."
         },
-        "bc_dev_toolset_backup_bc_container_databases": {
-          "type": "boolean",
-          "default": false,
-          "description": "Export a SQL database backup set from a container."
-        },
         "bc_dev_toolset_configure_stored_credentials": {
           "type": "boolean",
           "default": false,
@@ -182,10 +177,10 @@
           "default": false,
           "description": "Configure local WinRM and optionally add a host to TrustedHosts."
         },
-        "bc_dev_toolset_backup_bc_service_databases": {
+        "bc_dev_toolset_backup_bc_databases": {
           "type": "boolean",
           "default": false,
-          "description": "Back up an on-premises BC database to a container backup folder."
+          "description": "Back up a Container or OnPrem configuration to a selected backup folder."
         },
         "bc_dev_toolset_restore_bc_container_databases": {
           "type": "boolean",
