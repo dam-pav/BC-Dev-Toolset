@@ -40,9 +40,9 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 44;
+const mcpServerDefinitionRevision = 45;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 61;
+const runtimeToolsetRevision = 64;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -77,8 +77,7 @@ const directOperationIds = [
   'updateBcLicenseContainer',
   'showActiveLicenses',
   'updateBcContainerServerConfiguration',
-  'backupBcContainerDatabases',
-  'backupBcServiceDatabases',
+  'backupBcDatabases',
   'configureStoredCredentials',
   'configureWinRm',
   'restoreBcContainerDatabases',
@@ -2308,7 +2307,7 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
     reportPath: capture.reportPath,
     mcpSessionId: capture.sessionId,
     remotingInputs: operation.id === 'configureWinRm' ? options.promptAnswers : undefined,
-    serviceBackupInputs: operation.id === 'backupBcServiceDatabases' ? options.promptAnswers : undefined,
+    backupInputs: operation.id === 'backupBcDatabases' ? options.promptAnswers : undefined,
     workspacePath: options.workspacePath,
     workspaceFile: options.workspaceFile,
     localSettingsPath: options.localSettingsPath
@@ -2386,7 +2385,7 @@ function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
     (options.nonInteractive ? ' -NonInteractive' : '');
 
   const remotingEnvironment = `$env:BCDEVTOOLSET_REMOTING_INPUTS = ${quotePowerShellArgument(options.mcpSessionId && operation.id === 'configureWinRm' ? JSON.stringify(options.remotingInputs || {}) : '')}; `;
-  const serviceBackupEnvironment = `$env:BCDEVTOOLSET_SERVICE_BACKUP_INPUTS = ${quotePowerShellArgument(options.mcpSessionId && operation.id === 'backupBcServiceDatabases' ? JSON.stringify(options.serviceBackupInputs || {}) : '')}; `;
+  const backupEnvironment = `$env:BCDEVTOOLSET_BACKUP_INPUTS = ${quotePowerShellArgument(options.mcpSessionId && operation.id === 'backupBcDatabases' ? JSON.stringify(options.backupInputs || {}) : '')}; `;
   const mcpPromptEnvironment = options.mcpSessionId
     ? [
         `$env:BCDEVTOOLSET_MCP_SESSION_ID = ${quotePowerShellArgument(options.mcpSessionId)}`,
@@ -2408,7 +2407,7 @@ function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
     `$env:BCDEVTOOLSET_HOST_HELPER_FOLDER = ${quotePowerShellArgument(getHostHelperFolder())}; ` +
     mcpPromptEnvironment +
     remotingEnvironment +
-    serviceBackupEnvironment +
+    backupEnvironment +
     (options.includeMcpCapture
       ? buildMcpCapturedPowerShellCommand(operationCommand, options.transcriptPath, options.resultPath)
       : options.includeMcpExitMarker

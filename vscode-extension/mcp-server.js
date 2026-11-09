@@ -656,8 +656,8 @@ function getOperationToolDescription(operation) {
   if (operation.id === 'configureWinRm') {
     return 'Configure local WinRM startup and optionally append one host to TrustedHosts. Call first for input review, then supply computerName, addTrustedHost, execute:true and confirm:true. No mid-operation prompts or automatic UAC elevation for agents: an already elevated extension host is required, otherwise the operation stops with human setup instructions. Does not enable remoting on an unreachable remote server.';
   }
-  if (operation.id === 'backupBcServiceDatabases') {
-    return 'Create one SQL backup set from one selected OnPrem configuration into one selected Container configuration backup folder, replacing its .bak files. Call first for input review, then supply sourceConfiguration and destinationConfiguration by exact unique configuration name with execute:true. No mid-operation selection prompts. A configured databaseServerHost uses databaseName, optional databaseInstance and optional databaseTenants to bypass BC discovery. Successful discovered backups save that mapping for later runs. Agent remoting failures abort without interactive recovery. Use bc_dev_toolset_configure_win_rm to configure local WinRM/TrustedHosts separately, then retry backup. Configure remoteUser/remotePassword beforehand if explicit Windows credentials are required.';
+  if (operation.id === 'backupBcDatabases') {
+    return 'Create one SQL backup set from one selected Container or OnPrem configuration into one selected Container configuration backup folder, replacing its .bak files. Call first for input review, then supply sourceConfiguration and destinationConfiguration by exact unique configuration name with execute:true. No mid-operation selection prompts. Readiness is checked only for the selected Container source after both selections; destination containers are not started. A configured databaseServerHost uses databaseName, optional databaseInstance and optional databaseTenants to bypass BC discovery. Successful discovered backups save that mapping for later runs. Agent remoting failures abort without interactive recovery. Use bc_dev_toolset_configure_win_rm to configure local WinRM/TrustedHosts separately, then retry backup. Configure remoteUser/remotePassword beforehand if explicit Windows credentials are required.';
   }
   if (operation.command === 'showHelp') {
     return 'BC Dev Toolset: Show Help. Returns the bundled repository README so you can help users explore, understand, configure, and troubleshoot BC Dev Toolset.';
@@ -1056,8 +1056,8 @@ function isContainerBackupOperation(operation) {
 }
 
 function getOperationPromptAnswers(operation, args = {}) {
-  if (operation.id === 'backupBcServiceDatabases') {
-    return { 'serviceBackup.source': args.sourceConfiguration, 'serviceBackup.destination': args.destinationConfiguration };
+  if (operation.id === 'backupBcDatabases') {
+    return { 'backup.source': args.sourceConfiguration, 'backup.destination': args.destinationConfiguration };
   }
   if (operation.id === 'configureWinRm') {
     // This operation consumes its validated upfront inputs directly, never prompt overrides.

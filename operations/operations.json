@@ -110,15 +110,6 @@
     "category": "Container"
   },
   {
-    "id": "backupBcContainerDatabases",
-    "title": "Create and export SQL backup set from Docker container",
-    "script": "operations/BackupBcContainerDatabases.ps1",
-    "category": "Backup",
-    "promptInputs": [
-      { "promptId": "selectIndex.Select.container.for.SQL.backup.export.", "inputName": "containerSelection", "type": "choice", "question": "Select a container configuration for SQL backup export. Runtime choices are displayed by the operation.", "conditional": true }
-    ]
-  },
-  {
     "id": "configureStoredCredentials",
     "title": "Configure stored credentials",
     "script": "operations/ConfigureStoredCredentials.ps1",
@@ -136,13 +127,23 @@
     ]
   },
   {
-    "id": "backupBcServiceDatabases",
-    "title": "Create and export SQL backup set from BC service SQL Server",
-    "script": "operations/BackupBcServiceDatabases.ps1",
+    "id": "backupBcDatabases",
+    "title": "Create and export SQL backup set",
+    "script": "operations/BackupBcDatabases.ps1",
     "category": "Backup",
     "promptInputs": [
-      { "promptId": "serviceBackup.source", "inputName": "sourceConfiguration", "type": "text", "question": "Exact unique name of the OnPrem source configuration with a serverInstance. Only this source will be backed up." },
-      { "promptId": "serviceBackup.destination", "inputName": "destinationConfiguration", "type": "text", "question": "Exact unique name of the Container destination configuration with a sqlBackupPath. Existing .bak files in this folder will be replaced." }
+      {
+        "promptId": "backup.source",
+        "inputName": "sourceConfiguration",
+        "type": "text",
+        "question": "Exact unique name of the Container or OnPrem source configuration."
+      },
+      {
+        "promptId": "backup.destination",
+        "inputName": "destinationConfiguration",
+        "type": "text",
+        "question": "Exact unique name of the Container destination configuration with sqlBackupPath. Existing .bak files will be replaced."
+      }
     ]
   },
   {

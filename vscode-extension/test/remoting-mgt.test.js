@@ -2,13 +2,13 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-process.env.BCDEVTOOLSET_MCP_TOOL_SETTINGS = JSON.stringify({"bc_dev_toolset_backup_bc_service_databases": true, "bc_dev_toolset_configure_win_rm": true});
+process.env.BCDEVTOOLSET_MCP_TOOL_SETTINGS = JSON.stringify({"bc_dev_toolset_backup_bc_databases": true, "bc_dev_toolset_configure_win_rm": true});
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const { __test: mcp } = require('../mcp-server');
 const root = path.resolve(__dirname, '../..');
 test('service backup MCP preflight collects both configuration names before execution', async () => {
-  const name = 'bc_dev_toolset_backup_bc_service_databases';
+  const name = 'bc_dev_toolset_backup_bc_databases';
   const tool = mcp.getTools().find(tool => tool.name === name);
   assert.equal(tool.inputSchema.properties.sourceConfiguration.type, 'string');
   assert.equal(tool.inputSchema.properties.destinationConfiguration.type, 'string');
@@ -16,10 +16,10 @@ test('service backup MCP preflight collects both configuration names before exec
   const preflight = JSON.parse(result.content[0].text);
   assert.equal(preflight.status, 'input_required');
   assert.deepEqual(preflight.missingInputs, ['destinationConfiguration']);
-  assert.deepEqual(mcp.getOperationPromptAnswers({ id: 'backupBcServiceDatabases' }, {
+  assert.deepEqual(mcp.getOperationPromptAnswers({ id: 'backupBcDatabases' }, {
     sourceConfiguration: 'Source', destinationConfiguration: 'Local',
-    promptAnswers: { 'serviceBackup.destination': 'Test' }
-  }), { 'serviceBackup.source': 'Source', 'serviceBackup.destination': 'Local' });
+    promptAnswers: { 'backup.destination': 'Test' }
+  }), { 'backup.source': 'Source', 'backup.destination': 'Local' });
 });
 const quote = value => "'" + value.replaceAll("'", "''") + "'";
 function run(script) {
