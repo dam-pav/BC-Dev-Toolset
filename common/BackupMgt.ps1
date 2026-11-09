@@ -424,156 +424,177 @@ function Get-BcSystemApplicationUpgradeAssessment {
 function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {
     Param (
         [Parameter(Mandatory=$true)]
-        [string] $containerName
+        [string] $containerName,
+        [string[]] $tenantIds
     )
 
-    Write-Host "Evaluating restored database application versions in container '$containerName'." -ForegroundColor Green
-    try {
-        $state = Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
-            $ErrorActionPreference = 'Stop'
-            $serverInstance = "BC"
-            $tenant = "default"
-            $packageDefinitions = @(
-                @{ Name = "System Application"; Path = "C:\Applications\System Application\Source\Microsoft_System Application.app" },
-                @{ Name = "Base Application"; Path = "C:\Applications\BaseApp\Source\Microsoft_Base Application.app" },
-                @{ Name = "Application"; Path = "C:\Applications\Application\Source\Microsoft_Application.app" }
-            )
-
-            $serviceFolder = (Get-Item "C:\Program Files\Microsoft Dynamics NAV\*\Service" | Select-Object -First 1).FullName
-            $platformVersion = (Get-Item (Join-Path $serviceFolder "Microsoft.Dynamics.Nav.Server.exe")).VersionInfo.FileVersion
-            $databaseVersion = (Get-NAVApplication -ServerInstance $serverInstance).ApplicationVersion
-            $tenantApps = @(Get-NAVAppInfo -ServerInstance $serverInstance -Tenant $tenant)
-            $installedApps = @($packageDefinitions | ForEach-Object {
-                $appName = $_.Name
-                $app = @($tenantApps |
-                    Where-Object { $_.Name -eq $appName -and $_.Publisher -eq "Microsoft" } |
-                    Sort-Object Version -Descending |
-                    Select-Object -First 1)
-                if ($app.Count -eq 1) {
-                    [PSCustomObject]@{ Name = $appName; Version = [string]$app[0].Version }
-                }
-            })
-            $packageApps = @($packageDefinitions | ForEach-Object {
-                if (Test-Path -LiteralPath $_.Path -PathType Leaf) {
-                    $app = Get-NAVAppInfo -Path $_.Path
-                    [PSCustomObject]@{ Name = [string]$app.Name; Version = [string]$app.Version; Path = $_.Path }
-                }
-            })
-
-            [PSCustomObject]@{
-                PlatformVersion = [string]$platformVersion
-                DatabaseApplicationVersion = [string]$databaseVersion
-                InstalledApps = $installedApps
-                PackageApps = $packageApps
-            }
-        } -ErrorAction Stop
+    if (-not $tenantIds -or $tenantIds.Count -eq 0) {
+        try {
+            $tenantIds = @(Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
+                $ErrorActionPreference = 'Stop'
+                Get-NAVTenant -ServerInstance BC -ErrorAction Stop | Select-Object -ExpandProperty Id
+            } -ErrorAction Stop)
+        } catch {
+            throw (New-BcRestoreFailure -Stage 'restored tenant discovery' -State 'SQL restore returned; no application upgrade or administrator repair was started.' -Cause $_.Exception)
+        }
+        if ($tenantIds.Count -eq 0) {
+            throw (New-BcRestoreFailure -Stage 'restored tenant discovery' -State 'SQL restore returned; no application upgrade or administrator repair was started.' -Detail 'No mounted tenants were returned. Check the tenant mounts before retrying.')
+        }
     }
-    catch {
-        throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Cause $_.Exception)
-    }
+    $packagesPublished = $false
+    foreach ($tenantId in @($tenantIds | Select-Object -Unique)) {
+        Write-Host "Evaluating restored database application versions in container '$containerName'." -ForegroundColor Green
+        try {
+            $state = Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
+                Param ($restoredTenantId)
+                $ErrorActionPreference = 'Stop'
+                $serverInstance = "BC"
+                $tenant = $restoredTenantId
+                $packageDefinitions = @(
+                    @{ Name = "System Application"; Path = "C:\Applications\System Application\Source\Microsoft_System Application.app" },
+                    @{ Name = "Base Application"; Path = "C:\Applications\BaseApp\Source\Microsoft_Base Application.app" },
+                    @{ Name = "Application"; Path = "C:\Applications\Application\Source\Microsoft_Application.app" }
+                )
 
-    if ([string]::IsNullOrWhiteSpace($state.PlatformVersion) -or [string]::IsNullOrWhiteSpace($state.DatabaseApplicationVersion)) {
-        throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Detail 'The administration commands returned an empty platform or database application version. Inspect Get-NAVApplication and the BC administration tools for this container; no version was inferred from app packages.')
-    }
-
-    $assessment = Get-BcSystemApplicationUpgradeAssessment `
-        -platformVersion $state.PlatformVersion `
-        -databaseApplicationVersion $state.DatabaseApplicationVersion `
-        -installedApps @($state.InstalledApps) `
-        -packageApps @($state.PackageApps)
-
-    Write-Host "Platform/media: $($state.PlatformVersion)" -ForegroundColor Gray
-    Write-Host "Database application version: $($state.DatabaseApplicationVersion)" -ForegroundColor Gray
-    foreach ($app in $assessment.Apps) {
-        Write-Host "$($app.Name): installed '$($app.InstalledVersion)', container package '$($app.PackageVersion)'" -ForegroundColor Gray
-    }
-
-    if (-not $assessment.SplitDetected) {
-        Write-Host "No upgradable platform/application split was detected. $($assessment.Reason)" -ForegroundColor Gray
-        return
-    }
-    if (-not $assessment.Viable) {
-        Write-Host "A platform/application split was detected, but an automatic upgrade is not safe: $($assessment.Reason)" -ForegroundColor Yellow
-        return
-    }
-
-    Write-Host "A viable split was detected. Upgrading Microsoft system applications to '$($assessment.TargetVersion)'." -ForegroundColor Yellow
-    try {
-        $upgradeResult = Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
-            Param ($targetVersionText)
-
-            $ErrorActionPreference = "Stop"
-            $serverInstance = "BC"
-            $tenant = "default"
-            $targetVersion = [Version]$targetVersionText
-            $apps = @(
-                @{ Name = "System Application"; Path = "C:\Applications\System Application\Source\Microsoft_System Application.app" },
-                @{ Name = "Base Application"; Path = "C:\Applications\BaseApp\Source\Microsoft_Base Application.app" },
-                @{ Name = "Application"; Path = "C:\Applications\Application\Source\Microsoft_Application.app" }
-            )
-
-            $activeSessions = @(Get-NAVServerSession -ServerInstance $serverInstance -Tenant $tenant)
-            if ($activeSessions.Count -gt 0) {
-                Write-Host "Closing $($activeSessions.Count) active BC session(s) before the system application upgrade." -ForegroundColor Yellow
-                foreach ($session in $activeSessions) {
-                    Remove-NAVServerSession `
-                        -ServerInstance $serverInstance `
-                        -Tenant $tenant `
-                        -SessionId $session.SessionId `
-                        -Force `
-                        -Confirm:$false
-                }
-            }
-
-            foreach ($app in $apps) {
-                Write-Host "Publishing $($app.Name) $targetVersion from '$($app.Path)'." -ForegroundColor Gray
-                Publish-NAVApp `
-                    -ServerInstance $serverInstance `
-                    -Path $app.Path `
-                    -SkipVerification `
-                    -Force | Out-Null
-            }
-
-            foreach ($app in $apps) {
-                Write-Host "Synchronizing and upgrading $($app.Name) $targetVersion." -ForegroundColor Gray
-                Sync-NAVApp -ServerInstance $serverInstance -Tenant $tenant -Name $app.Name -Version $targetVersion -Mode Add | Out-Null
-                Start-NAVAppDataUpgrade -ServerInstance $serverInstance -Tenant $tenant -Name $app.Name -Version $targetVersion | Out-Null
-            }
-
-            Write-Host "Setting database application version to $targetVersion." -ForegroundColor Gray
-            Set-NAVApplication -ServerInstance $serverInstance -ApplicationVersion $targetVersion -Force -Confirm:$false | Out-Null
-            Write-Host "Synchronizing tenant '$tenant'." -ForegroundColor Gray
-            Sync-NAVTenant -ServerInstance $serverInstance -Tenant $tenant -Mode Sync -Force -Confirm:$false | Out-Null
-            Write-Host "Starting database data upgrade for tenant '$tenant'." -ForegroundColor Gray
-            Start-NAVDataUpgrade -ServerInstance $serverInstance -Tenant $tenant -FunctionExecutionMode Serial -Force -Confirm:$false | Out-Null
-
-            $installedApps = @(Get-NAVAppInfo -ServerInstance $serverInstance -Tenant $tenant)
-            [PSCustomObject]@{
-                DatabaseApplicationVersion = [string](Get-NAVApplication -ServerInstance $serverInstance).ApplicationVersion
-                Apps = @($apps | ForEach-Object {
+                $serviceFolder = (Get-Item "C:\Program Files\Microsoft Dynamics NAV\*\Service" | Select-Object -First 1).FullName
+                $platformVersion = (Get-Item (Join-Path $serviceFolder "Microsoft.Dynamics.Nav.Server.exe")).VersionInfo.FileVersion
+                $databaseVersion = (Get-NAVApplication -ServerInstance $serverInstance).ApplicationVersion
+                $tenantApps = @(Get-NAVAppInfo -ServerInstance $serverInstance -Tenant $tenant)
+                $installedApps = @($packageDefinitions | ForEach-Object {
                     $appName = $_.Name
-                    $installedApp = @($installedApps |
+                    $app = @($tenantApps |
                         Where-Object { $_.Name -eq $appName -and $_.Publisher -eq "Microsoft" } |
                         Sort-Object Version -Descending |
                         Select-Object -First 1)
-                    [PSCustomObject]@{
-                        Name = $appName
-                        Version = if ($installedApp.Count -eq 1) { [string]$installedApp[0].Version } else { "" }
+                    if ($app.Count -eq 1) {
+                        [PSCustomObject]@{ Name = $appName; Version = [string]$app[0].Version }
                     }
                 })
-            }
-        } -ArgumentList $assessment.TargetVersion
-    }
-    catch {
-        throw "System application upgrade after restoring container '$containerName' stopped on an error: $($_.Exception.Message)"
-    }
+                $packageApps = @($packageDefinitions | ForEach-Object {
+                    if (Test-Path -LiteralPath $_.Path -PathType Leaf) {
+                        $app = Get-NAVAppInfo -Path $_.Path
+                        [PSCustomObject]@{ Name = [string]$app.Name; Version = [string]$app.Version; Path = $_.Path }
+                    }
+                })
 
-    $verificationFailures = @($upgradeResult.Apps | Where-Object { $_.Version -ne $assessment.TargetVersion })
-    if ($upgradeResult.DatabaseApplicationVersion -ne $assessment.TargetVersion -or $verificationFailures.Count -gt 0) {
-        throw "System application upgrade completed, but version verification failed. Expected '$($assessment.TargetVersion)'."
-    }
+                [PSCustomObject]@{
+                    PlatformVersion = [string]$platformVersion
+                    DatabaseApplicationVersion = [string]$databaseVersion
+                    InstalledApps = $installedApps
+                    PackageApps = $packageApps
+                }
+            } -ArgumentList $tenantId -ErrorAction Stop
+        }
+        catch {
+            throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Cause $_.Exception)
+        }
 
-    Write-Host "System Application, Base Application, Application, and the database application version are now '$($assessment.TargetVersion)'." -ForegroundColor Green
+        if ([string]::IsNullOrWhiteSpace($state.PlatformVersion) -or [string]::IsNullOrWhiteSpace($state.DatabaseApplicationVersion)) {
+            throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Detail 'The administration commands returned an empty platform or database application version. Inspect Get-NAVApplication and the BC administration tools for this container; no version was inferred from app packages.')
+        }
+
+        $assessment = Get-BcSystemApplicationUpgradeAssessment `
+            -platformVersion $state.PlatformVersion `
+            -databaseApplicationVersion $state.DatabaseApplicationVersion `
+            -installedApps @($state.InstalledApps) `
+            -packageApps @($state.PackageApps)
+
+        Write-Host "Platform/media: $($state.PlatformVersion)" -ForegroundColor Gray
+        Write-Host "Database application version: $($state.DatabaseApplicationVersion)" -ForegroundColor Gray
+        foreach ($app in $assessment.Apps) {
+            Write-Host "$($app.Name): installed '$($app.InstalledVersion)', container package '$($app.PackageVersion)'" -ForegroundColor Gray
+        }
+
+        if (-not $assessment.SplitDetected) {
+            Write-Host "No upgradable platform/application split was detected. $($assessment.Reason)" -ForegroundColor Gray
+            continue
+        }
+        if (-not $assessment.Viable) {
+            Write-Host "A platform/application split was detected, but an automatic upgrade is not safe: $($assessment.Reason)" -ForegroundColor Yellow
+            continue
+        }
+
+        Write-Host "A viable split was detected. Upgrading Microsoft system applications to '$($assessment.TargetVersion)'." -ForegroundColor Yellow
+        try {
+            $upgradeResult = Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
+                Param ($targetVersionText, $restoredTenantId, $publishPackages)
+
+                $ErrorActionPreference = "Stop"
+                $serverInstance = "BC"
+                $tenant = $restoredTenantId
+                $targetVersion = [Version]$targetVersionText
+                $apps = @(
+                    @{ Name = "System Application"; Path = "C:\Applications\System Application\Source\Microsoft_System Application.app" },
+                    @{ Name = "Base Application"; Path = "C:\Applications\BaseApp\Source\Microsoft_Base Application.app" },
+                    @{ Name = "Application"; Path = "C:\Applications\Application\Source\Microsoft_Application.app" }
+                )
+
+                $activeSessions = @(Get-NAVServerSession -ServerInstance $serverInstance -Tenant $tenant)
+                if ($activeSessions.Count -gt 0) {
+                    Write-Host "Closing $($activeSessions.Count) active BC session(s) before the system application upgrade." -ForegroundColor Yellow
+                    foreach ($session in $activeSessions) {
+                        Remove-NAVServerSession `
+                            -ServerInstance $serverInstance `
+                            -Tenant $tenant `
+                            -SessionId $session.SessionId `
+                            -Force `
+                            -Confirm:$false
+                    }
+                }
+
+                if ($publishPackages) {
+                    foreach ($app in $apps) {
+                        Write-Host "Publishing $($app.Name) $targetVersion from '$($app.Path)'." -ForegroundColor Gray
+                        Publish-NAVApp `
+                            -ServerInstance $serverInstance `
+                            -Path $app.Path `
+                            -SkipVerification `
+                            -Force | Out-Null
+                    }
+                }
+
+                foreach ($app in $apps) {
+                    Write-Host "Synchronizing and upgrading $($app.Name) $targetVersion." -ForegroundColor Gray
+                    Sync-NAVApp -ServerInstance $serverInstance -Tenant $tenant -Name $app.Name -Version $targetVersion -Mode Add | Out-Null
+                    Start-NAVAppDataUpgrade -ServerInstance $serverInstance -Tenant $tenant -Name $app.Name -Version $targetVersion | Out-Null
+                }
+
+                Write-Host "Setting database application version to $targetVersion." -ForegroundColor Gray
+                Set-NAVApplication -ServerInstance $serverInstance -ApplicationVersion $targetVersion -Force -Confirm:$false | Out-Null
+                Write-Host "Synchronizing tenant '$tenant'." -ForegroundColor Gray
+                Sync-NAVTenant -ServerInstance $serverInstance -Tenant $tenant -Mode Sync -Force -Confirm:$false | Out-Null
+                Write-Host "Starting database data upgrade for tenant '$tenant'." -ForegroundColor Gray
+                Start-NAVDataUpgrade -ServerInstance $serverInstance -Tenant $tenant -FunctionExecutionMode Serial -Force -Confirm:$false | Out-Null
+
+                $installedApps = @(Get-NAVAppInfo -ServerInstance $serverInstance -Tenant $tenant)
+                [PSCustomObject]@{
+                    DatabaseApplicationVersion = [string](Get-NAVApplication -ServerInstance $serverInstance).ApplicationVersion
+                    Apps = @($apps | ForEach-Object {
+                        $appName = $_.Name
+                        $installedApp = @($installedApps |
+                            Where-Object { $_.Name -eq $appName -and $_.Publisher -eq "Microsoft" } |
+                            Sort-Object Version -Descending |
+                            Select-Object -First 1)
+                        [PSCustomObject]@{
+                            Name = $appName
+                            Version = if ($installedApp.Count -eq 1) { [string]$installedApp[0].Version } else { "" }
+                        }
+                    })
+                }
+            } -ArgumentList @($assessment.TargetVersion, $tenantId, (-not $packagesPublished)) -ErrorAction Stop
+            $packagesPublished = $true
+        }
+        catch {
+            throw (New-BcRestoreFailure -Stage 'system application upgrade' -State 'SQL restore returned; application upgrade may have partially completed. Inspect all restored tenant versions before retrying.' -Cause $_.Exception)
+        }
+
+        $verificationFailures = @($upgradeResult.Apps | Where-Object { $_.Version -ne $assessment.TargetVersion })
+        if ($upgradeResult.DatabaseApplicationVersion -ne $assessment.TargetVersion -or $verificationFailures.Count -gt 0) {
+            throw (New-BcRestoreFailure -Stage 'system application upgrade verification' -State 'SQL restore returned; application upgrades may have partially completed.' -Detail "Tenant '$tenantId' did not report the expected system application versions '$($assessment.TargetVersion)'. Inspect the restored tenant before retrying.")
+        }
+
+        Write-Host "System Application, Base Application, Application, and the database application version are now '$($assessment.TargetVersion)'." -ForegroundColor Green
+    }
 }
 
 function Get-BcRestoreWindowsNetworkAccount {
@@ -773,15 +794,18 @@ function Restore-BcContainerSqlBackupEntries {
         throw (New-BcRestoreFailure -Stage $stage -State $state -Cause $_.Exception)
     }
 
-    Invoke-BcContainerSystemApplicationUpgradeAfterRestore -containerName $containerName
     $stage = 'restored tenant verification'
     $tenants = @($backupEntries | Where-Object DatabaseRole -eq "tenant" | Select-Object -ExpandProperty DatabaseName)
     if ($tenants.Count -eq 0) { $tenants = @("default") }
     else {
-        $mountedTenantIds = @(Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
-            $ErrorActionPreference = "Stop"
-            Get-NAVTenant -ServerInstance $ServerInstance -ErrorAction Stop | Select-Object -ExpandProperty Id
-        } -ErrorAction Stop)
+        try {
+            $mountedTenantIds = @(Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
+                $ErrorActionPreference = "Stop"
+                Get-NAVTenant -ServerInstance BC -ErrorAction Stop | Select-Object -ExpandProperty Id
+            } -ErrorAction Stop)
+        } catch {
+            throw (New-BcRestoreFailure -Stage $stage -State $state -Cause $_.Exception)
+        }
         # BcContainerHelper also backs up the unmounted template database as tenant.bak.
         # Restore it, but only repair its users if a tenant with that ID actually exists.
         $tenants = @($tenants | Where-Object { $_ -ne "tenant" -or $_ -in $mountedTenantIds })
@@ -793,6 +817,7 @@ function Restore-BcContainerSqlBackupEntries {
             throw (New-BcRestoreFailure -Stage $stage -State $state -Detail "Database restore completed, but no restored tenants are mounted in container '$containerName'. Check tenant mounting before repairing administrator access.")
         }
     }
+    Invoke-BcContainerSystemApplicationUpgradeAfterRestore -containerName $containerName -tenantIds $tenants
     Repair-BcContainerAdministratorAfterRestore -configuration $configuration -tenants $tenants
 }
 
@@ -1737,20 +1762,20 @@ function Select-BcServiceSqlBackupConfigurations {
 function Get-BcConfiguredDatabaseInfo {
     param([PSObject] $configuration)
     if ([string]::IsNullOrWhiteSpace($configuration.databaseServerHost)) { return $null }
-    if ($configuration.databaseServerHost -notmatch '^[a-zA-Z0-9][a-zA-Z0-9.:-]*$') { throw 'databaseServerHost must be a hostname or IP address, without a URL, port separator comma, or SQL instance suffix.' }
+    if ($configuration.databaseServerHost -notmatch '^[a-zA-Z0-9][a-zA-Z0-9.:-]*$') { throw (New-BcExpectedFailure -Stage 'SQL backup configuration validation' -Message 'databaseServerHost must be a hostname or IP address, without a URL, port separator comma, or SQL instance suffix. Correct the selected OnPrem source configuration and retry. No SQL backup, export, or configuration writes were started.') }
     if ([string]::IsNullOrWhiteSpace($configuration.databaseName)) {
-        throw 'databaseName is required when databaseServerHost is set. Set databaseInstance for a named SQL instance, and databaseTenants for a multitenant BC service. BC discovery was skipped.'
+        throw (New-BcExpectedFailure -Stage 'SQL backup configuration validation' -Message 'databaseName is required when databaseServerHost is set. Set databaseInstance for a named SQL instance, and databaseTenants for a multitenant BC service. BC discovery was skipped. Correct the selected OnPrem source configuration and retry. No SQL backup, export, or configuration writes were started.')
     }
     $multitenant = $null -ne $configuration.PSObject.Properties['databaseTenants']
     $tenants = @()
     if ($multitenant) {
         if ($configuration.databaseTenants -isnot [array] -or $configuration.databaseTenants.Count -eq 0) {
-            throw 'databaseTenants must be a non-empty array of {id, databaseName} entries. Omit it for a single-tenant database.'
+            throw (New-BcExpectedFailure -Stage 'SQL backup configuration validation' -Message 'databaseTenants must be a non-empty array of {id, databaseName} entries. Omit it for a single-tenant database. Correct the selected OnPrem source configuration and retry. No SQL backup, export, or configuration writes were started.')
         }
         $seenIds = @()
         foreach ($tenant in $configuration.databaseTenants) {
             if ([string]::IsNullOrWhiteSpace($tenant.id) -or [string]::IsNullOrWhiteSpace($tenant.databaseName) -or $tenant.id -in $seenIds) {
-                throw 'Each databaseTenants entry needs a unique id and a databaseName.'
+                throw (New-BcExpectedFailure -Stage 'SQL backup configuration validation' -Message 'Each databaseTenants entry needs a unique id and a databaseName. Correct the selected OnPrem source configuration and retry. No SQL backup, export, or configuration writes were started.')
             }
             $seenIds += $tenant.id
             $tenants += [pscustomobject]@{ Id=$tenant.id; DatabaseName=$tenant.databaseName }

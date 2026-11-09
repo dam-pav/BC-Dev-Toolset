@@ -976,3 +976,73 @@ test('selected container export uses the destination path and cleans up on SQL a
     } finally { fs.rmSync(root,{recursive:true,force:true}); }
   }
 });
+
+
+test('multitenant restore discovers and upgrades actual restored tenants without requiring default', () => {
+  for (const mode of ['aligned','upgrade','upgrade-error']) {
+    const script=`
+      $ErrorActionPreference='Stop'
+      . ${quotePowerShell(backupMgtPath)}
+      $script:events=[collections.generic.list[string]]::new()
+      $script:databaseVersion=if ('${mode}' -eq 'aligned') {'23.5.0.0'} else {'23.0.0.0'}
+      $script:versions=@{north=$script:databaseVersion;south=$script:databaseVersion}
+      function Restore-DatabasesInBcContainer { $script:events.Add('restore') }
+      function Invoke-ScriptInBcContainer { param($containerName,$ScriptBlock,[object[]]$ArgumentList) & $ScriptBlock @ArgumentList }
+      function Get-NAVTenant { [pscustomobject]@{Id='north'}; [pscustomobject]@{Id='south'} }
+      function Get-Item { [pscustomobject]@{FullName=[IO.Path]::GetTempPath();VersionInfo=@{FileVersion='23.5.0.0'}} }
+      function Test-Path { $true }
+      function Get-NAVApplication { [pscustomobject]@{ApplicationVersion=$script:databaseVersion} }
+      function Get-NAVAppInfo {
+        param($ServerInstance,$Tenant,$Path)
+        if ($Path) {
+          $name=if ($Path -match 'System Application') {'System Application'} elseif ($Path -match 'BaseApp') {'Base Application'} else {'Application'}
+          return [pscustomobject]@{Name=$name;Publisher='Microsoft';Version='23.5.0.0'}
+        }
+        if ($Tenant -notin @('north','south')) {throw 'UNEXPECTED tenant'}
+        $script:events.Add('inspect:'+$Tenant)
+        foreach ($name in @('System Application','Base Application','Application')) {
+          [pscustomobject]@{Name=$name;Publisher='Microsoft';Version=$script:versions[$Tenant]}
+        }
+      }
+      function Get-NAVServerSession { param($Tenant) $script:events.Add('sessions:'+$Tenant) }
+      function Publish-NAVApp { $script:events.Add('publish') }
+      function Sync-NAVApp { param($Tenant) $script:events.Add('sync-app:'+$Tenant) }
+      function Start-NAVAppDataUpgrade {
+        [CmdletBinding()]param($ServerInstance,$Tenant,$Name,$Version)
+        $script:events.Add('upgrade:'+$Tenant)
+        if ('${mode}' -eq 'upgrade-error') { Write-Error 'private upgrade payload' }
+        $script:versions[$Tenant]=[string]$Version
+      }
+      function Set-NAVApplication { param($ApplicationVersion,[switch]$Force,$Confirm) $script:databaseVersion=[string]$ApplicationVersion }
+      function Sync-NAVTenant { param($Tenant) $script:events.Add('sync-tenant:'+$Tenant) }
+      function Start-NAVDataUpgrade { param($Tenant) $script:events.Add('data-upgrade:'+$Tenant) }
+      function Repair-BcContainerAdministratorAfterRestore { param($tenants) $script:events.Add('repair:'+($tenants -join ',')) }
+      $entries=@('north','south','tenant') | ForEach-Object { [pscustomobject]@{DatabaseRole='tenant';DatabaseName=$_} }
+      try { Restore-BcContainerSqlBackupEntries -containerName target -bakFolder unused -backupEntries $entries -configuration ([pscustomobject]@{}) 6>$null }
+      catch { $failure=$_.Exception }
+      @{Events=@($script:events);Failure=$failure.Message;Expected=$(if ($failure) {$failure.Data['BcDevToolsetExpectedFailure']} else {$false})} | ConvertTo-Json -Compress
+    `;
+    const result=spawnSync('pwsh',['-NoProfile','-NonInteractive','-Command',script],{encoding:'utf8',windowsHide:true,timeout:30000});
+    assert.equal(result.status,0,result.stderr);
+    const output=JSON.parse(result.stdout);
+    assert.equal(output.Events[0],'restore');
+    assert.ok(output.Events.every(event=> !/default|:tenant$/.test(event)));
+    if (mode === 'upgrade-error') {
+      assert.equal(output.Expected,true);
+      assert.match(output.Failure,/system application upgrade.*partially completed.*before retrying/s);
+      assert.doesNotMatch(output.Failure,/private upgrade payload/);
+      assert.ok(!output.Events.some(event=>event.startsWith('repair:')));
+      assert.equal(output.Events.filter(event=>event.startsWith('upgrade:')).length,1);
+    } else {
+      assert.equal(output.Failure,null);
+      assert.equal(output.Events.at(-1),'repair:north,south');
+      assert.ok(output.Events.includes('inspect:north'));
+      assert.ok(output.Events.includes('inspect:south'));
+      assert.equal(output.Events.filter(event=>event === 'publish').length,mode === 'upgrade' ? 3 : 0);
+      for (const tenant of ['north','south']) {
+        assert.equal(output.Events.filter(event=>event === 'upgrade:'+tenant).length,mode === 'upgrade' ? 3 : 0);
+        if (mode === 'upgrade') assert.ok(output.Events.includes('data-upgrade:'+tenant));
+      }
+    }
+  }
+});

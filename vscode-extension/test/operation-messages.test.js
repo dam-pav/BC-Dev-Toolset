@@ -68,7 +68,7 @@ for (const mode of ['prepare-error', 'sql-throw', 'sql-error', 'start-error', 'v
       function Get-BcContainerSqlBackupRestoreParameters { @{containerName='target';bakFile='database.bak'} }
       $script:invocations=0
       function Invoke-ScriptInBcContainer {
-        [CmdletBinding()]param($containerName,$ScriptBlock)
+        [CmdletBinding()]param($containerName,$ScriptBlock,$ArgumentList)
         $script:invocations++
         if ($script:invocations -eq 1) { ${mode === 'prepare-error' ? "Write-Error 'private preparation failure'" : "return 'CRONUS'"} }
         if ($script:invocations -eq 2) {
@@ -556,5 +556,51 @@ for (const mode of ['healthy', 'stopped', 'unhealthy', 'declined', 'missing', 'r
         assert.equal(result.Events.includes('container start -- selected'),mode === 'stopped');
       }
     }
+  });
+}
+
+
+for (const [label,configuration,diagnostic] of [
+  ['missing database name',{databaseServerHost:'sql-host'},/databaseName is required/],
+  ['invalid host',{databaseServerHost:'https://sql-host',databaseName:'App'},/databaseServerHost must be a hostname or IP/],
+  ['empty tenants',{databaseServerHost:'sql-host',databaseName:'App',databaseTenants:[]},/databaseTenants must be a non-empty array/],
+  ['duplicate tenant IDs',{databaseServerHost:'sql-host',databaseName:'App',databaseTenants:[{id:'one',databaseName:'One'},{id:'one',databaseName:'Two'}]},/unique id and a databaseName/]
+]) {
+  test(`unified backup preserves reviewed mapping diagnostics and failed status (${label})`,(t)=>{
+    const {root,write}=fixture(t);
+    write('operations/operations.json',JSON.stringify([{id:'backup',title:'SQL backup',script:'operations/Test.ps1'}]));
+    const backupPath=resolveWithinRoot(repositoryRoot,'common/BackupMgt.ps1').replaceAll("'","''");
+    write('operations/Test.ps1',`
+      . '${backupPath}'
+      function global:Write-Host {
+        param($Object,[ConsoleColor]$ForegroundColor)
+        if ($Object -eq 'SQL backup failed during SQL backup configuration validation.') {
+          if ($ForegroundColor -ne [ConsoleColor]::Red) {throw 'Expected red heading'}
+          [Console]::WriteLine('RED CONFIGURATION HEADING')
+        }
+        Microsoft.PowerShell.Utility\\Write-Host @PSBoundParameters
+      }
+      function Select-SqlBackupConfigurations {
+        $source='${JSON.stringify({name:'Source',serverType:'OnPrem',serverInstance:'BC230',...configuration}).replaceAll("'","''")}' | ConvertFrom-Json
+        [pscustomobject]@{Source=$source;Destination=[pscustomobject]@{name='Dest'};BackupRootPath='validated-root'}
+      }
+      function Import-BcServiceBackupDiscoveryModules {throw 'UNEXPECTED discovery'}
+      function Get-ConfigurationCredential {throw 'UNEXPECTED credentials'}
+      function New-Item {throw 'UNEXPECTED write'}
+      function Backup-RemoteSqlDatabases {throw 'UNEXPECTED backup'}
+      function Backup-RegularSqlDatabase {throw 'UNEXPECTED backup'}
+      function Write-SqlBackupSetSource {throw 'UNEXPECTED manifest write'}
+      function Save-BcDatabaseServerHost {throw 'UNEXPECTED configuration save'}
+      Export-SqlBackupSet -scriptPath unused -settingsJSON @{}
+      Write-Done
+    `);
+    const result=spawnSync('pwsh',['-NoProfile','-NonInteractive','-File','./Invoke-BcDevToolsetOperation.ps1','-Operation','backup','-NonInteractive'],{cwd:root,encoding:'utf8',windowsHide:true,timeout:30000});
+    assert.equal(result.status,1,result.stderr || result.stdout);
+    assert.equal(result.stderr,'');
+    assert.match(result.stdout,/RED CONFIGURATION HEADING/);
+    assert.match(result.stdout,diagnostic);
+    assert.match(result.stdout,/Correct the selected OnPrem source configuration and retry/);
+    assert.match(result.stdout,/No SQL backup, export, or configuration writes were started/);
+    assert.doesNotMatch(result.stdout,/underlying cause has not been established|partially completed|UNEXPECTED|DONE|Exception:/);
   });
 }
