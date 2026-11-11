@@ -127,6 +127,12 @@
     ]
   },
   {
+    "id": "inspectRestoreEnvironment",
+    "title": "Inspect SQL restore environment (read only)",
+    "script": "operations/InspectRestoreEnvironment.ps1",
+    "category": "Backup"
+  },
+  {
     "id": "backupBcDatabases",
     "title": "Create and export SQL backup set",
     "script": "operations/BackupBcDatabases.ps1",

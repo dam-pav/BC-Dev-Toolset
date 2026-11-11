@@ -12,6 +12,18 @@ const repositoryReadmePath = resolveWithinRoot(repositoryRoot, 'README.md');
 const readme = fs.readFileSync(extensionReadmePath, 'utf8'); // nosemgrep -- fixed README path validated within the authorized repository root
 const repositoryReadme = fs.readFileSync(repositoryReadmePath, 'utf8'); // nosemgrep -- fixed README path validated within the authorized repository root
 
+test('restore diagnostics stay in the tool reference with a separate testing report', () => {
+  assert.doesNotMatch(repositoryReadme, /^## SQL restore diagnostics\r?$/m);
+  assert.doesNotMatch(repositoryReadme, /Recorded application artifact version|missing-bc23-bc27-20261111/);
+  const backupReference = readme.split('\n### Backup')[1].split('\n### ')[0];
+  assert.match(backupReference, /^\| `bc_dev_toolset_inspect_restore_environment` \| [^\r\n]*backup\/restore diagnostics[^\r\n]*\[diagnostics report\]\(\.\.\/documentation\/SQLRestoreDiagnostics\.md\)[^\r\n]* \|$/m);
+  const reportPath = resolveWithinRoot(repositoryRoot, 'documentation', 'SQLRestoreDiagnostics.md');
+  const report = fs.readFileSync(reportPath, 'utf8'); // nosemgrep -- fixed report path contained by the authorized repository root
+  assert.match(report, /backup\/restore diagnostics only/);
+  assert.match(report, /all 14 single-tenant and multitenant workflows passed/);
+  assert.match(report, /Extra custom mounted\r?\ntenants, OnPrem artifacts, external-origin backups and browser UI login remain\r?\nuntested/);
+});
+
 test('repository README introduces BC Data in its own chapter before BCQuality', () => {
   const switches = repositoryReadme.split('#### MCP tool switches')[1].split('\n#### ')[0];
   assert.doesNotMatch(switches, /BC Data access provides/);

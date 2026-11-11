@@ -421,6 +421,34 @@ function Get-BcSystemApplicationUpgradeAssessment {
     }
 }
 
+function Assert-BcModernRestoredApplicationVersions {
+    Param ([Parameter(Mandatory=$true)] $State)
+    # BC27 removed Set-NAVApplication -ApplicationVersion. Verify actual tenant
+    # installations, never infer a database version from the media or artifact URL.
+    # https://learn.microsoft.com/en-us/powershell/business-central/cmdlets-changes?view=businesscentral-ps-27
+    $platform = $null
+    $valid = [Version]::TryParse([string]$State.PlatformVersion, [ref]$platform)
+    $versions = @()
+    foreach ($name in @('System Application', 'Base Application', 'Application')) {
+        $installed = @($State.InstalledApps | Where-Object Name -eq $name)
+        $packages = @($State.PackageApps | Where-Object Name -eq $name)
+        $installedVersion = $null; $packageVersion = $null
+        if ($installed.Count -ne 1 -or $packages.Count -ne 1 -or
+            -not [Version]::TryParse([string]$installed[0].Version, [ref]$installedVersion) -or
+            -not [Version]::TryParse([string]$packages[0].Version, [ref]$packageVersion)) {
+            $valid = $false
+            continue
+        }
+        $versions += [string]$packageVersion
+        if ($null -eq $platform -or $installedVersion.Major -ne $platform.Major -or $installedVersion -ne $packageVersion) {
+            $valid = $false
+        }
+    }
+    if (-not $valid -or @($versions | Select-Object -Unique).Count -ne 1) {
+        throw (New-BcRestoreFailure -Stage 'application version compatibility verification' -State 'SQL restore returned; application compatibility and administrator access have not been verified. No application upgrade or administrator repair was started for this tenant.' -Detail 'BC27 and later require exactly one installed Microsoft System Application, Base Application and Application per restored tenant, with valid versions matching each corresponding container package, one common package version and the platform major. Inspect Get-NAVAppInfo -ServerInstance BC -Tenant <tenant> and the container media. Use compatible media or complete a supported application upgrade before retrying verification; this restore does not run the legacy ApplicationVersion upgrade routine for BC27 and later.')
+    }
+}
+
 function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {
     Param (
         [Parameter(Mandatory=$true)]
@@ -458,16 +486,20 @@ function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {
 
                 $serviceFolder = (Get-Item "C:\Program Files\Microsoft Dynamics NAV\*\Service" | Select-Object -First 1).FullName
                 $platformVersion = (Get-Item (Join-Path $serviceFolder "Microsoft.Dynamics.Nav.Server.exe")).VersionInfo.FileVersion
-                $databaseVersion = (Get-NAVApplication -ServerInstance $serverInstance).ApplicationVersion
+                $databaseVersion = ''
+                if (([Version]$platformVersion).Major -lt 27) {
+                    $databaseVersion = (Get-NAVApplication -ServerInstance $serverInstance -ErrorAction Stop).ApplicationVersion
+                }
                 $tenantApps = @(Get-NAVAppInfo -ServerInstance $serverInstance -Tenant $tenant)
                 $installedApps = @($packageDefinitions | ForEach-Object {
                     $appName = $_.Name
                     $app = @($tenantApps |
-                        Where-Object { $_.Name -eq $appName -and $_.Publisher -eq "Microsoft" } |
-                        Sort-Object Version -Descending |
-                        Select-Object -First 1)
-                    if ($app.Count -eq 1) {
-                        [PSCustomObject]@{ Name = $appName; Version = [string]$app[0].Version }
+                        Where-Object { $_.Name -eq $appName -and $_.Publisher -eq "Microsoft" })
+                    if (([Version]$platformVersion).Major -lt 27) {
+                        $app = @($app | Sort-Object Version -Descending | Select-Object -First 1)
+                    }
+                    foreach ($installation in $app) {
+                        [PSCustomObject]@{ Name = $appName; Version = [string]$installation.Version }
                     }
                 })
                 $packageApps = @($packageDefinitions | ForEach-Object {
@@ -489,7 +521,21 @@ function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {
             throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Cause $_.Exception)
         }
 
-        if ([string]::IsNullOrWhiteSpace($state.PlatformVersion) -or [string]::IsNullOrWhiteSpace($state.DatabaseApplicationVersion)) {
+        $parsedPlatform = $null
+        if (-not [Version]::TryParse([string]$state.PlatformVersion, [ref]$parsedPlatform)) {
+            throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Detail 'The administration tools returned an empty or invalid platform version. Inspect the BC service executable and administration tools before retrying verification.')
+        }
+        if ($parsedPlatform.Major -ge 27) {
+            Assert-BcModernRestoredApplicationVersions -State $state
+            Write-Host "Platform/media: $($state.PlatformVersion)" -ForegroundColor Gray
+            foreach ($app in $state.InstalledApps) {
+                $package = @($state.PackageApps | Where-Object Name -eq $app.Name)[0]
+                Write-Host "$($app.Name): installed '$($app.Version)', container package '$($package.Version)'" -ForegroundColor Gray
+            }
+            Write-Host "Tenant '$tenantId': installed Microsoft application versions match the container packages and platform major. BC27 and later do not use the legacy database ApplicationVersion." -ForegroundColor Gray
+            continue
+        }
+        if ([string]::IsNullOrWhiteSpace($state.DatabaseApplicationVersion)) {
             throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Detail 'The administration commands returned an empty platform or database application version. Inspect Get-NAVApplication and the BC administration tools for this container; no version was inferred from app packages.')
         }
 
@@ -745,6 +791,45 @@ function Repair-BcContainerAdministratorAfterRestore {
 
 function Restore-BcContainerSqlBackupEntries {
     Param (
+        [Parameter(Mandatory=$true)] [string] $containerName,
+        [Parameter(Mandatory=$true)] [string] $bakFolder,
+        [Parameter(Mandatory=$true)] [AllowEmptyCollection()] [array] $backupEntries,
+        [Parameter(Mandatory=$true)] [PSObject] $configuration
+    )
+    $forceWindowsPowerShell = $configuration.restoreUseWindowsPowerShell
+    if ($null -ne $configuration.restoreDiagnostics -and $configuration.restoreDiagnostics -isnot [bool]) {
+        throw (New-BcExpectedFailure -Stage 'restore diagnostic selection' -Message 'restoreDiagnostics must be a boolean. Correct the selected Container configuration. No restore preparation, service stop or SQL restoration was started.')
+    }
+    if ($null -ne $forceWindowsPowerShell -and $forceWindowsPowerShell -isnot [bool]) {
+        throw (New-BcExpectedFailure -Stage 'restore runtime selection' -Message 'restoreUseWindowsPowerShell must be a boolean. Correct the selected Container configuration. No restore preparation, service stop or SQL restoration was started.')
+    }
+    # The runtime override applies only to the single-database restore path.
+    # Validated multitenant restores retain helper selection. Artifact type
+    # (Sandbox/OnPrem) is independent of tenancy; never use it to choose a runtime.
+    $singleTenant = $backupEntries.Count -eq 1 -and $backupEntries[0].DatabaseRole -eq 'database'
+    if ($null -eq $forceWindowsPowerShell) { $forceWindowsPowerShell = $true }
+    $forceWindowsPowerShell = $forceWindowsPowerShell -and $singleTenant
+    if (-not $forceWindowsPowerShell) {
+        Invoke-BcContainerSqlBackupRestoreCore @PSBoundParameters
+        return
+    }
+    $helperConfig = $bcContainerHelperConfig
+    if ($null -eq $helperConfig -or $helperConfig.usePwshForBc24 -isnot [bool]) {
+        throw (New-BcExpectedFailure -Stage 'restore runtime selection' -Message 'The loaded BcContainerHelper configuration does not expose a boolean usePwshForBc24 option. Import a compatible helper and inspect its configuration before retrying. No restore preparation, service stop or SQL restoration was started.')
+    }
+    $previousUsePwsh = $helperConfig.usePwshForBc24
+    try {
+        $helperConfig.usePwshForBc24 = $false
+        Write-Host 'Restore runtime override: Windows PowerShell inside the container (usePwshForBc24=False), for this restore workflow only.'
+        Invoke-BcContainerSqlBackupRestoreCore @PSBoundParameters
+    } finally {
+        $helperConfig.usePwshForBc24 = $previousUsePwsh
+        Write-Host "Restore runtime option reset: usePwshForBc24=$previousUsePwsh."
+    }
+}
+
+function Invoke-BcContainerSqlBackupRestoreCore {
+    Param (
         [Parameter(Mandatory=$true)]
         [string] $containerName,
         [Parameter(Mandatory=$true)]
@@ -767,6 +852,7 @@ function Restore-BcContainerSqlBackupEntries {
 
         if ($restoreParameters.ContainsKey("bakFile")) {
             $restoreParameters.databaseName = Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
+                $ErrorActionPreference = 'Stop'
                 $customConfigFile = Join-Path (Get-Item "C:\Program Files\Microsoft Dynamics NAV\*\Service").FullName "CustomSettings.config"
                 [xml]$customConfig = [System.IO.File]::ReadAllText($customConfigFile)
                 $server = Get-NAVServerInstance -ServerInstance BC
@@ -774,19 +860,25 @@ function Restore-BcContainerSqlBackupEntries {
                     Set-NAVServerInstance -ServerInstance BC -Stop | Out-Null
                 }
                 return $customConfig.SelectSingleNode("//appSettings/add[@key='DatabaseName']").Value
-            }
+            } -ErrorAction Stop
         }
 
         $stage = 'SQL restoration'
         $state = 'SQL restoration may have partially completed or removed the target database, and the BC service may be stopped. Inspect and reconcile the target before retrying.'
-        Restore-DatabasesInBcContainer @restoreParameters -ErrorAction Stop
+        if ($configuration.restoreDiagnostics -eq $true) {
+            . (Join-Path $PSScriptRoot 'RestoreDiagnostics.ps1')
+            Invoke-BcInstrumentedSqlRestore -RestoreParameters $restoreParameters
+        } else {
+            Restore-DatabasesInBcContainer @restoreParameters -ErrorAction Stop
+        }
 
         $stage = 'BC service start'
         $state = 'SQL restore returned; service readiness, application versions and administrator access have not been verified.'
         if ($restoreParameters.ContainsKey("bakFile")) {
             Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
+                $ErrorActionPreference = 'Stop'
                 Set-NAVServerInstance -ServerInstance BC -Start
-            }
+            } -ErrorAction Stop
         }
     }
     catch {

@@ -187,6 +187,11 @@
           "default": false,
           "description": "Restore a SQL database backup set into a container."
         },
+        "bc_dev_toolset_inspect_restore_environment": {
+          "type": "boolean",
+          "default": false,
+          "description": "Inspect the selected container restore environment without lifecycle or SQL writes."
+        },
         "bc_dev_toolset_invoke_tests": {
           "type": "boolean",
           "default": true,
@@ -670,6 +675,22 @@
                 "type": "boolean",
                 "default": true,
                 "description": "Whether Create Docker container and Test operations automatically restore a compatible SQL backup set from sqlBackupPath. Defaults to true when omitted. Manual restore operations ignore this setting."
+              },
+              "restoreDiagnostics": {
+                "type": "boolean",
+                "default": false,
+                "description": "Opt in to bounded assembly and exception diagnostics in the actual helper restore runspace. Does not repair dependencies or retry a failed restore."
+              },
+              "restoreUseWindowsPowerShell": {
+                "type": "boolean",
+                "default": true,
+                "description": "Use Windows PowerShell inside the container for single-tenant SQL restore workflows by default. False retains helper runtime selection. Multitenant restores retain helper selection. The prior helper option is restored afterward."
+              },
+              "restoreInspectionMode": {
+                "type": "string",
+                "enum": ["Full", "Database", "State"],
+                "default": "Database",
+                "description": "Read-only restore inventory: Database (default) uses Windows PowerShell for database/service state; Full explicitly opts in to both shells and resolver experiments; State returns only container identity/state."
               }
             }
           }
