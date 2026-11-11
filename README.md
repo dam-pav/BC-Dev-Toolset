@@ -315,6 +315,8 @@ Starting a new workspace should be easy.
 
 ## Backup & Restore
 
+See the [backup and restore tool reference](vscode-extension/README.md#backup) for available operations and diagnostic tools.
+
 Be aware that backup and restore work only within the context of the same BC release. The database defines the version which is limited to running on a specific platform (service). You cannot use this to "upgrade" your data in a meaningful way, say use a configuration from BC22 in BC27. Major version upgrades are off the table. So are any kind of downgrades. On the other hand, minor version upgrades are viable and this toolset tries its best to keep your development environment up to the "Latest" date.
 
 You can maintain data persistence in a couple of ways. One is to use the backup and restore functionality of *BcContainerHelper*. You can backup the current state of your container and restore it later, or share it with other developers. You can retrieve the state of a central test database and use it with your development to find test scenarios more easily or skip tedious configuration.

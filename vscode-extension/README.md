@@ -159,6 +159,7 @@ These commands are available under **BCQuality** in **Show Operations List** and
 
 | Operation | Description |
 | --- | --- |
+| `bc_dev_toolset_inspect_restore_environment` | Inspects container identity, runtime and database/service state for backup/restore diagnostics only, as described in the [diagnostics report](../documentation/SQLRestoreDiagnostics.md). |
 | `Create and export SQL backup set from Docker container` | Creates SQL backup files from a Docker container environment. If more than one Container configuration has a non-empty `sqlBackupPath`, choose one container or back up all qualified containers. |
 | `Create and export SQL backup set from BC service SQL Server` | Creates SQL backup files from a Business Central service SQL Server environment. You will require credentials with the ability to create remote Powershell sessions to the SQL Server host. |
 | `Restore SQL backup set to Docker container` | Restores a saved SQL backup set into a Docker container, either through the manual operation or during automatic container initialization. If more than one Container configuration has a non-empty `sqlBackupPath`, choose which container to restore. Afterward, it reports platform/database/Microsoft application versions and, when matching same-major packages make the detected split safe to upgrade, forcibly closes active BC sessions and upgrades System Application, Base Application, and Application in dependency order with non-destructive schema synchronization. |

@@ -19,6 +19,7 @@ const { configurationPrefix, legacyConfigurationPrefix, createConfigurationAcces
 const { discoverAlTool } = require('./al-tool-discovery');
 const { assertWithinRoot, authorizeRoot, resolveWithinRoot } = require('./path-security');
 const { registerBcQualityIntegration } = require('./bcquality-vscode');
+const { redactContainerHelperCommandLines } = require('./operation-output');
 
 let extensionContext;
 let runtimeSyncPromise;
@@ -40,9 +41,9 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 45;
+const mcpServerDefinitionRevision = 47;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 64;
+const runtimeToolsetRevision = 71;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -78,6 +79,7 @@ const directOperationIds = [
   'showActiveLicenses',
   'updateBcContainerServerConfiguration',
   'backupBcDatabases',
+  'inspectRestoreEnvironment',
   'configureStoredCredentials',
   'configureWinRm',
   'restoreBcContainerDatabases',
@@ -409,6 +411,10 @@ function getMcpBridgePublicIdentity() {
     protocolVersion: bridgeIdentity.protocolVersion,
     instanceId: mcpBridgeInstanceId,
     extensionHostPid: process.pid,
+    extensionPath: extensionContext.extensionPath,
+    extensionVersion: extensionContext.extension.packageJSON.version,
+    developmentMode: isExtensionDevelopmentMode(),
+    toolsetPath: getToolsetPath(),
     workspace: mcpBridgeWorkspace
   };
 }
@@ -2491,7 +2497,7 @@ async function waitForMcpCaptureResult(operation, terminalName, capture, options
     exitCodeSource: 'mcp-capture-timeout',
     timedOut: true,
     outputAvailable: fs.existsSync(capture.transcriptPath),
-    output: readTextFileIfExists(capture.transcriptPath) || 'The terminal operation did not finish before the MCP timeout.'
+    output: cleanPowerShellTranscript(readTextFileIfExists(capture.transcriptPath)) || 'The terminal operation did not finish before the MCP timeout.'
   };
   const session = getOrCreateMcpPromptSession(capture.sessionId);
   session.status = timeoutResult.status;
@@ -2521,7 +2527,7 @@ function readMcpCaptureResult(operation, terminalName, capture) {
     exitCodeSource: 'mcp-capture-file',
     timedOut: false,
     outputAvailable: true,
-    output: result.error ? `${output}\n\nError: ${result.error}`.trim() : output,
+    output: result.error ? cleanPowerShellTranscript(`${output}\n\nError: ${result.error}`) : output,
     operationReport
   };
 }
@@ -2553,7 +2559,7 @@ function assertMcpCapturePath(filePath) {
 }
 
 function cleanPowerShellTranscript(value) {
-  return stripAnsi(String(value || ''))
+  return redactContainerHelperCommandLines(stripAnsi(String(value || '')))
     .replace(/\*{10,}\s*\nWindows PowerShell transcript start[\s\S]*?Transcript started, output file is .*\n/i, '')
     .replace(/\*{10,}\s*\nWindows PowerShell transcript end[\s\S]*$/i, '')
     .trim();
