@@ -7,7 +7,7 @@ const test = require('node:test');
 const { resolveWithinRoot, authorizeRoot } = require('../path-security');
 const { redactContainerHelperCommandLines } = require('../operation-output');
 const root = authorizeRoot(path.resolve(__dirname, '..'), 'Extension test source');
-const source = fs.readFileSync(resolveWithinRoot(root, 'extension.js'), 'utf8');
+const source = fs.readFileSync(resolveWithinRoot(root, 'extension.js'), 'utf8'); // nosemgrep -- fixed source file contained by the authorized extension root
 const failure = 'docker: hcs::CreateComputeSystem: The paging file is too small for this operation to complete.\nExitCode: 125\nCommandline: docker run --name selected --env securePassword=ENCRYPTED_FIXTURE --env passwordKeyFile="c:\\run\\my\\aes.key"';
 function functionSource(name) {
   const start = source.indexOf(`function ${name}(`);

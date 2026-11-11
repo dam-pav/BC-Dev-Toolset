@@ -26,6 +26,13 @@ arguments and credentials. Decode them from the local operation transcript.
 Diagnostics are opt-in, can affect timing, and do not repair or retry a failed
 restore. Reconcile database and service state before any further attempt.
 
+Unsupported helper layouts, an already active diagnostic wrapper, target
+mismatches and a missing helper module stop with reviewed compatibility guidance
+before SQL restoration. Restore preparation may already have stopped the BC
+service; reconcile its state and the helper/diagnostic configuration before an
+explicitly approved retry. These rejections preserve failure status and remove
+hooks owned by the rejected invocation without removing a pre-existing wrapper.
+
 ## Restore behavior under test
 
 Single-tenant SQL restores (one `database` backup entry) use Windows PowerShell

@@ -80,10 +80,21 @@ public static class BcRestoreAssemblyEvents {
 
 function Invoke-BcInstrumentedSqlRestore {
     param([hashtable]$RestoreParameters)
+    # Build reviewed failures in the caller's scope: the helper module cannot
+    # rely on resolving Toolset functions from an operation's script scope.
+    $rejections = @{}
+    foreach ($entry in @(
+        @{Key='module'; Detail='Instrumented restore requires the loaded BcContainerHelper module.'},
+        @{Key='active'; Detail='A diagnostic wrapper is already active.'},
+        @{Key='target'; Detail='Diagnostic target mismatch; the helper requested a different container.'},
+        @{Key='boundaries'; Detail='Unsupported helper restore command boundaries; diagnostics require exactly one Remove-NAVDatabase and one New-NAVDatabase command.'}
+    )) {
+        $rejections[$entry.Key] = New-BcExpectedFailure -Stage 'restore diagnostic compatibility' -Message "$($entry.Detail) SQL restore was not started; the BC service may already be stopped by restore preparation. Check the loaded helper version, diagnostic wrapper state and selected container service state before an explicitly approved retry. Use a supported helper layout or explicitly disable restoreDiagnostics after reconciling the target. No automatic retry or alternate restore was attempted."
+    }
     $command = Get-Command Restore-DatabasesInBcContainer -ErrorAction Stop
     $module = $command.Module
     if (-not $module -or $module.Name -ne 'BcContainerHelper') {
-        throw 'Instrumented restore requires the loaded BcContainerHelper module. SQL restore was not started.'
+        throw $rejections.module
     }
     $code = Get-BcRestoreDiagnosticCode
     . ([scriptblock]::Create($code))
@@ -91,23 +102,24 @@ function Invoke-BcInstrumentedSqlRestore {
     # Temporarily wrap the helper's invocation in its own module scope. The
     # installed helper files are never edited. Always restore the original.
     & $module {
-        param($code, $target)
-        if (Get-Variable BcRestoreOriginalInvoke -Scope Script -ErrorAction Ignore) { throw 'A diagnostic wrapper is already active.' }
+        param($code, $target, $rejections)
+        if (Get-Variable BcRestoreOriginalInvoke -Scope Script -ErrorAction Ignore) { throw $rejections.active }
         $script:BcRestoreOriginalInvoke = (Get-Command Invoke-ScriptInBcContainer -CommandType Function).ScriptBlock
         $script:BcRestoreDiagnosticCode = $code
         $script:BcRestoreDiagnosticTarget = $target
+        $script:BcRestoreDiagnosticRejections = $rejections
         function script:Invoke-ScriptInBcContainer {
             param([string]$containerName, [scriptblock]$scriptblock, [object[]]$argumentList,
                 [bool]$useSession=$bcContainerHelperConfig.usePsSession,
                 [bool]$usePwsh=$bcContainerHelperConfig.usePwshForBc24)
-            if ($containerName -cne $script:BcRestoreDiagnosticTarget) { throw 'Diagnostic target mismatch; SQL restore was not started.' }
+            if ($containerName -cne $script:BcRestoreDiagnosticTarget) { throw $script:BcRestoreDiagnosticRejections.target }
             $original = $scriptblock.ToString()
             # Insert capture statements at the actual helper command boundaries.
             # Reject unexpected helper code instead of running without capture.
             $commands=@($scriptblock.Ast.FindAll({param($node) $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -in @('Remove-NAVDatabase','New-NAVDatabase')},$true))
             if (@($commands | Where-Object { $_.GetCommandName() -eq 'New-NAVDatabase' }).Count -ne 1 -or
                 @($commands | Where-Object { $_.GetCommandName() -eq 'Remove-NAVDatabase' }).Count -ne 1) {
-                throw 'Unsupported helper restore command boundaries; SQL restore was not started.'
+                throw $script:BcRestoreDiagnosticRejections.boundaries
             }
             foreach($node in @($commands | Sort-Object { $_.Extent.StartOffset } -Descending)) {
                 $offset=$node.Extent.StartOffset-$scriptblock.Ast.Extent.StartOffset
@@ -149,12 +161,12 @@ function Invoke-BcInstrumentedSqlRestore {
             }
             & $script:BcRestoreOriginalInvoke -containerName $containerName -scriptblock $wrapped -argumentList @($script:BcRestoreDiagnosticCode,$original,$argumentList) -useSession:$useSession -usePwsh:$usePwsh
         }
-    } $code $RestoreParameters.containerName
+    } $code $RestoreParameters.containerName $rejections
     try { & $command @RestoreParameters -ErrorAction Stop }
     finally {
         & $module {
             Set-Item function:script:Invoke-ScriptInBcContainer -Value $script:BcRestoreOriginalInvoke
-            Remove-Variable BcRestoreOriginalInvoke,BcRestoreDiagnosticCode,BcRestoreDiagnosticTarget -Scope Script
+            Remove-Variable BcRestoreOriginalInvoke,BcRestoreDiagnosticCode,BcRestoreDiagnosticTarget,BcRestoreDiagnosticRejections -Scope Script
         }
     }
 }

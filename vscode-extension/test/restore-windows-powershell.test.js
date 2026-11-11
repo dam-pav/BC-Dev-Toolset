@@ -3,6 +3,8 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const path=require('node:path');
 const {spawnSync}=require('node:child_process');
+const {authorizeRoot,resolveWithinRoot}=require('../path-security');
+const extensionRoot=authorizeRoot(path.resolve(__dirname,'..'),'Extension test source');
 const source=path.resolve(__dirname,'../../common/BackupMgt.ps1').replace(/'/g,"''");
 function run(body) {
   const r=spawnSync('pwsh',['-NoProfile','-NonInteractive','-Command',
@@ -25,7 +27,7 @@ for(const initial of [true,false]) for(const failure of [true,false]) for(const 
       '@{calls=$script:calls;observed=$script:observed;after=$bcContainerHelperConfig.usePwshForBc24;failure=$failure}|ConvertTo-Json -Compress'
     ]);
     assert.equal(r.calls,1);assert.equal(r.observed,false);assert.equal(r.after,initial);
-    if(failure){assert.equal(r.failure.type,'System.TypeLoadException');assert.equal(r.failure.hresult,-2146233054)}
+    if(failure){assert.equal(r.failure.type,'System.TypeLoadException');assert.equal(r.failure.hresult,Number('-2146233054'))}
     else assert.equal(r.failure,null);
   });
 }
@@ -73,7 +75,7 @@ test('published restore defaults agree with runtime defaults',()=>{
     for(const child of Object.values(value)) {const result=find(child,key);if(result) return result;}
   }
   for(const file of ['package.json','schemas/bcdevtoolset-settings.schema.json']) {
-    const metadata=JSON.parse(fs.readFileSync(path.join(__dirname,'..',file),'utf8'));
+    const metadata=JSON.parse(fs.readFileSync(resolveWithinRoot(extensionRoot,file),'utf8')); // nosemgrep -- fixed metadata names contained by the authorized extension root
     assert.equal(find(metadata,'restoreUseWindowsPowerShell').default,true);
     assert.equal(find(metadata,'restoreDiagnostics').default,false);
     assert.equal(find(metadata,'restoreInspectionMode').default,'Database');

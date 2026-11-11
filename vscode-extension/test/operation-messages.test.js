@@ -108,6 +108,87 @@ for (const mode of ['prepare-error', 'sql-throw', 'sql-error', 'start-error', 'v
 }
 
 
+for (const mode of ['unsupported-helper', 'target-mismatch', 'already-active', 'missing-module']) {
+  test(`restore diagnostic rejection survives the outer restore boundary (${mode})`, (t) => {
+    const { root, write } = fixture(t);
+    write('operations/operations.json', JSON.stringify([
+      { id: 'restore', title: 'Restore SQL backup', script: 'operations/Test.ps1' }
+    ]));
+    for (const name of ['BackupMgt', 'RestoreDiagnostics']) {
+      write(`common/${name}.ps1`, fs.readFileSync(resolveWithinRoot(repositoryRoot, 'common', `${name}.ps1`), 'utf8')); // nosemgrep -- fixed source files contained by repository root
+    }
+    write('common/CredentialMgt.ps1', '');
+    write('common/RemotingMgt.ps1', '');
+    write('operations/Test.ps1', `
+      . (Join-Path $PSScriptRoot '../common/BackupMgt.ps1')
+      function global:Write-Host {
+        param($Object,[ConsoleColor]$ForegroundColor)
+        if ($Object -eq 'Restore SQL backup failed during restore diagnostic compatibility.') {
+          if ($ForegroundColor -ne [ConsoleColor]::Red) { throw 'UNEXPECTED HEADING COLOR' }
+          [Console]::WriteLine('FAILURE HEADING COLOR: Red')
+        }
+        Microsoft.PowerShell.Utility\\Write-Host @PSBoundParameters
+      }
+      function global:Get-Module {
+        param([string[]]$Name,[switch]$ListAvailable)
+        if ($ListAvailable) { return }
+        Microsoft.PowerShell.Core\\Get-Module @PSBoundParameters
+      }
+      $bcContainerHelperConfig=@{usePwshForBc24=$true}
+      function Get-BcContainerSqlBackupRestoreParameters { @{containerName='target';bakFile='database.bak'} }
+      function Invoke-ScriptInBcContainer { Write-Host 'PREPARATION ONCE'; 'CRONUS' }
+      function Repair-BcContainerAdministratorAfterRestore { throw 'UNEXPECTED ADMIN REPAIR' }
+      function global:docker { throw 'UNEXPECTED DOCKER ACCESS' }
+      $module=New-Module -Name BcContainerHelper -ScriptBlock {
+        $script:bcContainerHelperConfig=@{usePsSession=$false;usePwshForBc24=$true}
+        function Invoke-ScriptInBcContainer { throw 'UNEXPECTED SQL EXECUTION' }
+        function Restore-DatabasesInBcContainer {
+          [CmdletBinding()]param($containerName,$bakFile,$databaseName)
+          Write-Host 'HELPER ATTEMPT'
+          Invoke-ScriptInBcContainer -containerName '${mode === 'target-mismatch' ? 'other' : 'target'}' -scriptblock {
+            Remove-NAVDatabase
+            ${mode === 'unsupported-helper' ? "Write-Host 'UNEXPECTED SQL EXECUTION'" : 'New-NAVDatabase'}
+          }
+        }
+        ${mode === 'already-active' ? '$script:BcRestoreOriginalInvoke=(Get-Command Invoke-ScriptInBcContainer).ScriptBlock' : ''}
+        Export-ModuleMember -Function Restore-DatabasesInBcContainer
+      }
+      Import-Module $module
+      ${mode === 'missing-module' ? "function Restore-DatabasesInBcContainer { throw 'UNEXPECTED SQL EXECUTION' }" : ''}
+      $before=& $module { (Get-Command Invoke-ScriptInBcContainer).ScriptBlock.ToString() }
+      try {
+        Restore-BcContainerSqlBackupEntries -containerName target -bakFolder unused -backupEntries @([pscustomobject]@{DatabaseRole='database'}) -configuration ([pscustomobject]@{restoreDiagnostics=$true})
+        Write-Host 'UNEXPECTED SUCCESS'
+      } finally {
+        $after=& $module { (Get-Command Invoke-ScriptInBcContainer).ScriptBlock.ToString() }
+        if ($before -cne $after) { throw 'UNEXPECTED HOOK CHANGE' }
+        $active=& $module { [bool](Get-Variable BcRestoreOriginalInvoke -Scope Script -ErrorAction Ignore) }
+        if ($active -ne $${mode === 'already-active'}) { throw 'UNEXPECTED WRAPPER STATE' }
+        $owned=& $module { @(Get-Variable BcRestoreDiagnosticCode,BcRestoreDiagnosticTarget,BcRestoreDiagnosticRejections -Scope Script -ErrorAction Ignore).Count }
+        if ($owned -ne 0) { throw 'UNEXPECTED DIAGNOSTIC STATE' }
+        if (-not $bcContainerHelperConfig.usePwshForBc24) { throw 'UNEXPECTED RUNTIME STATE' }
+        Write-Host 'CLEANUP VERIFIED'
+      }
+    `);
+    const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', './Invoke-BcDevToolsetOperation.ps1', '-Operation', 'restore', '-NonInteractive'], {
+      cwd: root, encoding: 'utf8', windowsHide: true, timeout: 30000
+    });
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    assert.equal(result.stderr, '');
+    assert.match(result.stdout, /FAILURE HEADING COLOR: Red/);
+    const reason = { 'unsupported-helper': /Unsupported helper restore command boundaries/, 'target-mismatch': /Diagnostic target mismatch/, 'already-active': /diagnostic wrapper is already active/, 'missing-module': /requires the loaded BcContainerHelper module/ }[mode];
+    assert.match(result.stdout, reason);
+    assert.match(result.stdout, /SQL restore was not started/);
+    assert.match(result.stdout, /BC service may already be stopped/);
+    assert.match(result.stdout, /Check .*before.*retry/);
+    assert.match(result.stdout, /No automatic retry/);
+    assert.match(result.stdout, /CLEANUP VERIFIED/);
+    assert.equal(result.stdout.split('PREPARATION ONCE').length - 1, 1);
+    assert.equal(result.stdout.split('HELPER ATTEMPT').length - 1, ['unsupported-helper', 'target-mismatch'].includes(mode) ? 1 : 0);
+    assert.doesNotMatch(result.stdout, /UNEXPECTED|Exception:|underlying cause|removed the target database|DONE/);
+  });
+}
+
 for (const mode of ['inspect-error', 'identity-mismatch', 'host-error', 'fresh-host-exit', 'shell-error', 'shell-nonterminating', 'shell-exit']) {
   test(`restore inspection preserves safe failure context and stops (${mode})`, (t) => {
     const { root, write } = fixture(t);

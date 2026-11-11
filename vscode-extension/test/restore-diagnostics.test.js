@@ -9,7 +9,7 @@ function run(body) {
   // installations at every snapshot. Restore boundaries and hooks remain real.
   const moduleInventory = 'function Get-Module { param([string[]]$Name,[switch]$ListAvailable) if($ListAvailable){return}; Microsoft.PowerShell.Core\\Get-Module @PSBoundParameters }';
   return spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command',
-    "$ErrorActionPreference='Stop'; . '"+source+"';\n"+moduleInventory+'\n'+body.join('\n')], {
+    "$ErrorActionPreference='Stop'; . '"+source+"'; . (Join-Path (Split-Path '"+source+"') 'PublishingDiagnostics.ps1');\n"+moduleInventory+'\n'+body.join('\n')], {
     encoding:'utf8',timeout:30000,windowsHide:true
   });
 }
