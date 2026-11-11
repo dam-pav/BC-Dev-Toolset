@@ -33,6 +33,13 @@ service; reconcile its state and the helper/diagnostic configuration before an
 explicitly approved retry. These rejections preserve failure status and remove
 hooks owned by the rejected invocation without removing a pre-existing wrapper.
 
+Diagnostic backup verification returns a structured result across the container
+boundary. A failed native verification retains its exit code and explicitly
+reports that SQL restore and database removal were not attempted; missing sqlcmd
+and verification-setup failures also stop at that boundary. Backend error text is
+excluded from these reviewed diagnostics. The stopped-service caveat still
+applies, and a successful verification continues into the one planned restore.
+
 ## Restore behavior under test
 
 Single-tenant SQL restores (one `database` backup entry) use Windows PowerShell

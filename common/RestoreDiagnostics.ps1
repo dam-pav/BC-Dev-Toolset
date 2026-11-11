@@ -102,12 +102,14 @@ function Invoke-BcInstrumentedSqlRestore {
     # Temporarily wrap the helper's invocation in its own module scope. The
     # installed helper files are never edited. Always restore the original.
     & $module {
-        param($code, $target, $rejections)
+        param($code, $target, $rejections, $expectedFailureFactory)
         if (Get-Variable BcRestoreOriginalInvoke -Scope Script -ErrorAction Ignore) { throw $rejections.active }
         $script:BcRestoreOriginalInvoke = (Get-Command Invoke-ScriptInBcContainer -CommandType Function).ScriptBlock
         $script:BcRestoreDiagnosticCode = $code
         $script:BcRestoreDiagnosticTarget = $target
         $script:BcRestoreDiagnosticRejections = $rejections
+        $script:BcRestoreVerificationToken = [Guid]::NewGuid().ToString('N')
+        $script:BcRestoreExpectedFailureFactory = $expectedFailureFactory
         function script:Invoke-ScriptInBcContainer {
             param([string]$containerName, [scriptblock]$scriptblock, [object[]]$argumentList,
                 [bool]$useSession=$bcContainerHelperConfig.usePsSession,
@@ -128,7 +130,7 @@ function Invoke-BcInstrumentedSqlRestore {
                 $original=$original.Insert($offset,"Write-BcRestoreSnapshot -Stage 'before-$($node.GetCommandName())';`n")
             }
             $wrapped = {
-                param($diagnosticCode, $originalCode, $originalArguments)
+                param($diagnosticCode, $originalCode, $originalArguments, $verificationToken)
                 $ErrorActionPreference='Stop'
                 . ([scriptblock]::Create($diagnosticCode))
                 Write-BcRestoreSnapshot -Stage 'container-after-bootstrap'
@@ -137,15 +139,34 @@ function Invoke-BcInstrumentedSqlRestore {
                     if ($originalArguments[1]) {
                         # Native SQL verification keeps its dependency loading
                         # outside the administration-module process being tested.
-                        $null=Get-Command sqlcmd -CommandType Application -ErrorAction Stop
-                        $configPath=Join-Path (Get-Item 'C:\Program Files\Microsoft Dynamics NAV\*\Service').FullName 'CustomSettings.config'
-                        [xml]$cfg=[IO.File]::ReadAllText($configPath)
-                        $server=$cfg.SelectSingleNode("//appSettings/add[@key='DatabaseServer']").Value
-                        $instance=$cfg.SelectSingleNode("//appSettings/add[@key='DatabaseInstance']").Value
-                        $endpoint=if($instance){"$server\$instance"}else{$server}
-                        $backupPath=([string]$originalArguments[1]).Replace("'","''")
-                        & sqlcmd -S $endpoint -E -b -Q "RESTORE VERIFYONLY FROM DISK=N'$backupPath'"
-                        if($LASTEXITCODE -ne 0){throw 'Fresh backup SQL verification failed; no database removal was attempted.'}
+                        # Return a bounded record instead of an exception: helper
+                        # remoting can turn exceptions into strings and lose data.
+                        # The host constructs the reviewed failure after transport.
+                        $verificationStatus='SetupFailure'; $verificationExit=$null; $verificationError=$null
+                        try {
+                            $sqlCommand=Get-Command sqlcmd -CommandType Application -ErrorAction Ignore
+                            if (-not $sqlCommand) { $verificationStatus='Unavailable' }
+                            else {
+                                $configPath=Join-Path (Get-Item 'C:\Program Files\Microsoft Dynamics NAV\*\Service').FullName 'CustomSettings.config'
+                                [xml]$cfg=[IO.File]::ReadAllText($configPath)
+                                $server=$cfg.SelectSingleNode("//appSettings/add[@key='DatabaseServer']").Value
+                                $instance=$cfg.SelectSingleNode("//appSettings/add[@key='DatabaseInstance']").Value
+                                $endpoint=if($instance){"$server\$instance"}else{$server}
+                                $backupPath=([string]$originalArguments[1]).Replace("'","''")
+                                $verificationExit=& {
+                                    # Native stderr must not bypass exit-code handling.
+                                    $ErrorActionPreference='Continue'
+                                    $PSNativeCommandUseErrorActionPreference=$false
+                                    $global:LASTEXITCODE=$null
+                                    $null=& sqlcmd -S $endpoint -E -b -Q "RESTORE VERIFYONLY FROM DISK=N'$backupPath'" 2>&1
+                                    $LASTEXITCODE
+                                }
+                                $verificationStatus=if($null -eq $verificationExit){'MissingExitCode'}elseif($verificationExit -ne 0){'NativeFailure'}else{'Passed'}
+                            }
+                        } catch { $verificationError=$_.Exception.HResult }
+                        if ($verificationStatus -ne 'Passed') {
+                            return [pscustomobject]@{BcRestoreVerificationToken=$verificationToken;Status=$verificationStatus;NativeExitCode=$verificationExit;ErrorCode=$verificationError}
+                        }
                         Write-Host 'BC_RESTORE_BACKUP_VERIFY: passed before database removal.'
                     }
                     & ([scriptblock]::Create($originalCode)) @originalArguments
@@ -159,14 +180,34 @@ function Invoke-BcInstrumentedSqlRestore {
                     [BcRestoreAssemblyEvents]::Stop()
                 }
             }
-            & $script:BcRestoreOriginalInvoke -containerName $containerName -scriptblock $wrapped -argumentList @($script:BcRestoreDiagnosticCode,$original,$argumentList) -useSession:$useSession -usePwsh:$usePwsh
+            $result=@(& $script:BcRestoreOriginalInvoke -containerName $containerName -scriptblock $wrapped -argumentList @($script:BcRestoreDiagnosticCode,$original,$argumentList,$script:BcRestoreVerificationToken) -useSession:$useSession -usePwsh:$usePwsh)
+            foreach ($item in $result) {
+                $marker=$item.PSObject.Properties['BcRestoreVerificationToken']
+                if ($null -ne $marker -and $marker.Value -ceq $script:BcRestoreVerificationToken) {
+                    $nativeCode=0; $errorCode=0
+                    $detail=switch ([string]$item.Status) {
+                        'NativeFailure' {
+                            if ([int]::TryParse([string]$item.NativeExitCode,[ref]$nativeCode) -and $nativeCode -ne 0) { "Fresh backup SQL verification failed. Native exit code: $nativeCode." }
+                            else { 'Fresh backup SQL verification returned an invalid native exit status.' }
+                        }
+                        'Unavailable' { 'The container sqlcmd executable is unavailable for fresh backup verification.' }
+                        'MissingExitCode' { 'Fresh backup SQL verification did not return a native exit status.' }
+                        default {
+                            $codeDetail=if([int]::TryParse([string]$item.ErrorCode,[ref]$errorCode)){" Error code: $errorCode."}else{''}
+                            "Fresh backup verification setup failed; the underlying cause is unknown.$codeDetail"
+                        }
+                    }
+                    throw (& $script:BcRestoreExpectedFailureFactory -Stage 'diagnostic backup verification' -Message "$detail SQL restore was not started; no database removal was attempted. The BC service may already be stopped by restore preparation. Check the backup integrity, container sqlcmd availability, SQL connectivity and service state before an explicitly approved retry. No automatic retry or alternate restore was attempted.")
+                }
+                $item
+            }
         }
-    } $code $RestoreParameters.containerName $rejections
+    } $code $RestoreParameters.containerName $rejections (Get-Command New-BcExpectedFailure -ErrorAction Stop)
     try { & $command @RestoreParameters -ErrorAction Stop }
     finally {
         & $module {
             Set-Item function:script:Invoke-ScriptInBcContainer -Value $script:BcRestoreOriginalInvoke
-            Remove-Variable BcRestoreOriginalInvoke,BcRestoreDiagnosticCode,BcRestoreDiagnosticTarget,BcRestoreDiagnosticRejections -Scope Script
+            Remove-Variable BcRestoreOriginalInvoke,BcRestoreDiagnosticCode,BcRestoreDiagnosticTarget,BcRestoreDiagnosticRejections,BcRestoreVerificationToken,BcRestoreExpectedFailureFactory -Scope Script
         }
     }
 }

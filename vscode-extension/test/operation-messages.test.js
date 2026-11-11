@@ -108,9 +108,12 @@ for (const mode of ['prepare-error', 'sql-throw', 'sql-error', 'start-error', 'v
 }
 
 
-for (const mode of ['unsupported-helper', 'target-mismatch', 'already-active', 'missing-module']) {
+for (const mode of ['unsupported-helper', 'target-mismatch', 'already-active', 'missing-module', 'verify-native', 'verify-setup', 'verify-unavailable', 'verify-pass']) {
   test(`restore diagnostic rejection survives the outer restore boundary (${mode})`, (t) => {
     const { root, write } = fixture(t);
+    const verify = mode.startsWith('verify-');
+    const success = mode === 'verify-pass';
+    const stage = verify ? 'diagnostic backup verification' : 'restore diagnostic compatibility';
     write('operations/operations.json', JSON.stringify([
       { id: 'restore', title: 'Restore SQL backup', script: 'operations/Test.ps1' }
     ]));
@@ -119,11 +122,20 @@ for (const mode of ['unsupported-helper', 'target-mismatch', 'already-active', '
     }
     write('common/CredentialMgt.ps1', '');
     write('common/RemotingMgt.ps1', '');
+    write('CustomSettings.config', '<configuration><appSettings><add key="DatabaseServer" value="fixture"/><add key="DatabaseInstance" value=""/></appSettings></configuration>');
+    if (verify && mode !== 'verify-unavailable') {
+      if (process.platform === 'win32') {
+        write('sqlcmd.cmd', `@echo off\r\necho private verification native payload 1>&2\r\nexit /b ${success ? 0 : 37}\r\n`);
+      } else {
+        write('sqlcmd', `#!/bin/sh\necho private verification native payload >&2\nexit ${success ? 0 : 37}\n`);
+        fs.chmodSync(resolveWithinRoot(root, 'sqlcmd'), 0o755); // nosemgrep -- fixed executable fixture contained by the test-owned root
+      }
+    }
     write('operations/Test.ps1', `
       . (Join-Path $PSScriptRoot '../common/BackupMgt.ps1')
       function global:Write-Host {
         param($Object,[ConsoleColor]$ForegroundColor)
-        if ($Object -eq 'Restore SQL backup failed during restore diagnostic compatibility.') {
+        if ($Object -eq 'Restore SQL backup failed during ${stage}.') {
           if ($ForegroundColor -ne [ConsoleColor]::Red) { throw 'UNEXPECTED HEADING COLOR' }
           [Console]::WriteLine('FAILURE HEADING COLOR: Red')
         }
@@ -137,18 +149,34 @@ for (const mode of ['unsupported-helper', 'target-mismatch', 'already-active', '
       $bcContainerHelperConfig=@{usePwshForBc24=$true}
       function Get-BcContainerSqlBackupRestoreParameters { @{containerName='target';bakFile='database.bak'} }
       function Invoke-ScriptInBcContainer { Write-Host 'PREPARATION ONCE'; 'CRONUS' }
-      function Repair-BcContainerAdministratorAfterRestore { throw 'UNEXPECTED ADMIN REPAIR' }
+      function Repair-BcContainerAdministratorAfterRestore { ${success ? "Write-Host 'ADMIN ONCE'" : "throw 'UNEXPECTED ADMIN REPAIR'"} }
+      function Invoke-BcContainerSystemApplicationUpgradeAfterRestore { ${success ? "Write-Host 'VERSION ONCE'" : "throw 'UNEXPECTED VERSION CHECK'"} }
       function global:docker { throw 'UNEXPECTED DOCKER ACCESS' }
+      ${verify ? '$env:PATH=$PWD.Path' : ''}
+      function global:Get-Item {
+        ${mode === 'verify-setup' ? "Write-Error 'private verification setup payload'" : ''}
+        @{FullName=$PWD.Path}
+      }
       $module=New-Module -Name BcContainerHelper -ScriptBlock {
         $script:bcContainerHelperConfig=@{usePsSession=$false;usePwshForBc24=$true}
-        function Invoke-ScriptInBcContainer { throw 'UNEXPECTED SQL EXECUTION' }
+        function Invoke-ScriptInBcContainer {
+          param($containerName,$scriptblock,$argumentList,$useSession,$usePwsh)
+          ${verify ? `
+          # Simulate remoting serialization: transport must not depend on exception types.
+          $transport=@(& $scriptblock @argumentList)
+          foreach ($item in $transport) { $item | ConvertTo-Json -Depth 8 -Compress | ConvertFrom-Json }
+          ` : "throw 'UNEXPECTED SQL EXECUTION'"}
+        }
         function Restore-DatabasesInBcContainer {
           [CmdletBinding()]param($containerName,$bakFile,$databaseName)
           Write-Host 'HELPER ATTEMPT'
           Invoke-ScriptInBcContainer -containerName '${mode === 'target-mismatch' ? 'other' : 'target'}' -scriptblock {
+            param($name,$backup)
+            function Remove-NAVDatabase { Write-Host 'REMOVE ONCE' }
+            function New-NAVDatabase { Write-Host 'NEW ONCE' }
             Remove-NAVDatabase
             ${mode === 'unsupported-helper' ? "Write-Host 'UNEXPECTED SQL EXECUTION'" : 'New-NAVDatabase'}
-          }
+          } -argumentList @($containerName,$bakFile)
         }
         ${mode === 'already-active' ? '$script:BcRestoreOriginalInvoke=(Get-Command Invoke-ScriptInBcContainer).ScriptBlock' : ''}
         Export-ModuleMember -Function Restore-DatabasesInBcContainer
@@ -158,13 +186,13 @@ for (const mode of ['unsupported-helper', 'target-mismatch', 'already-active', '
       $before=& $module { (Get-Command Invoke-ScriptInBcContainer).ScriptBlock.ToString() }
       try {
         Restore-BcContainerSqlBackupEntries -containerName target -bakFolder unused -backupEntries @([pscustomobject]@{DatabaseRole='database'}) -configuration ([pscustomobject]@{restoreDiagnostics=$true})
-        Write-Host 'UNEXPECTED SUCCESS'
+        Write-Host '${success ? 'RESTORE COMPLETED' : 'UNEXPECTED SUCCESS'}'
       } finally {
         $after=& $module { (Get-Command Invoke-ScriptInBcContainer).ScriptBlock.ToString() }
         if ($before -cne $after) { throw 'UNEXPECTED HOOK CHANGE' }
         $active=& $module { [bool](Get-Variable BcRestoreOriginalInvoke -Scope Script -ErrorAction Ignore) }
         if ($active -ne $${mode === 'already-active'}) { throw 'UNEXPECTED WRAPPER STATE' }
-        $owned=& $module { @(Get-Variable BcRestoreDiagnosticCode,BcRestoreDiagnosticTarget,BcRestoreDiagnosticRejections -Scope Script -ErrorAction Ignore).Count }
+        $owned=& $module { @(Get-Variable BcRestoreDiagnosticCode,BcRestoreDiagnosticTarget,BcRestoreDiagnosticRejections,BcRestoreVerificationToken,BcRestoreExpectedFailureFactory -Scope Script -ErrorAction Ignore).Count }
         if ($owned -ne 0) { throw 'UNEXPECTED DIAGNOSTIC STATE' }
         if (-not $bcContainerHelperConfig.usePwshForBc24) { throw 'UNEXPECTED RUNTIME STATE' }
         Write-Host 'CLEANUP VERIFIED'
@@ -173,19 +201,31 @@ for (const mode of ['unsupported-helper', 'target-mismatch', 'already-active', '
     const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', './Invoke-BcDevToolsetOperation.ps1', '-Operation', 'restore', '-NonInteractive'], {
       cwd: root, encoding: 'utf8', windowsHide: true, timeout: 30000
     });
-    assert.equal(result.status, 1, result.stderr || result.stdout);
+    assert.equal(result.status, success ? 0 : 1, result.stderr || result.stdout);
     assert.equal(result.stderr, '');
+    assert.match(result.stdout, /CLEANUP VERIFIED/);
+    if (success) {
+      for (const marker of ['BC_RESTORE_BACKUP_VERIFY: passed', 'REMOVE ONCE', 'NEW ONCE', 'VERSION ONCE', 'ADMIN ONCE', 'RESTORE COMPLETED']) {
+        assert.equal(result.stdout.split(marker).length - 1, 1, result.stdout);
+      }
+      assert.doesNotMatch(result.stdout, /UNEXPECTED|private verification|failed during/);
+      return;
+    }
     assert.match(result.stdout, /FAILURE HEADING COLOR: Red/);
     const reason = { 'unsupported-helper': /Unsupported helper restore command boundaries/, 'target-mismatch': /Diagnostic target mismatch/, 'already-active': /diagnostic wrapper is already active/, 'missing-module': /requires the loaded BcContainerHelper module/ }[mode];
-    assert.match(result.stdout, reason);
+    if (!verify) assert.match(result.stdout, reason);
+    if (mode === 'verify-native') assert.match(result.stdout, /Fresh backup SQL verification failed\. Native exit code: 37/);
+    if (mode === 'verify-setup') assert.match(result.stdout, /verification setup failed; the underlying cause is unknown\. Error code:/);
+    if (mode === 'verify-unavailable') assert.match(result.stdout, /sqlcmd executable is unavailable/);
+    if (verify) assert.match(result.stdout, /no database removal was attempted/);
     assert.match(result.stdout, /SQL restore was not started/);
     assert.match(result.stdout, /BC service may already be stopped/);
     assert.match(result.stdout, /Check .*before.*retry/);
     assert.match(result.stdout, /No automatic retry/);
-    assert.match(result.stdout, /CLEANUP VERIFIED/);
     assert.equal(result.stdout.split('PREPARATION ONCE').length - 1, 1);
-    assert.equal(result.stdout.split('HELPER ATTEMPT').length - 1, ['unsupported-helper', 'target-mismatch'].includes(mode) ? 1 : 0);
-    assert.doesNotMatch(result.stdout, /UNEXPECTED|Exception:|underlying cause|removed the target database|DONE/);
+    assert.equal(result.stdout.split('HELPER ATTEMPT').length - 1, verify || ['unsupported-helper', 'target-mismatch'].includes(mode) ? 1 : 0);
+    assert.doesNotMatch(result.stdout, /UNEXPECTED|Exception:|private verification|removed the target database|REMOVE ONCE|NEW ONCE|DONE/);
+    if (!verify) assert.doesNotMatch(result.stdout, /underlying cause/);
   });
 }
 
