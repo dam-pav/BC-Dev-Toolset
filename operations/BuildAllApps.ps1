@@ -5,6 +5,50 @@ Param (
 
 $scriptPath = (Get-Item $PSScriptRoot).Parent
 . $scriptPath/common/WorkspaceMgt.ps1
+. $scriptPath/common/PublishingDiagnostics.ps1
+
+function Get-AlBuildPackageId {
+    param([Parameter(Mandatory)][string] $CacheRoot, [Parameter(Mandatory)][string] $PackagePath)
+
+    $validatedRoot = [IO.Path]::GetFullPath($CacheRoot)
+    $validatedPackagePath = [IO.Path]::GetFullPath($PackagePath)
+    $relative = [IO.Path]::GetRelativePath($validatedRoot, $validatedPackagePath)
+    if ([IO.Path]::IsPathRooted($relative) -or $relative -eq '..' -or $relative.StartsWith('..' + [IO.Path]::DirectorySeparatorChar)) {
+        throw (New-BcExpectedFailure -Stage 'build package cache' -Message 'A dependency package escaped its configured cache. Check al.packageCachePath and retry. Compilation of the dependent app and deployment were not started.')
+    }
+
+    $stream = $null
+    $archive = $null
+    $reader = $null
+    try {
+        # NAVX has a 40-byte header before the ZIP. Slice it so ZIP offsets are
+        # relative to the archive, including for signed AL packages.
+        $bytes = [IO.File]::ReadAllBytes($validatedPackagePath)
+        if ($bytes.Length -lt 44 -or [Text.Encoding]::ASCII.GetString($bytes, 0, 4) -cne 'NAVX' -or
+            [BitConverter]::ToInt32($bytes, 4) -ne 40 -or [Text.Encoding]::ASCII.GetString($bytes, 36, 4) -cne 'NAVX') {
+            throw 'Invalid NAVX header.'
+        }
+        $stream = [IO.MemoryStream]::new($bytes, 40, $bytes.Length - 40)
+        $archive = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Read)
+        $entries = @($archive.Entries | Where-Object FullName -ceq 'NavxManifest.xml')
+        if ($entries.Count -ne 1 -or $entries[0].Length -gt 65536) { throw 'Invalid package manifest.' }
+        $settings = [Xml.XmlReaderSettings]::new()
+        $settings.DtdProcessing = [Xml.DtdProcessing]::Prohibit
+        $settings.XmlResolver = $null
+        $settings.MaxCharactersInDocument = 65536
+        $reader = [Xml.XmlReader]::Create($entries[0].Open(), $settings)
+        $document = [Xml.XmlDocument]::new()
+        $document.XmlResolver = $null
+        $document.Load($reader)
+        return ([guid]::Parse([string]$document.Package.App.Id)).ToString()
+    } catch {
+        throw (New-BcExpectedFailure -Stage 'build package cache' -Message "Could not read the identity of dependency package '$validatedPackagePath'. Check file access or replace the invalid package in the configured cache, then retry. Compilation of the dependent app and deployment were not started.")
+    } finally {
+        if ($null -ne $reader) { $reader.Dispose() }
+        if ($null -ne $archive) { $archive.Dispose() }
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
 
 function Assert-NoBlockingBuildWarnings {
     Param ([object[]] $CompilerOutput, [switch] $WarningsAsErrors)
@@ -162,6 +206,8 @@ foreach ($appPath in @($appPaths | Select-Object -Unique)) {
 if ($workspaceApps.Count -eq 0) { throw "No AL apps with an app.json file were found in the workspace." }
 
 $orderedApps = @(Get-WorkspaceAppsInBuildOrder -Apps $workspaceApps)
+$workspaceAppIds = @{}
+foreach ($workspaceApp in $orderedApps) { $workspaceAppIds[([guid]::Parse([string]$workspaceApp.id)).ToString()] = $true }
 $alToolPath = Resolve-AlToolPath
 $builtPackages = @{}
 $operatingSystemTemporaryRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
@@ -199,14 +245,24 @@ try {
             $sourcePackages = @(Get-ChildItem -LiteralPath $sourcePackageCache -File -Filter '*.app')
             Write-Host "Importing $($sourcePackages.Count) package(s) from '$sourcePackageCache'." -ForegroundColor Gray
             foreach ($package in $sourcePackages) {
-                Copy-Item -LiteralPath $package.FullName -Destination $isolatedPackageCache -Force
+                $packageId = Get-AlBuildPackageId -CacheRoot $sourcePackageCache -PackagePath $package.FullName
+                # Version selection must never prefer a stale workspace app,
+                # even if its cached version is higher or its filename changed.
+                if ($workspaceAppIds.ContainsKey($packageId)) { continue }
+                try {
+                    Copy-Item -LiteralPath $package.FullName -Destination $isolatedPackageCache -Force -ErrorAction Stop
+                } catch {
+                    throw (New-BcExpectedFailure -Stage 'build package cache' -Message "Could not stage dependency package '$($package.FullName)'. Check cache access and temporary disk space, then retry. Compilation of the dependent app and deployment were not started.")
+                }
             }
         }
 
-        foreach ($dependency in @($app.dependencies)) {
-            $dependencyId = [string]$dependency.id
-            if ($builtPackages.ContainsKey($dependencyId)) {
-                Copy-Item -LiteralPath $builtPackages[$dependencyId] -Destination $isolatedPackageCache -Force
+        # Include already-built transitive dependencies as well as direct ones.
+        foreach ($builtPackage in $builtPackages.Values) {
+            try {
+                Copy-Item -LiteralPath $builtPackage -Destination $isolatedPackageCache -Force -ErrorAction Stop
+            } catch {
+                throw (New-BcExpectedFailure -Stage 'build package cache' -Message 'Could not stage a freshly built workspace dependency. Check temporary disk space and file access, then retry. Compilation of the dependent app and deployment were not started.')
             }
         }
 
