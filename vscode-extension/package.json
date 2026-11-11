@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.11.9",
+  "version": "1.11.10",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -467,7 +467,6 @@
                             "default": true,
                             "description": "Whether Create Docker container and Test operations automatically restore a compatible SQL backup set from sqlBackupPath. Defaults to true when omitted. Manual restore operations ignore this setting."
                           },
-
                           "restoreDiagnostics": {
                             "type": "boolean",
                             "default": false,
@@ -480,7 +479,11 @@
                           },
                           "restoreInspectionMode": {
                             "type": "string",
-                            "enum": ["Full", "Database", "State"],
+                            "enum": [
+                              "Full",
+                              "Database",
+                              "State"
+                            ],
                             "default": "Database",
                             "description": "Read-only restore inventory: Database (default) uses Windows PowerShell for database/service state; Full explicitly opts in to both shells and resolver experiments; State returns only container identity/state."
                           }
