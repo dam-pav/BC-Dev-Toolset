@@ -8,11 +8,12 @@ $middleId = '11111111-1111-1111-1111-111111111111'
 $testsId = '7f66d23b-728e-4e56-89e2-1c6aca3d20e1'
 
 function New-TestPackage {
-    param([string] $Path, [string] $Id)
+    param([string] $Path, [string] $Id, [string] $Manifest, [string] $EntryName = 'NavxManifest.xml')
     $stream = [IO.MemoryStream]::new()
     $archive = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Create, $true)
-    $writer = [IO.StreamWriter]::new($archive.CreateEntry('NavxManifest.xml').Open())
-    $writer.Write("<Package><App Id='$Id' /></Package>")
+    $writer = [IO.StreamWriter]::new($archive.CreateEntry($EntryName).Open())
+    if (-not $Manifest) { $Manifest = "<Package><App Id='$Id' /></Package>" }
+    $writer.Write($Manifest)
     $writer.Dispose()
     $archive.Dispose()
     $header = [byte[]]::new(40)
@@ -111,6 +112,81 @@ exit 0
         }
         $afterHashes = @(Get-ChildItem -LiteralPath $testCache | Get-FileHash | ForEach-Object Hash)
         if (($sourceHashes -join ',') -ne ($afterHashes -join ',')) { throw 'Source cache was modified' }
+    }
+    # Exercise the actual reader boundary, including wrapped .NET exceptions.
+    . (Join-Path $repositoryRoot 'common/PublishingDiagnostics.ps1')
+    $tokens = $null; $parseErrors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $repositoryRoot 'operations/BuildAllApps.ps1'), [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count) { throw 'Build script did not parse' }
+    $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-AlBuildPackageId' }, $true)
+    . ([scriptblock]::Create($definition.Extent.Text))
+    $readerCache = Join-Path $fixtureRoot 'reader-cache'
+    New-Item -ItemType Directory -Path $readerCache | Out-Null
+    $readerPackage = Join-Path $readerCache 'dependency.app'
+    foreach ($case in @('header', 'archive', 'manifest', 'xml', 'id', 'missing', 'denied', 'io', 'unknown')) {
+        New-TestPackage -Path $readerPackage -Id $externalId
+        $expectedCode = $null
+        switch ($case) {
+            'header' {
+                [IO.File]::WriteAllText($readerPackage, 'private backend detail')
+                $expectedReason = 'NAVX header is invalid'; $expectedRecovery = 'Replace the invalid package'
+            }
+            'archive' {
+                $bytes = [IO.File]::ReadAllBytes($readerPackage)
+                [IO.File]::WriteAllBytes($readerPackage, $bytes[0..43])
+                $expectedReason = 'ZIP archive is invalid'; $expectedRecovery = 'Replace the invalid package'
+            }
+            'manifest' {
+                New-TestPackage -Path $readerPackage -Id $externalId -EntryName 'other.xml'
+                $expectedReason = 'exactly one NavxManifest.xml'; $expectedRecovery = 'Replace the invalid package'
+            }
+            'xml' {
+                New-TestPackage -Path $readerPackage -Id $externalId -Manifest '<private-backend-detail>'
+                $expectedReason = 'malformed or violates the XML safety limits'; $expectedRecovery = 'Replace the invalid package'
+            }
+            'id' {
+                New-TestPackage -Path $readerPackage -Id 'private backend detail'
+                $expectedReason = 'app ID is missing or is not a valid GUID'; $expectedRecovery = 'Replace the invalid package'
+            }
+            'missing' {
+                Remove-Item -LiteralPath $readerPackage
+                $expectedReason = 'file or its cache directory was not found'; $expectedRecovery = 'Restore the missing dependency'
+                $expectedCode = ([IO.FileNotFoundException]::new()).HResult
+            }
+            'denied' {
+                $global:readerFailure = [UnauthorizedAccessException]::new('private backend detail')
+                $expectedReason = 'Access to the package was denied'; $expectedRecovery = 'Check read permissions'
+            }
+            'io' {
+                $global:readerFailure = [IO.IOException]::new('private backend detail')
+                $expectedReason = 'I/O error prevented reading'; $expectedRecovery = 'Check file locks, storage availability'
+            }
+            'unknown' {
+                $global:readerFailure = [InvalidOperationException]::new('private backend detail')
+                $expectedReason = 'underlying cause is unknown'; $expectedRecovery = 'retain the error code'
+            }
+        }
+        if ($case -in @('denied', 'io', 'unknown')) {
+            # Inject a typed read failure without relying on OS permissions or locks.
+            function Read-TestPackageBytes { param($Path) throw $global:readerFailure }
+            . ([scriptblock]::Create($definition.Extent.Text.Replace('[IO.File]::ReadAllBytes($validatedPackagePath)', '(Read-TestPackageBytes $validatedPackagePath)')))
+            $expectedCode = $global:readerFailure.HResult
+        } else {
+            . ([scriptblock]::Create($definition.Extent.Text))
+        }
+        try {
+            Get-AlBuildPackageId -CacheRoot $readerCache -PackagePath $readerPackage
+            throw 'Reader failure was accepted'
+        } catch {
+            if (-not $_.Exception.Data['BcDevToolsetExpectedFailure'] -or $_.Exception.Data['Stage'] -ne 'build package cache' -or
+                $_.Exception.Message -notmatch $expectedReason -or $_.Exception.Message -notmatch $expectedRecovery -or
+                $_.Exception.Message -notmatch 'Error code: -?\d+' -or
+                $_.Exception.Message -notmatch 'Compilation of the dependent app and deployment were not started' -or
+                $_.Exception.Message -match 'private.backend.detail') { throw }
+            if ($null -ne $expectedCode -and -not $_.Exception.Message.Contains("Error code: $expectedCode.")) {
+                throw 'Reader failure lost its I/O status'
+            }
+        }
     }
 } finally {
     # Only remove this test-owned, direct child of the OS temporary directory.

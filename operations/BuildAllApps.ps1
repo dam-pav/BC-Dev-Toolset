@@ -20,18 +20,25 @@ function Get-AlBuildPackageId {
     $stream = $null
     $archive = $null
     $reader = $null
+    $validationFailure = ''
+    $readStage = 'file'
     try {
         # NAVX has a 40-byte header before the ZIP. Slice it so ZIP offsets are
         # relative to the archive, including for signed AL packages.
         $bytes = [IO.File]::ReadAllBytes($validatedPackagePath)
         if ($bytes.Length -lt 44 -or [Text.Encoding]::ASCII.GetString($bytes, 0, 4) -cne 'NAVX' -or
             [BitConverter]::ToInt32($bytes, 4) -ne 40 -or [Text.Encoding]::ASCII.GetString($bytes, 36, 4) -cne 'NAVX') {
+            $validationFailure = 'The NAVX header is invalid.'
             throw 'Invalid NAVX header.'
         }
         $stream = [IO.MemoryStream]::new($bytes, 40, $bytes.Length - 40)
+        $readStage = 'archive'
         $archive = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Read)
         $entries = @($archive.Entries | Where-Object FullName -ceq 'NavxManifest.xml')
-        if ($entries.Count -ne 1 -or $entries[0].Length -gt 65536) { throw 'Invalid package manifest.' }
+        if ($entries.Count -ne 1 -or $entries[0].Length -gt 65536) {
+            $validationFailure = 'The package must contain exactly one NavxManifest.xml of at most 65536 bytes.'
+            throw 'Invalid package manifest.'
+        }
         $settings = [Xml.XmlReaderSettings]::new()
         $settings.DtdProcessing = [Xml.DtdProcessing]::Prohibit
         $settings.XmlResolver = $null
@@ -40,9 +47,39 @@ function Get-AlBuildPackageId {
         $document = [Xml.XmlDocument]::new()
         $document.XmlResolver = $null
         $document.Load($reader)
+        $readStage = 'app identity'
         return ([guid]::Parse([string]$document.Package.App.Id)).ToString()
     } catch {
-        throw (New-BcExpectedFailure -Stage 'build package cache' -Message "Could not read the identity of dependency package '$validatedPackagePath'. Check file access or replace the invalid package in the configured cache, then retry. Compilation of the dependent app and deployment were not started.")
+        $cause = $_.Exception
+        # Remove invocation wrappers, preserving the classified I/O/XML exception.
+        while ($null -ne $cause.InnerException -and
+            ($cause -is [Management.Automation.RuntimeException] -or $cause -is [Reflection.TargetInvocationException])) {
+            $cause = $cause.InnerException
+        }
+        $recovery = 'Replace the invalid package in the configured cache, then retry.'
+        if ($validationFailure) {
+            $safeReason = $validationFailure
+        } elseif ($cause -is [UnauthorizedAccessException]) {
+            $safeReason = 'Access to the package was denied.'
+            $recovery = 'Check read permissions for the configured cache, then retry.'
+        } elseif ($cause -is [IO.FileNotFoundException] -or $cause -is [IO.DirectoryNotFoundException]) {
+            $safeReason = 'The package file or its cache directory was not found.'
+            $recovery = 'Restore the missing dependency in the configured cache, then retry.'
+        } elseif ($cause -is [IO.InvalidDataException]) {
+            $safeReason = 'The package ZIP archive is invalid.'
+        } elseif ($cause -is [Xml.XmlException]) {
+            $safeReason = 'NavxManifest.xml is malformed or violates the XML safety limits.'
+        } elseif ($readStage -eq 'app identity' -and $cause -is [FormatException]) {
+            $safeReason = 'The manifest app ID is missing or is not a valid GUID.'
+        } elseif ($cause -is [IO.IOException]) {
+            $safeReason = 'An I/O error prevented reading the package.'
+            $recovery = 'Check file locks, storage availability and cache access, then retry.'
+        } else {
+            $safeReason = 'The underlying cause is unknown.'
+            $recovery = 'Check cache access and package integrity, then retry; retain the error code if the failure persists.'
+        }
+        # Only reviewed classifications and numeric status cross this boundary.
+        throw (New-BcExpectedFailure -Stage 'build package cache' -Message "Could not read the identity of dependency package '$validatedPackagePath'. $safeReason Error code: $($cause.HResult). $recovery Compilation of the dependent app and deployment were not started.")
     } finally {
         if ($null -ne $reader) { $reader.Dispose() }
         if ($null -ne $archive) { $archive.Dispose() }

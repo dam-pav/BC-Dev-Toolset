@@ -76,7 +76,8 @@ test('invalid build dependency renders red recovery guidance and preserves failu
   assert.equal(result.status, 1, result.stderr || result.stdout);
   assert.match(result.stdout, /FAILURE HEADING COLOR: Red/);
   assert.match(result.stdout, /Could not read the identity of dependency package/);
-  assert.match(result.stdout, /Check file access or replace the invalid package/);
+  assert.match(result.stdout, /The NAVX header is invalid/);
+  assert.match(result.stdout, /Replace the invalid package in the configured cache/);
   assert.match(result.stdout, /Compilation of the dependent app and deployment were not started/);
   assert.doesNotMatch(result.stdout + result.stderr, /UNEXPECTED CONTINUATION|DONE|Exception:|At line:/);
   assert.equal(result.stderr, '');
