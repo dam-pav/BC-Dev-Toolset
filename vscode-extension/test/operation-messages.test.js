@@ -45,6 +45,44 @@ function run(root, script, extraEnv = {}) {
   return result.stdout.replace(/\r/g, '');
 }
 
+test('invalid build dependency renders red recovery guidance and preserves failure', t => {
+  const { root, write } = fixture(t);
+  write('operations/operations.json', JSON.stringify([
+    { id: 'buildAllApps', title: 'Build all apps', script: 'operations/Test.ps1' }
+  ]));
+  write('operations/BuildSource.ps1', fs.readFileSync(resolveWithinRoot(repositoryRoot, 'operations/BuildAllApps.ps1'), 'utf8')); // nosemgrep -- fixed source contained by repository root
+  write('cache/invalid.app', 'corrupt package');
+  write('operations/Test.ps1', `
+    . (Join-Path $PSScriptRoot '../common/PublishingDiagnostics.ps1')
+    function global:Write-Host {
+      param($Object, [ConsoleColor]$ForegroundColor)
+      if ($Object -eq 'Build all apps failed during build package cache.') {
+        if ($ForegroundColor -ne [ConsoleColor]::Red) { throw 'Expected red heading' }
+        [Console]::WriteLine('FAILURE HEADING COLOR: Red')
+      }
+      Microsoft.PowerShell.Utility\\Write-Host @PSBoundParameters
+    }
+    $tokens = $null; $errors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot 'BuildSource.ps1'), [ref]$tokens, [ref]$errors)
+    $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-AlBuildPackageId' }, $true)
+    . ([scriptblock]::Create($definition.Extent.Text))
+    Get-AlBuildPackageId -CacheRoot (Join-Path $PWD 'cache') -PackagePath (Join-Path $PWD 'cache/invalid.app')
+    Write-Host 'UNEXPECTED CONTINUATION'
+  `);
+  const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File',
+    resolveWithinRoot(root, 'Invoke-BcDevToolsetOperation.ps1'), '-Operation', 'buildAllApps', '-NonInteractive'], {
+    cwd: root, encoding: 'utf8', windowsHide: true
+  });
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stdout, /FAILURE HEADING COLOR: Red/);
+  assert.match(result.stdout, /Could not read the identity of dependency package/);
+  assert.match(result.stdout, /The NAVX header is invalid/);
+  assert.match(result.stdout, /Replace the invalid package in the configured cache/);
+  assert.match(result.stdout, /Compilation of the dependent app and deployment were not started/);
+  assert.doesNotMatch(result.stdout + result.stderr, /UNEXPECTED CONTINUATION|DONE|Exception:|At line:/);
+  assert.equal(result.stderr, '');
+});
+
 for (const mode of ['prepare-error', 'sql-throw', 'sql-error', 'start-error', 'version-empty', 'version-error', 'modern-empty']) {
   test(`single-tenant restore stops with clean recovery guidance (${mode})`, (t) => {
     const { root, write } = fixture(t);
