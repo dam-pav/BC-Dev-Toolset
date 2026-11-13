@@ -2,7 +2,7 @@
 
 - Objective: Enable explicit, secure authentication for a private curated GitHub skill source.
 - Plan revision: 1, explicitly approved by the user's "proceed" response.
-- Status: phase 1 reopened for routine CI test-isolation repair during PR preparation; delivered implementation/review history retained below.
+- Status: complete; PR #180 subsequently merged. Corrective change, final-head checks and observed stability interval are recorded below.
 - Context: Git runners currently disable interactive authentication; existing Git credential helpers or SSH authentication may work, but the extension has no token management UI.
 - Verified task branch: feature/curated-skills-source, worktree C:/Projekti/DAM-PAV/BC-Dev-Toolset; existing open PR #180. Origin upstream is the same feature branch. Initial tree contains only this task record.
 - Environment: existing Node/Git and isolated test fixtures; no production extension installation or real credential writes planned.
@@ -43,8 +43,12 @@
 - Commit authorization: user explicitly granted task-scoped autonomy: "keep monitoring an pushing corrective commits untill PR is ready". This authorizes ordinary corrective/bookkeeping commits and pushes for PR #180 until ready; required tests/reviews and no-merge boundary remain. It expires on completion or revocation.
 - PR title/body: updated to final integrated scope (curated source maintenance, shared category and private authentication), with accurate local validation and current CI issue. No merging authorized.
 - Local repair: real-Git URL/Trace2 queries use owned temporary cwd and discovery ceilings; setup strips inherited GIT_* environment overrides. Added synthetic checkout-local authorization contamination regression without weakening scoped-header/redirect assertions. Final independent focused auth checks passed 20/20. Final npm run validate -- --test-concurrency=4 passed: 616 total, 615 passed, 0 failed/cancelled, 1 existing skip. Independent corrective-phase review passed with no unresolved findings; diff checks clean.
-- Status: ready-to-commit under explicit task-scoped autonomy. Green interval has not started. Final build bump is intentionally skipped while draft by main-build-version.yml and runs on ready_for_review; monitor any resulting head change before the green interval.
+- Delivery: corrective commit 8915bd9 pushed; independent post-push overall review passed. PR marked ready_for_review. Repository bot bumped only package version to 1.11.12 in 45fbc34; inspected and fast-forwarded locally.
+- CI approval: GitHub bot-update policy set current-head workflows to action_required. Reviewed unchanged CI workflows and version-only bot diff, then approved AL compatibility run 43395043563, version run 43395043581 and package run 43395043677 via normal Actions approval API; all accepted (201). No policy bypass or settings changes.
+- Status at handoff: PR #180 was open, not draft, merge state CLEAN on head 45fbc34. All six head checks succeeded: Codacy, build-version, stable/prerelease compatibility, companion build and Ubuntu validation/package. GitHub later confirmed the PR merged as 82061c7.
+- Green interval: first complete successful snapshot observed 2026-11-13T08:50:34.740Z; fresh head/check/comment/review-thread read after 96 seconds confirmed same head, all six successes, no actionable findings and zero review threads. Codex automated code review reported no findings; independent overall review passed.
 - Proposed corrective commit: Isolate Git authentication tests from checkout credentials.
 - Staged scope: auth test isolation/regression plus this task record (including prior completion bookkeeping). Branch feature/curated-skills-source; push to origin/feature/curated-skills-source for PR #180. No production changes or real credentials.
 - Commit confirmation: individual gate waived by the explicit current-task autonomy grant above.
-- Next action: commit/push the tested correction, verify/resume CI and reviews, mark PR ready, and observe at least 60 continuous seconds green on the final same head. Resolve addressed review threads if any appear. Do not merge.
+- Completion: the original prepare-pr workflow finished without an agent-performed merge. Its task-scoped autonomous commit/push authorization expired at completion. This final evidence is included with the prepare-pr skill follow-up; subsequent monitoring results belong in the final response rather than new local edits.
+- Next action: no implementation work remains for the original authentication request. The workspace-cleanliness skill follow-up is handled in a separate documentation PR.
