@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.11.13",
+  "version": "1.11.14",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -12,7 +12,7 @@
     "directory": "vscode-extension"
   },
   "scripts": {
-    "validate": "node --check extension.js && node --check bcquality-files.js && node --check bcquality-integration.js && node --check bcquality-vscode.js && node --check curated-skills-repository.js && node --check curated-skills-auth.js && node --check curated-skills-integration.js && node --check curated-skills-vscode.js && node --check mcp-server.js && node --check mcp-bridge-identity.js && node --check codex-mcp-config.js && node --check mcp-tool-settings.js && node --check configuration-settings.js && node --check settings-migration.js && node --test",
+    "validate": "node --check extension.js && node --check bcquality-files.js && node --check bcquality-integration.js && node --check skill-source-diagnostics.js && node --check bcquality-vscode.js && node --check curated-skills-repository.js && node --check curated-skills-auth.js && node --check curated-skills-integration.js && node --check curated-skills-vscode.js && node --check mcp-server.js && node --check mcp-bridge-identity.js && node --check codex-mcp-config.js && node --check mcp-tool-settings.js && node --check configuration-settings.js && node --check settings-migration.js && node --test",
     "test": "node --test test",
     "prepare:runtime": "node ./build/prepare-runtime-package.js",
     "package": "npm run prepare:runtime && npx @vscode/vsce package --no-dependencies",
@@ -1058,7 +1058,7 @@
             "type": "string",
             "scope": "machine",
             "default": "",
-            "description": "Absolute path to a dedicated checkout of curatedSkillsRepositoryUrl. Maintains skills/<name>/SKILL.md through managed adapters under ~/.agents/skills. Clear both settings to remove unchanged managed adapters and retain the checkout."
+            "description": "Absolute path to a dedicated checkout of curatedSkillsRepositoryUrl. Registers one managed source adapter under ~/.agents/skills that delegates skill discovery and routing to skills/entry.md. Clear both settings to remove unchanged managed adapters and retain the checkout."
           },
           "bcDevToolset.bcQualityPath": {
             "type": "string",

@@ -8,6 +8,7 @@ const { promisify } = require('node:util');
 const { BcQualityFiles } = require('./bcquality-files');
 const { acquireLock } = require('./bcquality-integration');
 const { authorizeRoot, resolveWithinRoot } = require('./path-security');
+const { backendFailureDetails } = require('./skill-source-diagnostics');
 const { CuratedSkillsAuthenticationFailure } = require('./curated-skills-auth');
 const { validateRepositoryUrl, validateClonePath, CuratedSkillsConfigurationFailure } = require('./curated-skills-repository');
 
@@ -23,13 +24,9 @@ function fail(message) { throw new CuratedSkillsFailure(message); }
 // Only reviewed toolset messages and narrowly validated status codes reach diagnostics.
 function diagnostic(error, stage) {
   if (error instanceof CuratedSkillsAuthenticationFailure) return error.message;
-  const code = typeof error?.code === 'number' || /^[A-Z][A-Z0-9_]{0,30}$/.test(error?.code || '') ? ` (code ${error.code})` : '';
-  const reason = error instanceof CuratedSkillsFailure || error instanceof CuratedSkillsConfigurationFailure ? error.message
-    : error?.code === 'ENOENT' ? 'A required file or executable was not found. Ensure Git is on PATH and the configured checkout is accessible.'
-      : ['EACCES', 'EPERM'].includes(error?.code) ? 'Access was denied. Check filesystem permissions and Git access.'
-        : error?.code === 'ETIMEDOUT' ? 'The operation timed out. Check connectivity and inspect the checkout before retrying.'
-          : 'The operation failed for an unknown reason.';
-  return `Curated skills: ${stage} failed${code}. ${reason} ${recovery}`;
+  const { statusSuffix, reason: backendReason } = backendFailureDetails(error);
+  const reason = error instanceof CuratedSkillsFailure || error instanceof CuratedSkillsConfigurationFailure ? error.message : backendReason;
+  return `Curated skills: ${stage} failed${statusSuffix}. ${reason} ${recovery}`;
 }
 
 async function runGit(args) {
@@ -46,60 +43,28 @@ async function exists(files, validatedPath) {
 }
 function digest(content) { return crypto.createHash('sha256').update(content).digest('hex'); }
 
-function descriptionOf(content, name) {
-  const frontmatter = /^---\r?\n([^]*?)\r?\n---(?:\r?\n|$)/.exec(content)?.[1];
-  if (!frontmatter) fail(`Skill ${name} needs YAML frontmatter with a description in skills/${name}/SKILL.md.`);
-  const lines = frontmatter.split(/\r?\n/);
-  const index = lines.findIndex(line => /^description:/.test(line));
-  let description = index < 0 ? '' : lines[index].slice('description:'.length).trim();
-  if (/^[>|][-+]?$/.test(description)) {
-    const continuation = [];
-    for (const line of lines.slice(index + 1)) {
-      if (line && !/^\s/.test(line)) break;
-      continuation.push(line.trim());
-    }
-    description = continuation.join(' ').trim();
-  } else if (description.startsWith('"')) {
-    try { description = JSON.parse(description); }
-    catch { fail(`Skill ${name} has an invalid quoted description. Use a plain, quoted, or folded YAML description.`); }
-  } else if (description.startsWith("'")) {
-    if (!description.endsWith("'")) fail(`Skill ${name} has an invalid quoted description.`);
-    description = description.slice(1, -1).replace(/''/g, "'");
-  }
-  if (typeof description !== 'string' || !description.trim() || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(description)) {
-    fail(`Skill ${name} needs a nonempty textual description in skills/${name}/SKILL.md.`);
-  }
-  return description.replace(/\s+/g, ' ').trim();
-}
-
-async function discoverSkills(files, root) {
+async function validateEntry(files, root) {
   const skillsRoot = resolveWithinRoot(root, 'skills');
-  const stat = await exists(files, skillsRoot);
-  if (!stat?.isDirectory() || stat.isSymbolicLink()) fail('The checkout must contain a regular skills directory with skills/<name>/SKILL.md entries.');
-  const skills = [];
-  for (const name of (await files.readdir(skillsRoot)).sort()) {
-    const directory = resolveWithinRoot(skillsRoot, name);
-    const directoryStat = await files.lstat(directory);
-    if (directoryStat.isSymbolicLink()) fail('The upstream skills tree must not contain symlinked skill directories.');
-    if (!directoryStat.isDirectory()) continue;
-    if (!safeName.test(name) || `${prefix}${name}`.length > 64) fail('Skill directory names must use lowercase letters, numbers and single hyphens, with at most 44 characters.');
-    const entry = resolveWithinRoot(directory, 'SKILL.md');
-    const entryStat = await exists(files, entry);
-    if (entryStat?.isSymbolicLink()) fail(`Skill ${name} must not use a symlinked SKILL.md.`);
-    if (!entryStat?.isFile()) continue;
-    skills.push({ name, description: descriptionOf(await files.readFile(entry, 'utf8'), name) });
-  }
-  if (!skills.length) fail('The checkout contains no supported skills. Add skills/<name>/SKILL.md with YAML frontmatter and a description before retrying.');
-  return skills;
+  const skillsStat = await exists(files, skillsRoot);
+  if (!skillsStat?.isDirectory() || skillsStat.isSymbolicLink()) fail('The checkout must contain a regular skills directory and skills/entry.md. Restore the source entry point before retrying.');
+  const entry = resolveWithinRoot(skillsRoot, 'entry.md');
+  const stat = await exists(files, entry);
+  if (!stat?.isFile() || stat.isSymbolicLink()) fail('The checkout must contain a regular, non-symlink skills/entry.md. Restore the source entry point before retrying.');
+  if (!(await files.readFile(entry, 'utf8')).trim()) fail('The source skills/entry.md is empty. Restore its routing instructions before retrying.');
 }
 
-function wrapper(root, skill) {
-  return `---\nname: ${prefix}${skill.name}\ndescription: ${JSON.stringify(skill.description)}\n---\n\n` +
+function wrapper(root) {
+  return `---\nname: ${prefix}source\ndescription: "Discover and apply skills from the configured curated repository for any task, including development, tooling, review, planning and other workflows. Consult its Entry router to consider all applicable skills."\n---\n\n` +
     `# Curated skill source\n\nBC Dev Toolset maintains this adapter. Upstream repository root (JSON string):\n\n` +
     `\`\`\`json\n${JSON.stringify(root)}\n\`\`\`\n\n` +
-    `Read and follow \`skills/${skill.name}/SKILL.md\` under that root before doing the user's task. ` +
-    `Resolve relative upstream references against the upstream skill directory, not this adapter directory. ` +
-    `If upstream uses PLUGIN_ROOT, set it to the explicit repository root above. Preserve the user's original input and follow upstream preparation and reporting instructions.\n\n` +
+    `Read and follow \`skills/entry.md\` under that root to discover all applicable skills; do not use a fixed skill list. ` +
+    `Preserve the user's actual goal, available inputs and values, constraints and authorization in the task context. ` +
+    `Follow Entry's native input contract and preparation instructions, without inventing context or permissions. ` +
+    `Execute its returned dispatch under the source's \`skills/do.md\` instructions. Honor task-start, phase-step and governed-by composition when supplied; a phase-step skill executes inside its coordinator's lifecycle. ` +
+    `For no-match or failed, return the dispatch record and its explanation without invoking skills or inventing a fallback. ` +
+    `Read the exact dispatched files and preserve their prerequisites, approval gates and reporting instructions.\n\n` +
+    `Resolve Entry and other repository-relative paths against the explicit repository root above; resolve skill-relative references against the original upstream skill directory, not this adapter directory. ` +
+    `If upstream uses PLUGIN_ROOT, set it to that repository root. ` +
     `Use explicit file paths: workspace search may omit the external checkout. If access is denied, report the missing access. ` +
     `Skill registration does not grant filesystem permissions.\n`;
 }
@@ -187,12 +152,12 @@ class CuratedSkillsIntegration {
       const contentFiles = new BcQualityFiles(root);
       stage = 'checkout preparation';
       await this.prepareCheckout(root, repository, contentFiles);
-      stage = 'upstream skill discovery';
-      const available = await discoverSkills(contentFiles, root);
+      stage = 'source entry validation';
+      await validateEntry(contentFiles, root);
       stage = 'checkout revision inspection';
       const commit = await this.git(['-C', root, 'rev-parse', 'HEAD']);
       stage = 'personal adapter registration';
-      await this.syncAdapters(root, available);
+      await this.syncAdapters(root, [{ name: 'source' }]);
       this.status.commit = commit;
       this.status.state = this.status.warnings.length ? 'warning' : 'ready';
       if (!this.status.updateFailed) this.status.lastSuccess = new Date().toISOString();
@@ -253,14 +218,14 @@ class CuratedSkillsIntegration {
       const afterTop = await this.git(['-C', root, 'rev-parse', '--show-toplevel']);
       const afterRemote = await this.git(['-C', root, 'remote', 'get-url', 'origin']);
       if (path.relative(root, path.resolve(afterTop)) !== '' || validateRepositoryUrl(afterRemote).identity !== repository.identity) fail('Checkout identity could not be reconciled after a failed update. Inspect the checkout before retrying.');
-      await discoverSkills(files, root);
+      await validateEntry(files, root);
       this.status.warnings.push('Existing usable content was revalidated and retained after the failed update; no retry was performed.');
     }
   }
 
   async syncAdapters(root, available) {
     const selected = new Map(available.map(skill => [`${prefix}${skill.name}`, skill]));
-    const names = new Set([...await this.adapterNames(), ...selected.keys()]);
+    const names = new Set([...selected.keys(), ...await this.adapterNames()]);
     for (const name of names) {
       const directory = await this.homePath('.agents', 'skills', name);
       const skillFile = resolveWithinRoot(directory, 'SKILL.md');
@@ -285,6 +250,8 @@ class CuratedSkillsIntegration {
       }
       const skill = selected.get(name);
       if (!root || !skill) {
+        // Do not remove usable legacy registration until its replacement is installed.
+        if (root && !this.status.adapters.length) continue;
         if (managed) {
           await this.files.unlink(skillFile);
           await this.files.unlink(ownershipFile);
@@ -302,4 +269,4 @@ class CuratedSkillsIntegration {
   }
 }
 
-module.exports = { CuratedSkillsIntegration, validateRepositoryUrl, validateClonePath, discoverSkills, wrapper };
+module.exports = { CuratedSkillsIntegration, validateRepositoryUrl, validateClonePath, validateEntry, wrapper };

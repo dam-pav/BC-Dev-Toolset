@@ -308,6 +308,7 @@ test('queued integration source changes select a distinct authenticated transpor
   const secondRoot = resolveWithinRoot(temporary, 'second');
   for (const target of [firstRoot, secondRoot]) {
     await files.mkdir(resolveWithinRoot(target, 'skills', 'review'), { recursive: true });
+    await files.writeFile(resolveWithinRoot(target, 'skills', 'entry.md'), 'Route the actual task to applicable native skills.');
     await files.writeFile(resolveWithinRoot(target, 'skills', 'review', 'SKILL.md'), '---\nname: review\ndescription: Review fixture.\n---\n');
   }
   const secondRepository = 'https://github.com/example/second.git';
@@ -339,7 +340,7 @@ test('queued integration source changes select a distinct authenticated transpor
   assert.equal((await second).state, 'ready');
   assert.deepEqual(factories, [repository, secondRepository]);
   for (const call of calls) assert.equal(call.args[1], call.url === repository ? firstRoot : secondRoot);
-  const installed = await files.readFile(resolveWithinRoot(home, '.agents', 'skills', 'bcdevtoolset-curated-review', 'SKILL.md'), 'utf8');
+  const installed = await files.readFile(resolveWithinRoot(home, '.agents', 'skills', 'bcdevtoolset-curated-source', 'SKILL.md'), 'utf8');
   assert.ok(installed.includes(JSON.stringify(secondRoot)));
 });
 
