@@ -8,6 +8,8 @@ const { promisify } = require('node:util');
 const { BcQualityFiles } = require('./bcquality-files');
 const { acquireLock } = require('./bcquality-integration');
 const { authorizeRoot, resolveWithinRoot } = require('./path-security');
+const { CuratedSkillsAuthenticationFailure } = require('./curated-skills-auth');
+const { validateRepositoryUrl, validateClonePath, CuratedSkillsConfigurationFailure } = require('./curated-skills-repository');
 
 const owner = 'bc-dev-toolset/curated-skills';
 const prefix = 'bcdevtoolset-curated-';
@@ -20,8 +22,9 @@ function fail(message) { throw new CuratedSkillsFailure(message); }
 
 // Only reviewed toolset messages and narrowly validated status codes reach diagnostics.
 function diagnostic(error, stage) {
+  if (error instanceof CuratedSkillsAuthenticationFailure) return error.message;
   const code = typeof error?.code === 'number' || /^[A-Z][A-Z0-9_]{0,30}$/.test(error?.code || '') ? ` (code ${error.code})` : '';
-  const reason = error instanceof CuratedSkillsFailure ? error.message
+  const reason = error instanceof CuratedSkillsFailure || error instanceof CuratedSkillsConfigurationFailure ? error.message
     : error?.code === 'ENOENT' ? 'A required file or executable was not found. Ensure Git is on PATH and the configured checkout is accessible.'
       : ['EACCES', 'EPERM'].includes(error?.code) ? 'Access was denied. Check filesystem permissions and Git access.'
         : error?.code === 'ETIMEDOUT' ? 'The operation timed out. Check connectivity and inspect the checkout before retrying.'
@@ -35,25 +38,6 @@ async function runGit(args) {
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' }
   });
   return stdout.trim();
-}
-
-function validateRepositoryUrl(value) {
-  if (typeof value !== 'string') fail('Set a GitHub repository URL without credentials in bcDevToolset.curatedSkillsRepositoryUrl.');
-  const url = value.trim();
-  const match = /^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(url);
-  if (!match || !/[A-Za-z0-9]/.test(match[2]) || /[\x00-\x20\x7f]/.test(url)) {
-    fail('Use a GitHub HTTPS or git SSH repository URL without credentials, query parameters, fragments, or extra path segments in bcDevToolset.curatedSkillsRepositoryUrl.');
-  }
-  return { url, identity: `${match[1]}/${match[2]}`.toLowerCase() };
-}
-
-function validateClonePath(value) {
-  if (typeof value !== 'string' || !path.isAbsolute(value.trim()) || /[\x00-\x1f\x7f`]/.test(value)) {
-    fail('Set bcDevToolset.curatedSkillsPath to an absolute dedicated checkout path without control characters or backticks.');
-  }
-  const root = authorizeRoot(value, 'Curated skills checkout');
-  if (root === path.parse(root).root) fail('bcDevToolset.curatedSkillsPath must not be a filesystem root.');
-  return root;
 }
 
 async function exists(files, validatedPath) {
@@ -121,10 +105,11 @@ function wrapper(root, skill) {
 }
 
 class CuratedSkillsIntegration {
-  constructor({ homeDirectory = os.homedir(), git = runGit, log = () => {} } = {}) {
+  constructor({ homeDirectory = os.homedir(), git = runGit, gitFactory, log = () => {} } = {}) {
     this.home = authorizeRoot(homeDirectory, 'Agent home directory');
     this.files = new BcQualityFiles(this.home);
     this.git = git;
+    this.gitFactory = gitFactory;
     this.log = log;
     this.queue = Promise.resolve();
     this.status = { state: 'disabled', adapters: [], sideEffects: 'not-started' };
@@ -164,6 +149,10 @@ class CuratedSkillsIntegration {
       if ((repositoryValue === '') !== (pathValue === '')) fail('Set both bcDevToolset.curatedSkillsRepositoryUrl and bcDevToolset.curatedSkillsPath, or clear both to disable maintenance.');
       const repository = repositoryValue === '' ? undefined : validateRepositoryUrl(repositoryValue);
       const root = pathValue === '' ? undefined : validateClonePath(pathValue);
+      if (root && this.gitFactory) {
+        stage = 'repository authentication';
+        this.git = await this.gitFactory(repository.url);
+      }
       if (root) {
         this.status.path = root;
         this.status.repositoryUrl = repository.url;

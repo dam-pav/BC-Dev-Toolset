@@ -93,7 +93,15 @@ The extension can maintain an additional trusted GitHub skill repository indepen
 }
 ```
 
-Leave both settings empty until the repository exists. They default to empty, are not synchronized between machines, and cannot be overridden by workspace settings. Configuring just one reports incomplete configuration without starting maintenance. Git must be on PATH; use Git credential management for private repositories, never credentials embedded in the URL. GitHub HTTPS and SSH repository URLs are supported.
+Leave both settings empty until the repository exists. They default to empty, are not synchronized between machines, and cannot be overridden by workspace settings. Configuring just one reports incomplete configuration without starting maintenance. Git must be on PATH. Stored-token access requires Git 2.31 or later; the toolset verifies support for temporary authentication settings before sending a token. GitHub HTTPS and SSH repository URLs are supported; never embed credentials in the URL.
+
+Private HTTPS repositories can use **Configure Curated Skills Access Token**, under **Curated Skills** in **Show Operations List** or the Command Palette. Enter a GitHub personal access token in the masked input. It is stored per repository in VS Code's encrypted SecretStorage, outside settings and skill files, and is not synchronized between machines. Use a token restricted to the intended repository with read access to its contents, and satisfy any organization approval/SSO requirements. Cancelling the prompt leaves the stored value unchanged. Running the command again replaces the token; **Remove Curated Skills Access Token** deletes the token for the currently configured repository. Changing the repository selects a different credential entry; the old entry is retained, so select its URL again if you want to remove it.
+
+Run **Check Curated Skills Access** to test the configured URL using a read-only remote reference request. It requires only the repository URL and reports the selected authentication source without cloning, updating, registering skills or displaying the token. Use it after setup or token renewal. An inaccessible private repository may be unavailable, denied, or require renewed credentials; diagnostics do not guess which cause applies. Configure/replace the token or check the account's access and organization policy before retrying.
+
+Stored tokens apply only to HTTPS. With no stored token, Git uses existing credentials; SSH URLs use your existing SSH keys/agent. Git terminal credential prompts are disabled during background work; configure SSH authentication in advance. SecretStorage failures stop HTTPS access, and a rejected stored token never falls back to another account. Tokens are supplied temporarily to Git network processes through process-local configuration, with redirects disabled, and are excluded from command arguments, persistent Git configuration, status reports, logs and adapters. Token-bearing clone/fetch steps are separated from checkout/merge steps. Credential setup is human-only and is not exposed through MCP. Extension Development Hosts skip personal credential operations.
+
+Checkout filters such as Git LFS do not receive the stored token. Sources that require private LFS content or submodules need separate Git authentication and setup; the toolset does not initialize submodules.
 
 Store each public skill at `skills/<name>/SKILL.md`, using lowercase letters, digits and single hyphens for directory names. Managed wrappers named `bcdevtoolset-curated-<name>` delegate to these files in the configured checkout, preserving access to upstream supporting files. They are registered only in `~/.agents/skills` (for example `C:\Users\Damjan\.agents\skills`), alongside existing skills. The checkout need not be a workspace folder. Only configure a source you trust: its skills contain instructions the agent will follow. Skill discovery does not grant filesystem permissions; a restricted agent may need access to the checkout. Start a new agent session if newly registered skills have not appeared.
 
@@ -154,6 +162,9 @@ The `AL compatibility` workflow runs daily, on relevant pull requests, and manua
 | --- | --- |
 | `Update Curated Skills` | Maintains the configured source checkout and personal Codex skills, then opens the status report. |
 | `Show Curated Skills Status` | Opens the current source maintenance status without starting maintenance. |
+| `Configure Curated Skills Access Token` | Stores or replaces the current HTTPS repository token through masked input and encrypted VS Code SecretStorage. |
+| `Remove Curated Skills Access Token` | Removes the current repository's stored token while preserving its checkout and skills. |
+| `Check Curated Skills Access` | Checks repository reachability and the selected authentication source without cloning or updating. |
 | `Update BCQuality` | Retries maintenance of the configured BCQuality checkout and agent skills, then opens the status report. |
 | `Show BCQuality Status` | Opens the current maintenance status, checkout revision, installed agent skills, and any warnings or errors. |
 

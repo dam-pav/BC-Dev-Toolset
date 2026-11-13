@@ -112,7 +112,10 @@ test('production lifecycle reconciles current configuration on activation and ei
       return this.status;
     }
   }
-  const register = vm.runInNewContext(`(${registerCuratedSkillsIntegration.toString()})`, { CuratedSkillsIntegration: FakeIntegration });
+  const register = vm.runInNewContext(`(${registerCuratedSkillsIntegration.toString()})`, {
+    CuratedSkillsIntegration: FakeIntegration,
+    createCuratedSkillsAuthentication: () => ({ getGit() {} })
+  });
   const fixture = vscodeDouble();
   register(fixture.vscode, { subscriptions: [] }, {
     getConfiguration: () => configuration,
@@ -138,7 +141,10 @@ test('maintenance error remains a failed command even when the status document o
     constructor() { this.status = { state: 'error', error: 'Clone failed. Verify configuration.', adapters: [] }; }
     async reconcile() { return this.status; }
   }
-  const register = vm.runInNewContext(`(${registerCuratedSkillsIntegration.toString()})`, { CuratedSkillsIntegration: FakeIntegration });
+  const register = vm.runInNewContext(`(${registerCuratedSkillsIntegration.toString()})`, {
+    CuratedSkillsIntegration: FakeIntegration,
+    createCuratedSkillsAuthentication: () => ({ getGit() {} })
+  });
   const fixture = vscodeDouble();
   register(fixture.vscode, { subscriptions: [] }, { getConfiguration: () => ({}), isDevelopment: () => false, log() {} });
   assert.equal(await fixture.commands.get('bcDevToolset.updateCuratedSkills')(), false);
@@ -152,7 +158,10 @@ test('failed remote update returns false with cached adapters while intentional 
       constructor() { this.status = { state: 'warning', updateFailed, adapters: [{ name: 'cached' }], warnings: updateFailed ? [safeFailure] : ['Local changes preserved; update skipped.'] }; }
       async reconcile() { return this.status; }
     }
-    const register = vm.runInNewContext(`(${registerCuratedSkillsIntegration.toString()})`, { CuratedSkillsIntegration: FakeIntegration });
+    const register = vm.runInNewContext(`(${registerCuratedSkillsIntegration.toString()})`, {
+      CuratedSkillsIntegration: FakeIntegration,
+      createCuratedSkillsAuthentication: () => ({ getGit() {} })
+    });
     const fixture = vscodeDouble();
     register(fixture.vscode, { subscriptions: [] }, { getConfiguration: () => ({}), isDevelopment: () => false, log() {} });
     assert.equal(await fixture.commands.get('bcDevToolset.updateCuratedSkills')(), !updateFailed);
@@ -167,7 +176,10 @@ test('status-document failure returns false without rerunning maintenance or dis
     constructor() { this.status = { state: 'disabled', adapters: [] }; }
     async reconcile() { reconciliations++; return this.status; }
   }
-  const register = vm.runInNewContext(`(${registerCuratedSkillsIntegration.toString()})`, { CuratedSkillsIntegration: FakeIntegration });
+  const register = vm.runInNewContext(`(${registerCuratedSkillsIntegration.toString()})`, {
+    CuratedSkillsIntegration: FakeIntegration,
+    createCuratedSkillsAuthentication: () => ({ getGit() {} })
+  });
   const fixture = vscodeDouble();
   register(fixture.vscode, { subscriptions: [] }, { getConfiguration: () => ({}), isDevelopment: () => false, log() {} });
   fixture.vscode.workspace.openTextDocument = async () => { throw new Error('sensitive document backend payload'); };

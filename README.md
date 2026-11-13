@@ -128,6 +128,8 @@ The extension also supports a configurable trusted GitHub skill source alongside
 
 Choose **Curated Skills** in **Show Operations List** for **Update Curated Skills** and **Show Curated Skills Status**, also available from the Command Palette. These commands are not MCP tools. Clearing both settings removes only unchanged managed adapters and retains the clone. See the [curated skill source setup guide](vscode-extension/README.md#curated-skill-source) for repository layout, update behavior, authentication, safeguards and activation details.
 
+Private HTTPS skill repositories can use **Configure Curated Skills Access Token** to store a repository-specific token in VS Code's encrypted SecretStorage. **Remove Curated Skills Access Token** deletes that entry, and **Check Curated Skills Access** verifies access without cloning or updating. Tokens stay outside settings, URLs and skill files. Existing Git credentials or SSH keys remain available when no toolset token applies. These commands are in **Curated Skills** and the Command Palette; credential setup is human-only.
+
 ## Prerequisites
 
 1. A **Windows Pro**, **Windows Enterprise**, or supported **Windows Server** edition capable of running Windows containers.

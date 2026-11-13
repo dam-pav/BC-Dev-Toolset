@@ -1,9 +1,117 @@
 'use strict';
 
 const { CuratedSkillsIntegration } = require('./curated-skills-integration');
+const { validateRepositoryUrl } = require('./curated-skills-integration');
+const {
+  createCuratedSkillsAuthentication, repositoryKey, validateAccessToken, CuratedSkillsAuthenticationFailure
+} = require('./curated-skills-auth');
 
 function registerCuratedSkillsIntegration(vscode, context, { getConfiguration, log, isDevelopment }) {
-  const integration = new CuratedSkillsIntegration({ log });
+  const authentication = createCuratedSkillsAuthentication({ secrets: context.secrets });
+  const integration = new CuratedSkillsIntegration({ log, gitFactory: repositoryUrl => authentication.getGit(repositoryUrl) });
+  class UserInputFailure extends Error {}
+  function configuredRepository(httpsOnly = false) {
+    let repository;
+    try { repository = validateRepositoryUrl(getConfiguration()?.repositoryUrl); }
+    catch { throw new UserInputFailure('Set bcDevToolset.curatedSkillsRepositoryUrl in User settings to a GitHub repository URL without credentials.'); }
+    if (httpsOnly && !repository.url.toLowerCase().startsWith('https://')) {
+      throw new UserInputFailure('Access tokens require an HTTPS GitHub URL. Set curatedSkillsRepositoryUrl to its HTTPS URL, or keep SSH and configure your SSH key or agent instead.');
+    }
+    return repository;
+  }
+  function credentialStorage(method) {
+    if (typeof context.secrets?.[method] !== 'function') {
+      throw new UserInputFailure('VS Code encrypted secret storage is unavailable. Reload VS Code and check the operating system credential service before retrying.');
+    }
+    return context.secrets;
+  }
+  function safeFailure(error, stage, sideEffects) {
+    const knownCodes = new Set(['ENOENT', 'EACCES', 'EPERM', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'EAI_AGAIN', 'ABORT_ERR', 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER']);
+    const code = Number.isInteger(error?.code) || knownCodes.has(error?.code) ? ` (code ${error.code})` : '';
+    const reason = error instanceof UserInputFailure || error instanceof CuratedSkillsAuthenticationFailure
+      ? error.message
+      : ['EACCES', 'EPERM'].includes(error?.code) ? 'Access was denied. Check VS Code and operating system credential-service permissions.'
+        : 'The operation failed for an unknown reason. Reload VS Code and check the operating system credential service and Git access.';
+    const effect = sideEffects === 'unknown'
+      ? 'The credential-write outcome is unknown; inspect or replace/remove the token for this repository before retrying. No checkout or adapter maintenance was started.'
+      : sideEffects === 'completed' ? 'The credential change completed; checkout and adapter maintenance was not started.'
+        : 'No toolset credential changes, checkout updates or adapter maintenance were started.';
+    return `BC Dev Toolset: ${stage} failed${code}. ${reason} ${effect}`;
+  }
+  async function developmentCommand() {
+    if (!isDevelopment()) return false;
+    try {
+      await vscode.window.showInformationMessage('BC Dev Toolset: Extension Development Hosts skip personal curated-source authentication commands.');
+    } catch {
+      try { log('Curated source authentication command skipped in the Extension Development Host; its notification could not be displayed. No authentication work was started.'); }
+      catch { /* The command still returns failure when the notification and logging are unavailable. */ }
+    }
+    return true;
+  }
+  async function configureToken() {
+    if (await developmentCommand()) return false;
+    let stage = 'Configure Curated Skills Access Token configuration';
+    let sideEffects = 'not-started';
+    try {
+      const repository = configuredRepository(true);
+      const storage = credentialStorage('store');
+      stage = 'Configure Curated Skills Access Token input';
+      const input = await vscode.window.showInputBox({
+        title: `Curated skills access token for ${repository.identity}`,
+        prompt: 'Enter a GitHub token with read access to this repository. It will be stored in VS Code encrypted secret storage.',
+        password: true, ignoreFocusOut: true
+      });
+      if (input === undefined) return false;
+      const token = validateAccessToken(input);
+      if (configuredRepository(true).identity !== repository.identity) {
+        throw new UserInputFailure('The configured repository changed while the token prompt was open. No token was stored; run Configure Curated Skills Access Token again for the intended repository.');
+      }
+      stage = 'Configure Curated Skills Access Token encrypted storage';
+      sideEffects = 'unknown';
+      await storage.store(repositoryKey(repository.url), token);
+      sideEffects = 'completed';
+      stage = 'Configure Curated Skills Access Token notification';
+      await vscode.window.showInformationMessage(`BC Dev Toolset: Stored the access token for ${repository.identity}. Run Check Curated Skills Access to verify access, then Update Curated Skills to maintain the checkout.`);
+      return true;
+    } catch (error) {
+      await vscode.window.showErrorMessage(safeFailure(error, stage, sideEffects));
+      return false;
+    }
+  }
+  async function removeToken() {
+    if (await developmentCommand()) return false;
+    let stage = 'Remove Curated Skills Access Token configuration';
+    let sideEffects = 'not-started';
+    try {
+      const repository = configuredRepository();
+      const storage = credentialStorage('delete');
+      stage = 'Remove Curated Skills Access Token encrypted storage';
+      sideEffects = 'unknown';
+      await storage.delete(repositoryKey(repository.url));
+      sideEffects = 'completed';
+      stage = 'Remove Curated Skills Access Token notification';
+      await vscode.window.showInformationMessage(`BC Dev Toolset: Removed the access token for ${repository.identity}. Future access uses configured Git credentials or SSH authentication. The checkout and adapters were retained.`);
+      return true;
+    } catch (error) {
+      await vscode.window.showErrorMessage(safeFailure(error, stage, sideEffects));
+      return false;
+    }
+  }
+  async function checkAccess() {
+    if (await developmentCommand()) return false;
+    let stage = 'Check Curated Skills Access configuration';
+    try {
+      const repository = configuredRepository();
+      stage = 'Check Curated Skills Access repository read';
+      const result = await authentication.checkAccess(repository.url);
+      stage = 'Check Curated Skills Access notification';
+      await vscode.window.showInformationMessage(`BC Dev Toolset: Access to ${repository.identity} succeeded using ${result.authentication === 'stored-token' ? 'the stored access token' : 'configured Git or SSH authentication'}. No checkout or adapters were changed.`);
+      return true;
+    } catch (error) {
+      await vscode.window.showErrorMessage(safeFailure(error, stage, 'not-started'));
+      return false;
+    }
+  }
   async function reconcile() {
     if (isDevelopment()) {
       integration.status = { state: 'skipped', reason: 'Extension Development Hosts do not maintain personal curated checkouts or adapters.', adapters: [], sideEffects: 'not-started' };
@@ -26,6 +134,9 @@ function registerCuratedSkillsIntegration(vscode, context, { getConfiguration, l
     }
   }
   context.subscriptions.push(
+    vscode.commands.registerCommand('bcDevToolset.configureCuratedSkillsAccessToken', configureToken),
+    vscode.commands.registerCommand('bcDevToolset.removeCuratedSkillsAccessToken', removeToken),
+    vscode.commands.registerCommand('bcDevToolset.checkCuratedSkillsAccess', checkAccess),
     vscode.commands.registerCommand('bcDevToolset.updateCuratedSkills', async () => {
       const status = await reconcile();
       const displayed = await showStatus();

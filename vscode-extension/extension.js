@@ -44,7 +44,7 @@ const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
 const mcpServerDefinitionRevision = 47;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 76;
+const runtimeToolsetRevision = 77;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -2237,6 +2237,18 @@ function getOperations(toolsetPath) {
 }
 
 async function executeOperation(operation, toolsetPath) {
+  if (['configureCuratedSkillsAccessToken', 'removeCuratedSkillsAccessToken', 'checkCuratedSkillsAccess'].includes(operation.command)) {
+    try {
+      return await vscode.commands.executeCommand(`bcDevToolset.${operation.command}`) !== false;
+    } catch {
+      const state = operation.command === 'checkCuratedSkillsAccess'
+        ? 'No checkout, adapter or credential changes were requested.'
+        : 'The credential storage outcome is unknown. Check the configured repository and inspect access before changing its stored token again.';
+      await vscode.window.showErrorMessage(`BC Dev Toolset: ${operation.title} could not complete. ${state} Reload VS Code and use Check Curated Skills Access. No automatic retry was performed.`);
+      return false;
+    }
+  }
+
   if (operation.command === 'updateCuratedSkills' || operation.command === 'showCuratedSkillsStatus') {
     try {
       return await vscode.commands.executeCommand(`bcDevToolset.${operation.command}`) !== false;

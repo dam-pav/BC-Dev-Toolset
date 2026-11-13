@@ -1,5 +1,23 @@
 [
   {
+    "id": "configureCuratedSkillsAccessToken",
+    "title": "Configure Curated Skills Access Token",
+    "command": "configureCuratedSkillsAccessToken",
+    "category": "Curated Skills"
+  },
+  {
+    "id": "removeCuratedSkillsAccessToken",
+    "title": "Remove Curated Skills Access Token",
+    "command": "removeCuratedSkillsAccessToken",
+    "category": "Curated Skills"
+  },
+  {
+    "id": "checkCuratedSkillsAccess",
+    "title": "Check Curated Skills Access",
+    "command": "checkCuratedSkillsAccess",
+    "category": "Curated Skills"
+  },
+  {
     "id": "updateCuratedSkills",
     "title": "Update Curated Skills",
     "command": "updateCuratedSkills",

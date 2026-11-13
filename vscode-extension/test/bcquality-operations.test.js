@@ -48,12 +48,13 @@ for (const [id, title] of [['updateBcQuality', 'Update BCQuality'], ['showBcQual
 
 test('all skill operations share Curated Skills without a separate BCQuality category', () => {
   assert.deepEqual(operations.filter(entry => entry.category === 'Curated Skills').map(entry => entry.id).sort(), [
+    'checkCuratedSkillsAccess', 'configureCuratedSkillsAccessToken', 'removeCuratedSkillsAccessToken',
     'showBcQualityStatus', 'showCuratedSkillsStatus', 'updateBcQuality', 'updateCuratedSkills'
   ]);
   assert.ok(!operations.some(entry => entry.category === 'BCQuality'));
 });
 
-test('operation references document all four commands under the combined category', () => {
+test('operation references document all skill commands under the combined category', () => {
   const repositoryRoot = authorizeRoot(path.resolve(extensionRoot, '..'), 'Repository documentation root');
   const repositoryReadme = fs.readFileSync(resolveWithinRoot(repositoryRoot, 'README.md'), 'utf8'); // nosemgrep -- fixed filename confined to the authorized repository documentation root
   const extensionReadme = fs.readFileSync(resolveWithinRoot(extensionRoot, 'README.md'), 'utf8'); // nosemgrep -- fixed filename confined to the authorized extension root
@@ -61,7 +62,8 @@ test('operation references document all four commands under the combined categor
   assert.equal(operationReference.split(/\n### Curated Skills\r?\n/).length, 2);
   assert.doesNotMatch(operationReference, /\n### BCQuality\r?\n/);
   const combinedCategory = operationReference.split(/\n### Curated Skills\r?\n/)[1].split('\n### ')[0];
-  for (const title of ['Update BCQuality', 'Show BCQuality Status', 'Update Curated Skills', 'Show Curated Skills Status']) {
+  for (const title of ['Update BCQuality', 'Show BCQuality Status', 'Update Curated Skills', 'Show Curated Skills Status',
+    'Configure Curated Skills Access Token', 'Remove Curated Skills Access Token', 'Check Curated Skills Access']) {
     assert.ok(combinedCategory.includes('| `' + title + '` |'), `${title} must be documented in Curated Skills`);
   }
   assert.match(repositoryReadme, /choose \*\*Curated Skills\*\* for \*\*Update BCQuality\*\* and \*\*Show BCQuality Status\*\*/);

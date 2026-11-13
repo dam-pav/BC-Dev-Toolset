@@ -12,7 +12,7 @@
     "directory": "vscode-extension"
   },
   "scripts": {
-    "validate": "node --check extension.js && node --check bcquality-files.js && node --check bcquality-integration.js && node --check bcquality-vscode.js && node --check curated-skills-integration.js && node --check curated-skills-vscode.js && node --check mcp-server.js && node --check mcp-bridge-identity.js && node --check codex-mcp-config.js && node --check mcp-tool-settings.js && node --check configuration-settings.js && node --check settings-migration.js && node --test",
+    "validate": "node --check extension.js && node --check bcquality-files.js && node --check bcquality-integration.js && node --check bcquality-vscode.js && node --check curated-skills-repository.js && node --check curated-skills-auth.js && node --check curated-skills-integration.js && node --check curated-skills-vscode.js && node --check mcp-server.js && node --check mcp-bridge-identity.js && node --check codex-mcp-config.js && node --check mcp-tool-settings.js && node --check configuration-settings.js && node --check settings-migration.js && node --test",
     "test": "node --test test",
     "prepare:runtime": "node ./build/prepare-runtime-package.js",
     "package": "npm run prepare:runtime && npx @vscode/vsce package --no-dependencies",
@@ -38,6 +38,9 @@
   ],
   "activationEvents": [
     "onStartupFinished",
+    "onCommand:bcDevToolset.configureCuratedSkillsAccessToken",
+    "onCommand:bcDevToolset.removeCuratedSkillsAccessToken",
+    "onCommand:bcDevToolset.checkCuratedSkillsAccess",
     "onCommand:bcDevToolset.updateCuratedSkills",
     "onCommand:bcDevToolset.showCuratedSkillsStatus",
     "onCommand:bcDevToolset.updateBcQuality",
@@ -1049,7 +1052,7 @@
             "type": "string",
             "scope": "machine",
             "default": "",
-            "description": "GitHub repository URL for a trusted curated skill source. Set this and curatedSkillsPath in User settings to enable checkout maintenance and managed personal Codex skills. Leave both empty until the repository exists. Supports HTTPS and GitHub SSH URLs; credentials must use Git credential management."
+            "description": "GitHub repository URL for a trusted curated skill source. Set this and curatedSkillsPath in User settings to enable checkout maintenance and managed personal Codex skills. Leave both empty until the repository exists. For private HTTPS sources use Configure Curated Skills Access Token (encrypted SecretStorage) or existing Git credentials; SSH uses your SSH authentication. Never embed credentials in this URL."
           },
           "bcDevToolset.curatedSkillsPath": {
             "type": "string",
@@ -1108,6 +1111,18 @@
       }
     ],
     "commands": [
+      {
+        "command": "bcDevToolset.configureCuratedSkillsAccessToken",
+        "title": "BC Dev Toolset: Configure Curated Skills Access Token"
+      },
+      {
+        "command": "bcDevToolset.removeCuratedSkillsAccessToken",
+        "title": "BC Dev Toolset: Remove Curated Skills Access Token"
+      },
+      {
+        "command": "bcDevToolset.checkCuratedSkillsAccess",
+        "title": "BC Dev Toolset: Check Curated Skills Access"
+      },
       {
         "command": "bcDevToolset.updateCuratedSkills",
         "title": "BC Dev Toolset: Update Curated Skills"
