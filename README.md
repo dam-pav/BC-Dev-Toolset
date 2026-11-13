@@ -116,7 +116,7 @@ BC Data access provides seven individually opt-in `bc_dev_toolset_data_*` tools:
 
 ## BCQuality integration
 
-In **BC Dev Toolset: Show Operations List**, choose **BCQuality** for **Update BCQuality** and **Show BCQuality Status**. Both commands are also available directly from the Command Palette; they are not exposed as MCP tools.
+In **BC Dev Toolset: Show Operations List**, choose **Curated Skills** for **Update BCQuality** and **Show BCQuality Status**. Both commands are also available directly from the Command Palette; they are not exposed as MCP tools.
 
 The VS Code extension can maintain one shared [BCQuality](https://github.com/microsoft/BCQuality) checkout and register personal skills for Copilot, Codex, and Claude Code across development projects. Set the machine-specific User setting `bcDevToolset.bcQualityPath` to an absolute path such as `C:\Knowledge\BCQuality`. On activation/reload, the extension clones an absent or empty directory, or fast-forward updates an existing clean checkout on `main`. Local edits, pinned revisions, and usable offline content are preserved. BCQuality does not need to be a workspace folder.
 

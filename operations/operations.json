@@ -15,13 +15,13 @@
     "id": "updateBcQuality",
     "title": "Update BCQuality",
     "command": "updateBcQuality",
-    "category": "BCQuality"
+    "category": "Curated Skills"
   },
   {
     "id": "showBcQualityStatus",
     "title": "Show BCQuality Status",
     "command": "showBcQualityStatus",
-    "category": "BCQuality"
+    "category": "Curated Skills"
   },
   {
     "id": "initializeWorkspace",
