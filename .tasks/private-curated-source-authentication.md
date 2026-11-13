@@ -2,7 +2,7 @@
 
 - Objective: Enable explicit, secure authentication for a private curated GitHub skill source.
 - Plan revision: 1, explicitly approved by the user's "proceed" response.
-- Status: phase 1 ready-to-commit; implementation, validation and independent phase review complete.
+- Status: phase 1 reopened for routine CI test-isolation repair during PR preparation; delivered implementation/review history retained below.
 - Context: Git runners currently disable interactive authentication; existing Git credential helpers or SSH authentication may work, but the extension has no token management UI.
 - Verified task branch: feature/curated-skills-source, worktree C:/Projekti/DAM-PAV/BC-Dev-Toolset; existing open PR #180. Origin upstream is the same feature branch. Initial tree contains only this task record.
 - Environment: existing Node/Git and isolated test fixtures; no production extension installation or real credential writes planned.
@@ -29,4 +29,22 @@
 - Intended commit branch and push destination: feature/curated-skills-source -> origin/feature/curated-skills-source, existing PR #180.
 - Staged scope: repository-scoped SecretStorage token commands, read-only access check, bounded/redacted Git transport, shared validation, metadata/docs and regression tests. No real credentials stored and no production extension installed.
 - Commit confirmation: explicitly approved by the user's "commit" response to the presented staged change, message, branch and push destination. This approval covers this commit only.
-- Next action: commit/push the approved change, then perform independent overall review.
+- Commit/push result: ff52fe7 (Add secure authentication for private curated skill sources), confirmed pushed to origin/feature/curated-skills-source for PR #180.
+- Independent overall review: auth_verify passed the pushed commit with no unresolved findings; prior validation remains applicable (614 passed, 1 existing skip; focused 89/89).
+- Final bookkeeping: these completion details are a local, uncommitted task-record update; no additional commit is authorized or needed for implementation delivery.
+- Next action: normal PR review/merge. Configure a real private source and its token through the extension after release/installation; no real credentials were changed during development.
+
+## PR preparation follow-up
+
+- Request: user asked to prepare PR #180; applying prepare-pr skill, including check/review monitoring and 60-second same-head green interval.
+- Head at start: ff52fe7; PR open draft on feature/curated-skills-source, base main. No review threads/recommendations; Codacy passed.
+- CI discrepancy: stable/prerelease compatibility and Ubuntu packaging validation all failed in actual Git URL matching test because the unrelated URL inherited an Authorization header from the checkout's local Git config. The existing test disabled system/global config but retained repository cwd. No production authentication failure was observed; packaging/compatibility dependent steps stopped after failed validation.
+- Scope: routine repair within approved auth phase: isolate real-Git tests from checkout-local credentials and add contaminated-cwd regression. auth_design owns the test file; main owns record/PR metadata; independent validation/review pending.
+- Commit authorization: user explicitly granted task-scoped autonomy: "keep monitoring an pushing corrective commits untill PR is ready". This authorizes ordinary corrective/bookkeeping commits and pushes for PR #180 until ready; required tests/reviews and no-merge boundary remain. It expires on completion or revocation.
+- PR title/body: updated to final integrated scope (curated source maintenance, shared category and private authentication), with accurate local validation and current CI issue. No merging authorized.
+- Local repair: real-Git URL/Trace2 queries use owned temporary cwd and discovery ceilings; setup strips inherited GIT_* environment overrides. Added synthetic checkout-local authorization contamination regression without weakening scoped-header/redirect assertions. Final independent focused auth checks passed 20/20. Final npm run validate -- --test-concurrency=4 passed: 616 total, 615 passed, 0 failed/cancelled, 1 existing skip. Independent corrective-phase review passed with no unresolved findings; diff checks clean.
+- Status: ready-to-commit under explicit task-scoped autonomy. Green interval has not started. Final build bump is intentionally skipped while draft by main-build-version.yml and runs on ready_for_review; monitor any resulting head change before the green interval.
+- Proposed corrective commit: Isolate Git authentication tests from checkout credentials.
+- Staged scope: auth test isolation/regression plus this task record (including prior completion bookkeeping). Branch feature/curated-skills-source; push to origin/feature/curated-skills-source for PR #180. No production changes or real credentials.
+- Commit confirmation: individual gate waived by the explicit current-task autonomy grant above.
+- Next action: commit/push the tested correction, verify/resume CI and reviews, mark PR ready, and observe at least 60 continuous seconds green on the final same head. Resolve addressed review threads if any appear. Do not merge.

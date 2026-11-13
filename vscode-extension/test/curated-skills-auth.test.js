@@ -228,11 +228,11 @@ test('real local Git clone/checkout and fetch/merge preserve the main branch and
   const target = resolveWithinRoot(temporary, 'target clone');
   await files.mkdir(source);
   const execute = promisify(execFile);
-  const fixtureEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('GIT_CONFIG') && ![
-    'GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_TEMPLATE_DIR'
-  ].includes(key.toUpperCase())));
+  const fixtureEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('GIT_')));
   fixtureEnvironment.GIT_CONFIG_NOSYSTEM = '1';
   fixtureEnvironment.GIT_CONFIG_GLOBAL = process.platform === 'win32' ? 'NUL' : '/dev/null';
+  fixtureEnvironment.GIT_CONFIG_COUNT = '0';
+  fixtureEnvironment.GIT_CEILING_DIRECTORIES = temporary;
   const realGit = async args => execute('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgSign=false', ...args], { windowsHide: true, env: fixtureEnvironment });
   await realGit(['init', '--initial-branch=main', source]);
   const marker = resolveWithinRoot(source, 'marker.txt');
@@ -272,14 +272,14 @@ test('explicit trace2 disable prevents global trace configuration from recording
   await auth.checkAccess(repository);
   const selected = headerCall(calls).options.env;
   const execute = promisify(execFile);
-  const environment = { ...selected, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: globalConfiguration };
+  const environment = { ...selected, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: globalConfiguration, GIT_CEILING_DIRECTORIES: temporary };
   const baseline = { ...environment };
   for (const key of ['GIT_TRACE2', 'GIT_TRACE2_EVENT', 'GIT_TRACE2_PERF']) delete baseline[key];
-  await execute('git', ['config', '--get-urlmatch', 'http.extraHeader', canonical], { env: baseline, windowsHide: true });
+  await execute('git', ['config', '--get-urlmatch', 'http.extraHeader', canonical], { env: baseline, cwd: temporary, windowsHide: true });
   // Prove the configured tracing would expose the synthetic header without the guard.
   assert.ok((await files.readFile(traceFile, 'utf8')).includes(encoded));
   await files.unlink(traceFile);
-  await execute('git', ['config', '--get-urlmatch', 'http.extraHeader', canonical], { env: environment, windowsHide: true });
+  await execute('git', ['config', '--get-urlmatch', 'http.extraHeader', canonical], { env: environment, cwd: temporary, windowsHide: true });
   await assert.rejects(files.lstat(traceFile), { code: 'ENOENT' });
 });
 
@@ -343,16 +343,42 @@ test('queued integration source changes select a distinct authenticated transpor
   assert.ok(installed.includes(JSON.stringify(secondRoot)));
 });
 
-test('actual Git URL matching confines runtime headers to the configured repository', async () => {
+test('actual Git URL matching confines runtime headers to the configured repository', async t => {
+  const { temporary } = await localFixture(t);
   let env;
   const { auth } = fixture({ run: async (_file, args, execution) => { if (!args.includes('--get-url')) env = execution.env; return { stdout: args.includes('--get-url') ? canonical : '' }; } });
   await auth.checkAccess(repository);
   const exec = promisify(execFile);
-  const options = { env: { ...env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null' }, windowsHide: true };
+  const options = { env: { ...env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null', GIT_CEILING_DIRECTORIES: temporary }, cwd: temporary, windowsHide: true };
   const selected = await exec('git', ['config', '--get-urlmatch', 'http.extraHeader', canonical], options);
   assert.equal(selected.stdout.trim(), `Authorization: Basic ${encoded}`);
   const unrelated = await exec('git', ['config', '--get-urlmatch', 'http.extraHeader', 'https://github.com/example/other.git'], options);
   assert.equal(unrelated.stdout.trim(), '');
   const redirects = await exec('git', ['config', '--get-urlmatch', 'http.followRedirects', canonical], options);
   assert.equal(redirects.stdout.trim(), 'false');
+});
+
+test('isolated URL matching cannot consult an enclosing checkout host authorization setting', async t => {
+  const { temporary, files } = await localFixture(t);
+  const enclosingCheckout = resolveWithinRoot(temporary, 'checkout');
+  const nestedCheckoutDirectory = resolveWithinRoot(enclosingCheckout, 'nested');
+  const isolatedDirectory = resolveWithinRoot(temporary, 'isolated');
+  await files.mkdir(nestedCheckoutDirectory, { recursive: true });
+  await files.mkdir(isolatedDirectory);
+  const execute = promisify(execFile);
+  const setupEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('GIT_')));
+  Object.assign(setupEnvironment, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null', GIT_CONFIG_COUNT: '0', GIT_CEILING_DIRECTORIES: temporary });
+  await execute('git', ['init', '--initial-branch=main', enclosingCheckout], { env: setupEnvironment, cwd: isolatedDirectory, windowsHide: true });
+  const checkoutHeader = 'Authorization: Basic synthetic_checkout_host_credential';
+  await execute('git', ['config', '--local', 'http.https://github.com/.extraheader', checkoutHeader], { env: setupEnvironment, cwd: enclosingCheckout, windowsHide: true });
+  const { auth, calls } = fixture();
+  await auth.checkAccess(repository);
+  const env = { ...headerCall(calls).options.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null', GIT_CEILING_DIRECTORIES: temporary };
+  const query = (key, url, cwd) => execute('git', ['config', '--get-urlmatch', key, url], { env, cwd, windowsHide: true });
+  const unrelatedUrl = 'https://github.com/example/other.git';
+  // Demonstrate the same local-header contamination installed by actions/checkout.
+  assert.equal((await query('http.extraHeader', unrelatedUrl, nestedCheckoutDirectory)).stdout.trim(), checkoutHeader);
+  assert.equal((await query('http.extraHeader', canonical, isolatedDirectory)).stdout.trim(), `Authorization: Basic ${encoded}`);
+  assert.equal((await query('http.extraHeader', unrelatedUrl, isolatedDirectory)).stdout.trim(), '');
+  assert.equal((await query('http.followRedirects', canonical, isolatedDirectory)).stdout.trim(), 'false');
 });
