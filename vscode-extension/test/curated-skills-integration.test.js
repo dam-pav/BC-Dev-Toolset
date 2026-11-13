@@ -5,6 +5,7 @@ const nativeFs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const test = require('node:test');
+const crypto = require('node:crypto');
 const { BcQualityFiles } = require('../bcquality-files');
 const { acquireLock } = require('../bcquality-integration');
 const { authorizeRoot, assertWithinRoot, resolveWithinRoot } = require('../path-security');
@@ -14,6 +15,8 @@ const repositoryUrl = 'https://github.com/example/curated-skills.git';
 
 async function content(files, root, names = ['review', 'planning']) {
   await files.mkdir(resolveWithinRoot(root, '.git'), { recursive: true });
+  await files.mkdir(resolveWithinRoot(root, 'skills'), { recursive: true });
+  await files.writeFile(resolveWithinRoot(root, 'skills', 'entry.md'), 'Native source router');
   for (const name of names) {
     const directory = resolveWithinRoot(root, 'skills', name);
     await files.mkdir(directory, { recursive: true });
@@ -54,7 +57,7 @@ async function fixture(t, options = {}) {
   return { temporary, files, home, root, calls, manager, config, logs };
 }
 
-function adapter(home, name = 'review') {
+function adapter(home, name = 'source') {
   return resolveWithinRoot(home, '.agents', 'skills', `bcdevtoolset-curated-${name}`, 'SKILL.md');
 }
 
@@ -79,21 +82,19 @@ test('incomplete configuration names both settings and starts no Git or filesyst
   assert.deepEqual(await files.readdir(home), []);
 });
 
-test('initialization clones the configured source and registers referenced skills only for Codex', async t => {
+test('initialization installs one broad Codex source adapter with native dispatch and composition', async t => {
   const { manager, config, root, home, calls, files } = await fixture(t);
   const status = await manager.reconcile(config);
   assert.equal(status.state, 'ready');
   assert.equal(status.commit, 'fixture-commit');
-  assert.equal(status.adapters.length, 2);
+  assert.equal(status.adapters.length, 1);
   assert.deepEqual(calls[0], ['clone', '--', repositoryUrl, root]);
-  for (const name of ['review', 'planning']) {
-    const wrapper = await files.readFile(adapter(home, name), 'utf8');
-    assert.match(wrapper, new RegExp(`name: bcdevtoolset-curated-${name}`));
-    assert.ok(wrapper.includes(JSON.stringify(root)));
-    assert.ok(wrapper.includes(`skills/${name}/SKILL.md`));
-    assert.match(wrapper, /permission/i);
-  }
+  const text = await files.readFile(adapter(home), 'utf8');
+  assert.match(text, /name: bcdevtoolset-curated-source/);
+  assert.ok(text.includes(JSON.stringify(root)));
+  for (const expected of ['any task', 'skills/entry.md', 'skills/do.md', 'task-start', 'phase-step', 'governed-by', 'no-match', 'failed', 'authorization', 'approval gates', 'original upstream skill directory', 'permissions']) assert.ok(text.includes(expected), expected);
   for (const other of ['.copilot', '.claude']) await assert.rejects(files.lstat(resolveWithinRoot(home, other)), { code: 'ENOENT' });
+  await assert.rejects(files.lstat(adapter(home, 'review')), { code: 'ENOENT' });
 });
 
 test('reload updates an existing clean checkout without cloning twice', async t => {
@@ -112,7 +113,7 @@ test('local edits, non-main branches and detached revisions preserve content wit
     assert.equal(status.state, 'warning');
     assert.notEqual(status.updateFailed, true);
     assert.ok(status.lastSuccess);
-    assert.equal(status.adapters.length, 2);
+    assert.equal(status.adapters.length, 1);
     assert.ok(!calls.some(args => args.some(arg => ['pull', 'reset', 'checkout'].includes(arg))));
   }
 });
@@ -168,7 +169,7 @@ test('failed update retains usable content while redacting backend text and repo
   assert.equal(status.lastSuccess, undefined);
   assert.ok(status.warnings.length > 0);
   assert.doesNotMatch(JSON.stringify([status, logs]), /secret-backend-payload/);
-  assert.match(await files.readFile(adapter(home), 'utf8'), /skills\/review\/SKILL.md/);
+  assert.match(await files.readFile(adapter(home), 'utf8'), /skills\/entry.md/);
 });
 
 test('failed post-update reconciliation retains the original pull status without claiming cached content is usable', async t => {
@@ -206,7 +207,7 @@ test('an existing checkout can receive its first skills through a fast-forward u
   assert.equal(status.state, 'ready');
   assert.ok(calls.some(args => args.includes('pull')));
   assert.ok(!calls.some(args => args[0] === 'clone'));
-  assert.match(await files.readFile(adapter(home), 'utf8'), /skills\/review\/SKILL.md/);
+  assert.match(await files.readFile(adapter(home), 'utf8'), /skills\/entry.md/);
 });
 
 test('clearing configuration after reload removes only unchanged owned adapters and preserves checkout and BCQuality', async t => {
@@ -215,6 +216,7 @@ test('clearing configuration after reload removes only unchanged owned adapters 
   await files.mkdir(path.dirname(bcQuality), { recursive: true });
   await files.writeFile(bcQuality, 'BCQuality skill');
   await manager.reconcile(config);
+  await seedLegacy(files, home, 'planning');
   await files.appendFile(adapter(home, 'planning'), '\nUser customization');
   const fresh = new CuratedSkillsIntegration({ homeDirectory: home, git: async () => assert.fail('Opt-out invoked Git') });
   const status = await fresh.reconcile({ repositoryUrl: '', path: '' });
@@ -226,13 +228,27 @@ test('clearing configuration after reload removes only unchanged owned adapters 
   assert.ok((await files.stat(root)).isDirectory());
 });
 
-test('removed upstream skills clean only matching managed adapters', async t => {
+test('native additions, removals and metadata changes keep a single source adapter without reading native skills', async t => {
   const { manager, config, files, home, root } = await fixture(t);
   await manager.reconcile(config);
+  const before = await files.readFile(adapter(home), 'utf8');
   await files.rm(resolveWithinRoot(root, 'skills', 'planning'), { recursive: true });
-  assert.equal((await manager.reconcile(config)).adapters.length, 1);
-  await assert.rejects(files.lstat(adapter(home, 'planning')), { code: 'ENOENT' });
-  assert.ok((await files.stat(adapter(home))).isFile());
+  for (let index = 0; index < 105; index++) {
+    const directory = resolveWithinRoot(root, 'skills', `new-${index}`);
+    await files.mkdir(directory);
+    await files.writeFile(resolveWithinRoot(directory, 'SKILL.md'), 'Metadata is evaluated by upstream Entry at invocation.');
+  }
+  const originalRead = BcQualityFiles.prototype.readFile;
+  t.after(() => { BcQualityFiles.prototype.readFile = originalRead; });
+  BcQualityFiles.prototype.readFile = async function(candidate, encoding) {
+    if (candidate.startsWith(root) && candidate.endsWith('SKILL.md')) assert.fail('Registration must not inspect native skills');
+    return originalRead.call(this, candidate, encoding);
+  };
+  const status = await manager.reconcile(config);
+  assert.equal(status.state, 'ready');
+  assert.equal(status.adapters.length, 1);
+  assert.equal(await files.readFile(adapter(home), 'utf8'), before);
+  assert.deepEqual(await files.readdir(resolveWithinRoot(home, '.agents', 'skills')), ['bcdevtoolset-curated-source']);
 });
 
 test('a user-owned collision is retained and is not advertised as installed', async t => {
@@ -242,7 +258,7 @@ test('a user-owned collision is retained and is not advertised as installed', as
   const status = await manager.reconcile(config);
   assert.notEqual(status.state, 'ready');
   assert.equal(await files.readFile(adapter(home), 'utf8'), 'User owned skill');
-  assert.ok(!status.adapters.some(entry => entry.name === 'bcdevtoolset-curated-review'));
+  assert.ok(!status.adapters.some(entry => entry.name === 'bcdevtoolset-curated-source'));
 });
 
 test('a checkout lock blocks maintenance without dependent Git calls and is released after failures', async t => {
@@ -279,36 +295,22 @@ test('failed discovery preserves previously registered skills instead of treatin
   assert.equal(await files.readFile(adapter(home), 'utf8'), before);
 });
 
-test('upstream skill links cannot read content outside the checkout', async t => {
-  const { manager, config, root, temporary, files } = await fixture(t);
-  await content(files, root);
-  const outside = resolveWithinRoot(temporary, 'external-upstream');
-  await files.mkdir(outside);
-  await files.writeFile(resolveWithinRoot(outside, 'SKILL.md'), 'secret external content');
-  const link = resolveWithinRoot(root, 'skills', 'linked');
-  // Both paths belong to the temporary fixture; the link itself is untrusted input.
-  await nativeFs.symlink(outside, link, process.platform === 'win32' ? 'junction' : 'dir'); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
-  const status = await manager.reconcile(config);
-  assert.equal(status.state, 'error');
-  assert.doesNotMatch(JSON.stringify(status), /secret external content/);
-  assert.equal(status.adapters.length, 0);
-});
-
-test('symlinks at the source skills root or SKILL.md entry fail without registration', async t => {
-  for (const segments of [['skills'], ['skills', 'review', 'SKILL.md']]) {
+test('source skills directory and entry links cannot redirect reads outside the checkout', async t => {
+  for (const segments of [['skills'], ['skills', 'entry.md']]) {
     const { manager, config, root, temporary, files } = await fixture(t);
     await content(files, root);
     const outside = resolveWithinRoot(temporary, 'external-source');
     await files.mkdir(outside);
-    await files.writeFile(resolveWithinRoot(outside, 'keep.txt'), 'preserved external content');
+    await files.writeFile(resolveWithinRoot(outside, 'entry.md'), 'secret external content');
     const link = resolveWithinRoot(root, ...segments);
     await files.rm(link, { recursive: true });
-    // Fixture-owned junctions model an untrusted source entry without accessing user files.
+    // Both paths belong to this fixture; a directory junction exercises rejected traversal.
     await nativeFs.symlink(outside, link, process.platform === 'win32' ? 'junction' : 'dir'); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
     const status = await manager.reconcile(config);
     assert.equal(status.state, 'error');
     assert.equal(status.adapters.length, 0);
-    assert.equal(await files.readFile(resolveWithinRoot(outside, 'keep.txt'), 'utf8'), 'preserved external content');
+    assert.doesNotMatch(JSON.stringify(status), /secret external content/);
+    await assert.rejects(files.lstat(resolveWithinRoot(manager.home, '.bcdevtoolset', 'curated-skills.lock')), { code: 'ENOENT' });
   }
 });
 
@@ -326,7 +328,7 @@ test('adapter write failures preserve failure status, redact payload and release
   assert.match(status.error, /permission|access/i);
   assert.doesNotMatch(JSON.stringify(status), /secret write payload/);
   assert.equal(status.lastSuccess, undefined);
-  assert.ok(!status.adapters.some(entry => entry.name === 'bcdevtoolset-curated-review'));
+  assert.ok(!status.adapters.some(entry => entry.name === 'bcdevtoolset-curated-source'));
   await assert.rejects(files.lstat(resolveWithinRoot(home, '.bcdevtoolset', 'curated-skills.lock')), { code: 'ENOENT' });
 });
 
@@ -357,44 +359,129 @@ test('equivalent HTTPS and SSH origins refer to the same configured repository',
   }
 });
 
-test('quoted and multiline upstream descriptions produce safe single YAML string values', async t => {
-  const cases = [
-    ['"Review: \\"quoted\\" examples # safely."', 'Review: "quoted" examples # safely.'],
-    ["'Review: it''s useful # guidance.'", "Review: it's useful # guidance."],
-    ['>\n  Review: first line\n  and second line.', 'Review: first line and second line.']
-  ];
-  for (const [description, expected] of cases) {
-    const { manager, config, root, home, files } = await fixture(t);
-    await content(files, root);
-    await files.writeFile(resolveWithinRoot(root, 'skills', 'review', 'SKILL.md'), `---\nname: review\ndescription: ${description}\n---\n\nInstructions.\n`);
-    assert.equal((await manager.reconcile(config)).state, 'ready');
-    const generated = await files.readFile(adapter(home), 'utf8');
-    const descriptionLine = /^description: (.+)$/m.exec(generated)?.[1];
-    assert.equal(JSON.parse(descriptionLine), expected);
-  }
+async function seedLegacy(files, home, name) {
+  const target = adapter(home, name);
+  const text = `Legacy ${name} redirect`;
+  await files.mkdir(path.dirname(target), { recursive: true });
+  await files.writeFile(target, text);
+  await files.writeFile(resolveWithinRoot(path.dirname(target), '.bcdevtoolset-owner.json'), JSON.stringify({ owner: 'bc-dev-toolset/curated-skills', sha256: crypto.createHash('sha256').update(text).digest('hex') }));
+}
+
+test('migration replaces unchanged legacy redirects but preserves edited, unowned and unrelated skills', async t => {
+  const { manager, config, home, files } = await fixture(t);
+  for (const name of ['review', 'planning', 'edited']) await seedLegacy(files, home, name);
+  await files.appendFile(adapter(home, 'edited'), ' user modification');
+  const notes = resolveWithinRoot(path.dirname(adapter(home, 'review')), 'notes.md');
+  await files.writeFile(notes, 'user notes');
+  await files.mkdir(path.dirname(adapter(home, 'personal')), { recursive: true });
+  await files.writeFile(adapter(home, 'personal'), 'user-owned');
+  const status = await manager.reconcile(config);
+  assert.equal(status.state, 'warning');
+  assert.equal(status.adapters.length, 1);
+  for (const name of ['review', 'planning']) await assert.rejects(files.lstat(adapter(home, name)), { code: 'ENOENT' });
+  assert.equal(await files.readFile(notes, 'utf8'), 'user notes');
+  assert.match(await files.readFile(adapter(home, 'edited'), 'utf8'), /user modification/);
+  assert.equal(await files.readFile(adapter(home, 'personal'), 'utf8'), 'user-owned');
 });
 
-test('missing or malformed descriptions fail without replacing an existing managed adapter', async t => {
-  for (const frontmatter of ['name: review', 'description: "unterminated', 'description: ""']) {
+test('failed source registration preserves legacy redirects and releases locks', async t => {
+  const { manager, config, home, files } = await fixture(t);
+  await seedLegacy(files, home, 'review');
+  const originalWrite = manager.files.writeFile.bind(manager.files);
+  manager.files.writeFile = async (candidate, data) => {
+    if (candidate === adapter(home)) throw Object.assign(new Error('sensitive write payload'), { code: 'EACCES' });
+    return originalWrite(candidate, data);
+  };
+  const status = await manager.reconcile(config);
+  assert.equal(status.state, 'error');
+  assert.match(status.error, /registration.*EACCES/);
+  assert.equal(status.lastSuccess, undefined);
+  assert.equal(status.sideEffects, 'partially-completed');
+  assert.equal(await files.readFile(adapter(home, 'review'), 'utf8'), 'Legacy review redirect');
+  await assert.rejects(files.lstat(resolveWithinRoot(home, '.bcdevtoolset', 'curated-skills.lock')), { code: 'ENOENT' });
+});
+
+test('a source-name collision preserves legacy redirects until manual resolution', async t => {
+  const { manager, config, home, files } = await fixture(t);
+  await seedLegacy(files, home, 'review');
+  await files.mkdir(path.dirname(adapter(home)), { recursive: true });
+  await files.writeFile(adapter(home), 'user-owned source');
+  const status = await manager.reconcile(config);
+  assert.equal(status.state, 'warning');
+  assert.equal(status.adapters.length, 0);
+  assert.match(status.warnings.join(' '), /Resolve the collision manually/);
+  assert.equal(await files.readFile(adapter(home, 'review'), 'utf8'), 'Legacy review redirect');
+});
+
+test('missing, empty and non-file Entry fail before migration and preserve registrations', async t => {
+  for (const kind of ['missing', 'empty', 'directory']) {
     const { manager, config, root, home, files } = await fixture(t);
     await manager.reconcile(config);
+    await seedLegacy(files, home, 'review');
     const before = await files.readFile(adapter(home), 'utf8');
-    await files.writeFile(resolveWithinRoot(root, 'skills', 'review', 'SKILL.md'), `---\n${frontmatter}\n---\n\nInstructions.\n`);
+    const entry = resolveWithinRoot(root, 'skills', 'entry.md');
+    await files.unlink(entry);
+    if (kind === 'empty') await files.writeFile(entry, '  \n');
+    if (kind === 'directory') await files.mkdir(entry);
     const status = await manager.reconcile(config);
     assert.equal(status.state, 'error');
-    assert.match(status.error, /description/i);
+    assert.match(status.error, /source entry validation.*entry.md/);
+    assert.match(status.error, /Restore|retry/);
+    assert.equal(status.lastSuccess, undefined);
     assert.equal(await files.readFile(adapter(home), 'utf8'), before);
+    assert.equal(await files.readFile(adapter(home, 'review'), 'utf8'), 'Legacy review redirect');
+    await assert.rejects(files.lstat(resolveWithinRoot(home, '.bcdevtoolset', 'curated-skills.lock')), { code: 'ENOENT' });
   }
 });
 
-test('unsafe and excessively long skill directory names fail before personal adapter writes', async t => {
-  for (const name of ['UpperCase', 'contains space', 'a'.repeat(45)]) {
-    const { manager, config, root, files, home } = await fixture(t);
-    await content(files, root, [name]);
-    const status = await manager.reconcile(config);
-    assert.equal(status.state, 'error');
-    assert.match(status.error, /names|characters/i);
-    assert.equal(status.adapters.length, 0);
-    await assert.rejects(files.lstat(resolveWithinRoot(home, '.agents')), { code: 'ENOENT' });
-  }
+test('Entry read failures redact backend data, stop migration and release locks', async t => {
+  const { manager, config, root, home, files } = await fixture(t);
+  await content(files, root);
+  await seedLegacy(files, home, 'review');
+  const originalRead = BcQualityFiles.prototype.readFile;
+  t.after(() => { BcQualityFiles.prototype.readFile = originalRead; });
+  BcQualityFiles.prototype.readFile = async function(candidate, encoding) {
+    if (candidate === resolveWithinRoot(root, 'skills', 'entry.md')) throw Object.assign(new Error('secret entry data'), { code: 'EACCES' });
+    return originalRead.call(this, candidate, encoding);
+  };
+  const status = await manager.reconcile(config);
+  assert.equal(status.state, 'error');
+  assert.match(status.error, /source entry validation.*EACCES/);
+  assert.match(status.error, /Access was denied/);
+  assert.equal(status.lastSuccess, undefined);
+  assert.equal(status.adapters.length, 0);
+  assert.doesNotMatch(JSON.stringify(status), /secret entry data/);
+  assert.equal(await files.readFile(adapter(home, 'review'), 'utf8'), 'Legacy review redirect');
+  await assert.rejects(files.lstat(resolveWithinRoot(home, '.bcdevtoolset', 'curated-skills.lock')), { code: 'ENOENT' });
+});
+
+
+test('legacy cleanup failure after source installation preserves remaining redirects and failed status', async t => {
+  const { manager, config, home, root, files, logs } = await fixture(t);
+  await seedLegacy(files, home, 'planning');
+  await seedLegacy(files, home, 'review');
+  const originalUnlink = manager.files.unlink.bind(manager.files);
+  const legacyDeletes = [];
+  manager.files.unlink = async candidate => {
+    if ([adapter(home, 'planning'), adapter(home, 'review')].includes(candidate)) {
+      legacyDeletes.push(candidate);
+      throw Object.assign(new Error('secret legacy deletion payload'), { code: 'EACCES' });
+    }
+    return originalUnlink(candidate);
+  };
+  const status = await manager.reconcile(config);
+  assert.equal(status.state, 'error');
+  assert.equal(status.lastSuccess, undefined);
+  assert.equal(status.sideEffects, 'partially-completed');
+  assert.match(status.error, /personal adapter registration failed.*EACCES/);
+  assert.match(status.error, /Access was denied/);
+  assert.match(status.error, /inspect the checkout and personal adapters/);
+  assert.match(status.error, /retrying Update Curated Skills/);
+  assert.doesNotMatch(JSON.stringify([status, logs]), /secret legacy deletion payload/);
+  assert.equal(status.adapters.length, 1);
+  assert.match(await files.readFile(adapter(home), 'utf8'), /name: bcdevtoolset-curated-source/);
+  assert.equal(legacyDeletes.length, 1, 'cleanup stops after its first failed deletion');
+  for (const name of ['planning', 'review']) assert.equal(await files.readFile(adapter(home, name), 'utf8'), `Legacy ${name} redirect`);
+  await assert.rejects(files.lstat(resolveWithinRoot(home, '.bcdevtoolset', 'curated-skills.lock')), { code: 'ENOENT' });
+  await assert.rejects(files.lstat(`${root}.bcdevtoolset.lock`), { code: 'ENOENT' });
 });
