@@ -1,15 +1,45 @@
 [
   {
+    "id": "configureCuratedSkillsAccessToken",
+    "title": "Configure Curated Skills Access Token",
+    "command": "configureCuratedSkillsAccessToken",
+    "category": "Curated Skills"
+  },
+  {
+    "id": "removeCuratedSkillsAccessToken",
+    "title": "Remove Curated Skills Access Token",
+    "command": "removeCuratedSkillsAccessToken",
+    "category": "Curated Skills"
+  },
+  {
+    "id": "checkCuratedSkillsAccess",
+    "title": "Check Curated Skills Access",
+    "command": "checkCuratedSkillsAccess",
+    "category": "Curated Skills"
+  },
+  {
+    "id": "updateCuratedSkills",
+    "title": "Update Curated Skills",
+    "command": "updateCuratedSkills",
+    "category": "Curated Skills"
+  },
+  {
+    "id": "showCuratedSkillsStatus",
+    "title": "Show Curated Skills Status",
+    "command": "showCuratedSkillsStatus",
+    "category": "Curated Skills"
+  },
+  {
     "id": "updateBcQuality",
     "title": "Update BCQuality",
     "command": "updateBcQuality",
-    "category": "BCQuality"
+    "category": "Curated Skills"
   },
   {
     "id": "showBcQualityStatus",
     "title": "Show BCQuality Status",
     "command": "showBcQualityStatus",
-    "category": "BCQuality"
+    "category": "Curated Skills"
   },
   {
     "id": "initializeWorkspace",

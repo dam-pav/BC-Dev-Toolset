@@ -14,9 +14,9 @@ const source = fs.readFileSync(extensionSourcePath, 'utf8'); // nosemgrep -- fix
 const executeSource = source.match(/async function executeOperation\(operation, toolsetPath\) \{[^]*?\n}/)[0];
 
 for (const [id, title] of [['updateBcQuality', 'Update BCQuality'], ['showBcQualityStatus', 'Show BCQuality Status']]) {
-  test(`${title} is available in the BCQuality category and dispatches its registered command`, async () => {
+  test(`${title} is available in the Curated Skills category and dispatches its registered command`, async () => {
     const operation = operations.find(entry => entry.id === id);
-    assert.deepEqual(operation, { id, title, command: id, category: 'BCQuality' });
+    assert.deepEqual(operation, { id, title, command: id, category: 'Curated Skills' });
     assert.ok(pkg.contributes.commands.some(entry => entry.command === `bcDevToolset.${id}`));
     assert.ok(pkg.activationEvents.includes(`onCommand:bcDevToolset.${id}`));
     const calls = [];
@@ -45,3 +45,27 @@ for (const [id, title] of [['updateBcQuality', 'Update BCQuality'], ['showBcQual
     assert.doesNotMatch(messages[0], /sensitive backend payload|Error:|\n\s+at /);
   });
 }
+
+test('all skill operations share Curated Skills without a separate BCQuality category', () => {
+  assert.deepEqual(operations.filter(entry => entry.category === 'Curated Skills').map(entry => entry.id).sort(), [
+    'checkCuratedSkillsAccess', 'configureCuratedSkillsAccessToken', 'removeCuratedSkillsAccessToken',
+    'showBcQualityStatus', 'showCuratedSkillsStatus', 'updateBcQuality', 'updateCuratedSkills'
+  ]);
+  assert.ok(!operations.some(entry => entry.category === 'BCQuality'));
+});
+
+test('operation references document all skill commands under the combined category', () => {
+  const repositoryRoot = authorizeRoot(path.resolve(extensionRoot, '..'), 'Repository documentation root');
+  const repositoryReadme = fs.readFileSync(resolveWithinRoot(repositoryRoot, 'README.md'), 'utf8'); // nosemgrep -- fixed filename confined to the authorized repository documentation root
+  const extensionReadme = fs.readFileSync(resolveWithinRoot(extensionRoot, 'README.md'), 'utf8'); // nosemgrep -- fixed filename confined to the authorized extension root
+  const operationReference = extensionReadme.split('\n## Operations')[1].split('\n## Settings')[0];
+  assert.equal(operationReference.split(/\n### Curated Skills\r?\n/).length, 2);
+  assert.doesNotMatch(operationReference, /\n### BCQuality\r?\n/);
+  const combinedCategory = operationReference.split(/\n### Curated Skills\r?\n/)[1].split('\n### ')[0];
+  for (const title of ['Update BCQuality', 'Show BCQuality Status', 'Update Curated Skills', 'Show Curated Skills Status',
+    'Configure Curated Skills Access Token', 'Remove Curated Skills Access Token', 'Check Curated Skills Access']) {
+    assert.ok(combinedCategory.includes('| `' + title + '` |'), `${title} must be documented in Curated Skills`);
+  }
+  assert.match(repositoryReadme, /choose \*\*Curated Skills\*\* for \*\*Update BCQuality\*\* and \*\*Show BCQuality Status\*\*/);
+  assert.doesNotMatch(extensionReadme, /under \*\*BCQuality\*\* in \*\*Show Operations List\*\*/);
+});

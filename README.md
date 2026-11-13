@@ -116,11 +116,19 @@ BC Data access provides seven individually opt-in `bc_dev_toolset_data_*` tools:
 
 ## BCQuality integration
 
-In **BC Dev Toolset: Show Operations List**, choose **BCQuality** for **Update BCQuality** and **Show BCQuality Status**. Both commands are also available directly from the Command Palette; they are not exposed as MCP tools.
+In **BC Dev Toolset: Show Operations List**, choose **Curated Skills** for **Update BCQuality** and **Show BCQuality Status**. Both commands are also available directly from the Command Palette; they are not exposed as MCP tools.
 
 The VS Code extension can maintain one shared [BCQuality](https://github.com/microsoft/BCQuality) checkout and register personal skills for Copilot, Codex, and Claude Code across development projects. Set the machine-specific User setting `bcDevToolset.bcQualityPath` to an absolute path such as `C:\Knowledge\BCQuality`. On activation/reload, the extension clones an absent or empty directory, or fast-forward updates an existing clean checkout on `main`. Local edits, pinned revisions, and usable offline content are preserved. BCQuality does not need to be a workspace folder.
 
 Run **BC Dev Toolset: Update BCQuality** to retry maintenance or **BC Dev Toolset: Show BCQuality Status** to inspect the current commit, agent adapters, and maintenance results. Clearing the setting removes unchanged extension-owned adapters and retains the checkout. Agent discovery and filesystem permissions are separate: a restricted agent may still need access to the content directory. See the [extension&#39;s BCQuality setup guide](vscode-extension/README.md#bcquality-across-agents) for skill locations, supported capabilities, and remote-session limitations.
+
+## Curated skill source
+
+The extension also supports a configurable trusted GitHub skill source alongside BCQuality. Once the repository exists, set the machine-specific User settings `bcDevToolset.curatedSkillsRepositoryUrl` and `bcDevToolset.curatedSkillsPath`. Both default to empty; leave them empty until setup is ready. The source should contain `skills/<name>/SKILL.md` entries. On activation/reload, the extension maintains its dedicated checkout and registers `bcdevtoolset-curated-<name>` adapters in `~/.agents/skills`, preserving existing BCQuality and personal skills.
+
+Choose **Curated Skills** in **Show Operations List** for **Update Curated Skills** and **Show Curated Skills Status**, also available from the Command Palette. These commands are not MCP tools. Clearing both settings removes only unchanged managed adapters and retains the clone. See the [curated skill source setup guide](vscode-extension/README.md#curated-skill-source) for repository layout, update behavior, authentication, safeguards and activation details.
+
+Private HTTPS skill repositories can use **Configure Curated Skills Access Token** to store a repository-specific token in VS Code's encrypted SecretStorage. **Remove Curated Skills Access Token** deletes that entry, and **Check Curated Skills Access** verifies access without cloning or updating. Tokens stay outside settings, URLs and skill files. Existing Git credentials or SSH keys remain available when no toolset token applies. These commands are in **Curated Skills** and the Command Palette; credential setup is human-only.
 
 ## Prerequisites
 
@@ -571,6 +579,8 @@ These are VS Code extension settings. They belong to the developer's VS Code set
 | `bcDevToolset.localSettingsPath`    | Workspace-relative path to the local settings file.                                                                                                                                                                    |
 | `bcDevToolset.shortcuts`            | Controls where BcContainerHelper places shortcuts for newly created containers. Can be *None*, *Desktop* or *StartMenu*. While BcContainerHelper's default is *Desktop*, BC Dev Toolset's default is *None*. |
 | `bcDevToolset.hostHelperFolder`     | Overrides default BcContainerHelper host helper folder used by runtime operations.                                                                                                                                     |
+| `bcDevToolset.curatedSkillsRepositoryUrl` | Machine-specific User URL of the trusted GitHub skill source; empty by default. Set together with curatedSkillsPath after the repository exists. |
+| `bcDevToolset.curatedSkillsPath` | Machine-specific User path to its dedicated checkout; empty by default. Registers managed skills under ~/.agents/skills. |
 
 ### Workspace settings
 

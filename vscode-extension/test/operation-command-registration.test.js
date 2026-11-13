@@ -27,6 +27,7 @@ test('activation registers every contributed operation command and dispatches cr
     },
     migrateSettingsOnStartup: async () => {},
     registerBcQualityIntegration() {},
+    registerCuratedSkillsIntegration() {},
     isExtensionDevelopmentMode() { return false; },
     runOperationById: async id => { invoked.push(id); },
     syncRuntimeToolsetAfterExtensionUpdate: async () => {},

@@ -19,6 +19,7 @@ const { configurationPrefix, legacyConfigurationPrefix, createConfigurationAcces
 const { discoverAlTool } = require('./al-tool-discovery');
 const { assertWithinRoot, authorizeRoot, resolveWithinRoot } = require('./path-security');
 const { registerBcQualityIntegration } = require('./bcquality-vscode');
+const { registerCuratedSkillsIntegration } = require('./curated-skills-vscode');
 const { redactContainerHelperCommandLines } = require('./operation-output');
 
 let extensionContext;
@@ -43,7 +44,7 @@ const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
 const mcpServerDefinitionRevision = 47;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 74;
+const runtimeToolsetRevision = 77;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -114,6 +115,14 @@ async function activate(context) {
   await migrateSettingsOnStartup(vscode, context, writeOutput);
   registerBcQualityIntegration(vscode, context, {
     getPath: () => getConfiguration().inspect('bcQualityPath')?.globalValue ?? '',
+    log: writeOutput,
+    isDevelopment: isExtensionDevelopmentMode
+  });
+  registerCuratedSkillsIntegration(vscode, context, {
+    getConfiguration: () => ({
+      repositoryUrl: getConfiguration().inspect('curatedSkillsRepositoryUrl')?.globalValue ?? '',
+      path: getConfiguration().inspect('curatedSkillsPath')?.globalValue ?? ''
+    }),
     log: writeOutput,
     isDevelopment: isExtensionDevelopmentMode
   });
@@ -2228,6 +2237,30 @@ function getOperations(toolsetPath) {
 }
 
 async function executeOperation(operation, toolsetPath) {
+  if (['configureCuratedSkillsAccessToken', 'removeCuratedSkillsAccessToken', 'checkCuratedSkillsAccess'].includes(operation.command)) {
+    try {
+      return await vscode.commands.executeCommand(`bcDevToolset.${operation.command}`) !== false;
+    } catch {
+      const state = operation.command === 'checkCuratedSkillsAccess'
+        ? 'No checkout, adapter or credential changes were requested.'
+        : 'The credential storage outcome is unknown. Check the configured repository and inspect access before changing its stored token again.';
+      await vscode.window.showErrorMessage(`BC Dev Toolset: ${operation.title} could not complete. ${state} Reload VS Code and use Check Curated Skills Access. No automatic retry was performed.`);
+      return false;
+    }
+  }
+
+  if (operation.command === 'updateCuratedSkills' || operation.command === 'showCuratedSkillsStatus') {
+    try {
+      return await vscode.commands.executeCommand(`bcDevToolset.${operation.command}`) !== false;
+    } catch {
+      const recovery = operation.command === 'updateCuratedSkills'
+        ? 'Maintenance may have partially completed. Run Show Curated Skills Status and inspect the configured checkout and personal adapters before retrying. Verify the bcDevToolset.curatedSkillsRepositoryUrl and bcDevToolset.curatedSkillsPath User settings.'
+        : 'The status report could not be opened. Reload the VS Code window and retry Show Curated Skills Status. No maintenance was started by this command.';
+      await vscode.window.showErrorMessage(`BC Dev Toolset: ${operation.title} could not complete. ${recovery}`);
+      return false;
+    }
+  }
+
   if (operation.command === 'updateBcQuality' || operation.command === 'showBcQualityStatus') {
     try {
       await vscode.commands.executeCommand(`bcDevToolset.${operation.command}`);
