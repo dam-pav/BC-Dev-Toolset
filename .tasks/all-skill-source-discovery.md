@@ -2,7 +2,7 @@
 
 - Objective: make all applicable BCQuality and custom curated repository skills discoverable to agents, rather than relying on narrow fixed adapters or one repository layout.
 - Plan revision: 4; approved. Use the same source-level approach for both repositories: one broad adapter per source delegates discovery and routing to that source's skills/entry.md. Do not generate per-skill redirects.
-- Overall status: active. Current phase: 1 (ready-to-commit).
+- Overall status: complete. Current phase: 1 (pushed; final overall review passed).
 - Plan revision 4 approved: user said "proceed" after the revision 4 confirmation request. Task branch fix/all-skill-source-discovery established from 4d2d7a7. No commit autonomy granted.
 - Worktree: C:/Projekti/DAM-PAV/BC-Dev-Toolset; initially clean.
 - Verified base: 4d2d7a7 from docs/prepare-pr-workspace-cleanliness, preserving existing work. Checked-out task branch: fix/all-skill-source-discovery. Intended push destination: origin/fix/all-skill-source-discovery.
@@ -24,6 +24,7 @@
 - Final validation after all code changes: independent npm run validate exit 0, 631 tests, 629 passed, zero failed, two skips (Windows file symlinks unavailable for assembly extraction and linked Entry) in 51.57 seconds. Full output inspected, temporary log removed. package.json JSON parsing and git diff --check passed. Independent helper tests passed 2/2; final integrated phase review by test_design has no unresolved findings against original request, approved revision 4 or repository instructions. No MCP tools/schemas changed, so no MCP definition revision increment needed. Automated verification used isolated homes/checkouts; live Extension Development Host activation was not performed.
 - Approved commit: "Make skill repositories discoverable through native entry points". Intended push: origin/fix/all-skill-source-discovery. Commit confirmation evidence: user replied "commit" to the staged-change commit/push confirmation request. Approval covers this implementation commit, including this approval bookkeeping. Overall post-push independent review remains pending.
 - Approval evidence: user "proceed" after revision 4 scope and confirmation request. Commit autonomy grant: none.
+- Delivered commit: 82bdad0ead6f4904e6703a61b355b4d3960528b0. Push succeeded to origin/fix/all-skill-source-discovery with upstream tracking established. Independent post-push overall review by test_design passed with no unresolved findings; reviewed committed diff 4d2d7a7..82bdad0, all 12 intended files, no unexpected artifacts, clean tree before final bookkeeping and diff --check. HEAD, tracking ref and live remote branch hash matched. Final verification remains 631 total, 629 passed, zero failures, two unavailable file-symlink skips. User subsequently requested "commit" for this final task-status update, authorizing the bookkeeping commit and push to the same branch. Its own hash is intentionally omitted to avoid another bookkeeping cycle.
 
 ## Findings
 
@@ -35,4 +36,4 @@
 
 ## Next action
 
-Commit and push the approved phase, then obtain the required post-push overall independent review. Record resulting hash/push/review as a disclosed local bookkeeping update rather than creating a self-referential sequence of commits.
+Task delivered. No required implementation, testing or review remains. Commit and push this user-approved final bookkeeping update; verify a clean working tree without generating another status-only edit. Live activation was outside the automated validation scope.
