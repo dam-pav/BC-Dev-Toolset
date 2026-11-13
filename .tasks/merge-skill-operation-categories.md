@@ -2,7 +2,7 @@
 
 - Objective: Show Update BCQuality and Show BCQuality Status in Curated Skills, alongside the curated source commands.
 - Plan revision: 1, approved by the user's "proceed" response.
-- Overall status: in progress; phase 1 ready-to-commit.
+- Overall status: complete; phase 1 pushed and overall review passed.
 - Worktree: C:/Projekti/DAM-PAV/BC-Dev-Toolset; clean at inspection.
 - Base/current task branch: feature/curated-skills-source, HEAD dd3317d; reuse the existing feature branch and PR #180.
 - Intended push destination: origin/feature/curated-skills-source.
@@ -19,5 +19,6 @@
 - Implementation: category_impl completed metadata/docs/regressions; main advanced runtime revision to 76 and updated its assertion.
 - Test results: independent focused run passed 24/24. npm run validate passed: 575 tests, 574 passed, 0 failed, 1 existing skip (file symlinks unavailable). Operations JSON parsing and diff checks passed.
 - Independent phase review: category_verify passed with no unresolved findings; command behavior/MCP exposure preserved and metadata/docs aligned.
-- Commit and push: pending.
-- Next action: commit/push the approved phase, then independent overall review.
+- Commit and push: bcd8cfc (Group BCQuality operations under Curated Skills), confirmed pushed to origin/feature/curated-skills-source and included in open draft PR #180.
+- Independent overall review: category_verify passed the pushed commit with no unresolved findings; validation remains applicable. Final bookkeeping is recorded separately.
+- Next action: normal PR review/merge; no additional implementation work pending.
