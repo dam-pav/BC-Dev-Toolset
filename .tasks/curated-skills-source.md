@@ -3,8 +3,8 @@
 - Objective: Maintain a future user-selected GitHub skill source checkout and expose its skills through personal Codex adapters, alongside BCQuality.
 - Acceptance: machine-scoped User URL/path settings; empty configuration disables maintenance; clone and safe fast-forward updates; `skills/<name>/SKILL.md` discovery; owned adapters in `~/.agents/skills`; preserve user modifications and other integrations; safe paths, failure diagnostics and locks; aligned commands, metadata and documentation.
 - Plan revision: 1. One cohesive phase; repository does not yet exist, so no real checkout or personal skill activation can be performed now.
-- Current phase: 1, ready-to-commit. Overall status: in progress.
-- Next action: commit and push to existing origin/main, then independent overall review.
+- Current phase: 1, pushed. Overall status: complete.
+- Next action: once the source repository exists, configure its URL and dedicated clone path in User settings. Draft PR awaits normal repository review/merge.
 
 ## Phase 1: Configurable source maintenance and registration
 
@@ -13,9 +13,10 @@
 - Test formulation: test_design supplied acceptance scenarios for lifecycle, checkout, discovery, ownership, path safety, failures and dispatch. Executable regression tests delegated to test_design.
 - Implementation: integration completed core maintenance/lifecycle; main completed extension wiring, metadata, runtime revision and documentation.
 - Validation: independent verification passed JSON parsing and git diff --check. First full npm run validate failed: 563 tests, 560 passed, 2 failed, 1 skipped. Fixed missing parent configuration defaults and updated runtime revision test to 75. Final npm run validate passed: 572 total, 571 passed, 0 failed, 1 existing skip (file symlinks unavailable). Final independent targeted rerun passed 37/37 after one additional regression was appended. No production extension installation or global settings changes.
-- Review: independent verification phase review passed with no unresolved findings. Repairs cover remote bootstrap, preserved primary/cleanup/pull diagnostics, uncertain side-effect state and failed refresh command result despite cached content. Retained-content claims occur only after successful revalidation. Overall review pending after push.
-- Commit: pending.
-- Push: pending.
+- Review: independent verification phase and post-push overall reviews passed with no unresolved findings. Repairs cover remote bootstrap, preserved primary/cleanup/pull diagnostics, uncertain side-effect state and failed refresh command result despite cached content. Retained-content claims occur only after successful revalidation.
+- Commit: 0fbdb93 (Add configurable curated skill source maintenance).
+- Push: origin/main rejected with GH013, changes must be made through a pull request. Remote main unchanged. Recovery completed: implementation commit pushed to origin/feature/curated-skills-source, upstream configured.
+- Draft pull request: https://github.com/dam-pav/BC-Dev-Toolset/pull/180. Final bookkeeping is recorded separately from the implementation commit.
 
 ## Evidence and limitations
 
