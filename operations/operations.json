@@ -1,5 +1,17 @@
 [
   {
+    "id": "updateCuratedSkills",
+    "title": "Update Curated Skills",
+    "command": "updateCuratedSkills",
+    "category": "Curated Skills"
+  },
+  {
+    "id": "showCuratedSkillsStatus",
+    "title": "Show Curated Skills Status",
+    "command": "showCuratedSkillsStatus",
+    "category": "Curated Skills"
+  },
+  {
     "id": "updateBcQuality",
     "title": "Update BCQuality",
     "command": "updateBcQuality",

@@ -12,7 +12,7 @@
     "directory": "vscode-extension"
   },
   "scripts": {
-    "validate": "node --check extension.js && node --check bcquality-files.js && node --check bcquality-integration.js && node --check bcquality-vscode.js && node --check mcp-server.js && node --check mcp-bridge-identity.js && node --check codex-mcp-config.js && node --check mcp-tool-settings.js && node --check configuration-settings.js && node --check settings-migration.js && node --test",
+    "validate": "node --check extension.js && node --check bcquality-files.js && node --check bcquality-integration.js && node --check bcquality-vscode.js && node --check curated-skills-integration.js && node --check curated-skills-vscode.js && node --check mcp-server.js && node --check mcp-bridge-identity.js && node --check codex-mcp-config.js && node --check mcp-tool-settings.js && node --check configuration-settings.js && node --check settings-migration.js && node --test",
     "test": "node --test test",
     "prepare:runtime": "node ./build/prepare-runtime-package.js",
     "package": "npm run prepare:runtime && npx @vscode/vsce package --no-dependencies",
@@ -38,6 +38,8 @@
   ],
   "activationEvents": [
     "onStartupFinished",
+    "onCommand:bcDevToolset.updateCuratedSkills",
+    "onCommand:bcDevToolset.showCuratedSkillsStatus",
     "onCommand:bcDevToolset.updateBcQuality",
     "onCommand:bcDevToolset.showBcQualityStatus",
     "onCommand:bcDevToolset.initializeWorkspace",
@@ -124,6 +126,8 @@
               "powershellExecutable": "pwsh",
               "localSettingsPath": ".bcdevtoolset/settings.json",
               "bcQualityPath": "",
+              "curatedSkillsRepositoryUrl": "",
+              "curatedSkillsPath": "",
               "codexMcpIntegration": {
                 "enabled": false
               },
@@ -1041,6 +1045,18 @@
             "default": ".bcdevtoolset/settings.json",
             "description": "Workspace-relative local settings file passed to PowerShell operations when it exists."
           },
+          "bcDevToolset.curatedSkillsRepositoryUrl": {
+            "type": "string",
+            "scope": "machine",
+            "default": "",
+            "description": "GitHub repository URL for a trusted curated skill source. Set this and curatedSkillsPath in User settings to enable checkout maintenance and managed personal Codex skills. Leave both empty until the repository exists. Supports HTTPS and GitHub SSH URLs; credentials must use Git credential management."
+          },
+          "bcDevToolset.curatedSkillsPath": {
+            "type": "string",
+            "scope": "machine",
+            "default": "",
+            "description": "Absolute path to a dedicated checkout of curatedSkillsRepositoryUrl. Maintains skills/<name>/SKILL.md through managed adapters under ~/.agents/skills. Clear both settings to remove unchanged managed adapters and retain the checkout."
+          },
           "bcDevToolset.bcQualityPath": {
             "type": "string",
             "scope": "machine",
@@ -1092,6 +1108,14 @@
       }
     ],
     "commands": [
+      {
+        "command": "bcDevToolset.updateCuratedSkills",
+        "title": "BC Dev Toolset: Update Curated Skills"
+      },
+      {
+        "command": "bcDevToolset.showCuratedSkillsStatus",
+        "title": "BC Dev Toolset: Show Curated Skills Status"
+      },
       {
         "command": "bcDevToolset.signInBcData",
         "title": "BC Dev Toolset: Sign in to BC Data"
