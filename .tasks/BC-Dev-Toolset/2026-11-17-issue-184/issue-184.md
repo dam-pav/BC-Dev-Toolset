@@ -3,7 +3,7 @@
 - Issue: https://github.com/dam-pav/BC-Dev-Toolset/issues/184
 - Objective: normal container publishing installs absent apps and upgrades older installed versions without uninstalling or losing extension data.
 - Plan revision: 1, approved by user response `ok` on 2026-11-17.
-- Overall status: in progress; current phase: ready-to-commit; next action: create approved phase commit and push to `origin/dam-pav/issue184`, then independent overall review.
+- Overall status: complete; current phase: pushed and reviewed; next action: none within requested implementation scope.
 - Repository/worktree: `C:/Projekti/DAM-PAV/BC-Dev-Toolset`.
 - Proposed base: `origin/main`, inspected at `8e14885`.
 - Verified task branch: `dam-pav/issue184`, checked out at the same commit; reused after approval.
@@ -36,14 +36,16 @@ Validation limitation: mocked transport tests cannot prove real platform Upgrade
 
 Dependencies: explicit plan approval; verified BcContainerHelper behavior; test runtime availability; dedicated target and baseline/upgrade fixture for live data/trigger validation.
 
-Status: ready-to-commit. Test formulation, implementation, automated independent tests, phase review and review reconciliation passed. User-supplied live verification confirms upgrade, replacement-record preservation, completion tags and repeat-publication skipping. Commit approved; push and overall review remain pending.
+Status: pushed and reviewed. Test formulation, implementation, automated independent tests, phase review and review reconciliation passed. User-supplied live verification confirms upgrade, replacement-record preservation, completion tags and repeat-publication skipping. Approved commit, push and independent overall review complete.
 
 ## Approvals and evidence
 
 - Plan approval: user response `ok` after presentation of revision 1; branch and clean tree rechecked.
 - Commit confirmation: user response `commit` on 2026-11-18 to the presented six-file commit and push proposal. Covers this commit only; no task-scoped autonomy grant.
 - Tests: focused checks, actual-helper mocked contract, independent automated suite and user-supplied live checks passed within issue scope; old-ID retention failed and physical copy mechanism unavailable (explicit limitations below).
-- Commits/pushes: none.
+- Commit: `aa2d59156c3c116da391e1ca2b01b298a313034b` (`fix: upgrade installed apps during normal container publishing`), created 2026-11-18 after explicit confirmation.
+- Push: `git push --set-upstream origin dam-pav/issue184`, exit 0; upstream established. `git ls-remote --heads origin dam-pav/issue184` confirmed the same full SHA.
+- Independent overall review: `test_design` reviewed committed `aa2d591` against issue 184, tests/live evidence, failure-handling and path-safety requirements; passed with no unresolved implementation findings. Original-ID and physical-copy limitations remain explicit. No additional code changes or PR work required for this scope.
 
 ## Phase evidence
 
@@ -102,4 +104,4 @@ Independent phase reviewer `test_design` reconciled the new live evidence: no ne
 - User-supplied live verification is complete within issue scope, subject to the explicit old-ID and physical-mechanism limitations. No more live target mutation is needed for this phase.
 - Proposed commit: `fix: upgrade installed apps during normal container publishing`. Branch: `dam-pav/issue184`; intended push: `origin/dam-pav/issue184` (establish upstream on first push).
 - Staging scope: only the intended six files (source, README, three test files and this task record). Explicit confirmation received as recorded above; afterward commit/push and complete independent overall review. Branch, staged scope and staged whitespace check reverified on 2026-11-18; no unstaged changes preceded this approval bookkeeping update.
-- No commit or push has occurred. Changes remain local. This agent started no live side effects; the user's live operation started CoreUpgradeTest and successfully published/upgraded Payroll, with unchanged Data Editor skipped.
+- Implementation commit and push completed as recorded above. User response `commir` on 2026-11-18 authorizes committing the disclosed remaining task-record update; proposed subject: `docs: finalize issue 184 task record`, same branch and upstream. Report this bookkeeping commit's resulting hash/push in the final response without another self-referential record update. This agent started no live side effects; the user's live operation started CoreUpgradeTest and successfully published/upgraded Payroll, with unchanged Data Editor skipped.
