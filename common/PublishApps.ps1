@@ -540,13 +540,20 @@ function Publish-Apps {
                             $resolvedCredential = Resolve-PublishingCredential -Configuration $configuration -Kind bc
                             $params.credential = $resolvedCredential.Credential
                         }
+                    } else {
+                        # Let BcContainerHelper choose install or data upgrade per app.
+                        # Already-installed equal/newer versions must not be installed again.
+                        $params.upgrade = $true
+                        $params.ignoreIfAppExists = $true
                     }
                     
                     Write-Host ""
                     Write-Host "Running " -ForegroundColor green -NoNewline
                     Write-Host "Publish-BcContainerApp" -ForegroundColor Blue -NoNewline
                     Write-Host ":" -ForegroundColor green
-                    Publish-BcContainerApp -ErrorAction Stop @params
+                    Invoke-BcPublishingStep -Configuration $configuration -Stage Publishing -DeploymentState Unknown -Action {
+                        Publish-BcContainerApp -ErrorAction Stop @params
+                    } | Out-Null
                     if ($resolvedCredential.Prompted) {
                         Offer-ConfigurationCredentialStorage -configuration $configuration -kind bc -credential $resolvedCredential.Credential
                     }
