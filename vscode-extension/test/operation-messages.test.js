@@ -45,6 +45,54 @@ function run(root, script, extraEnv = {}) {
   return result.stdout.replace(/\r/g, '');
 }
 
+for (const failure of ['throw', 'error']) {
+  test(`container publishing renders a red failure heading and preserves failed status (${failure})`, t => {
+    const { root, write } = fixture(t);
+    write('operations/operations.json', JSON.stringify([{ id: 'publishApps', title: 'Publish apps', script: 'operations/Test.ps1' }]));
+    for (const name of ['PublishApps', 'EndpointCredentials']) {
+      write(`common/${name}.ps1`, fs.readFileSync(resolveWithinRoot(repositoryRoot, 'common', `${name}.ps1`), 'utf8')); // nosemgrep -- fixed source files contained by repository root
+    }
+    write('operations/Test.ps1', `
+      . (Join-Path $PSScriptRoot '../common/PublishApps.ps1')
+      function global:Write-Host {
+        param($Object,[ConsoleColor]$ForegroundColor,[switch]$NoNewline)
+        if ($Object -eq 'Publish apps failed during Publishing.') {
+          if ($ForegroundColor -ne [ConsoleColor]::Red) { throw 'Expected red failure heading' }
+          [Console]::WriteLine('FAILURE HEADING COLOR: Red')
+        }
+        Microsoft.PowerShell.Utility\\Write-Host @PSBoundParameters
+      }
+      function Get-SortedApps { [pscustomobject]@{Name='Fixture';Dependencies=@()} }
+      function Test-AppHasTestDependencies { $false }
+      function Get-PackageParams {
+        param($scriptPath,$settingsJSON,$appJSON,$runtime,[ref]$packageName,[ref]$packagePath)
+        $packageName.Value='fixture.app'; $packagePath.Value=$PSScriptRoot
+      }
+      function Test-Path { $true }
+      function Test-DockerContainerExists { $true }
+      function Test-BcContainerTenantAccessible { $true }
+      function Publish-BcContainerApp {
+        [CmdletBinding()]param($containerName,$appFile,[switch]$skipVerification,[switch]$install,[switch]$sync,$scope,[switch]$upgrade,[switch]$ignoreIfAppExists)
+        Write-Host 'PUBLISH ATTEMPT'
+        ${failure === 'throw' ? "throw 'private backend payload'" : "Write-Error 'private backend payload'"}
+      }
+      $settings=@{configurations=@(@{name='selected';serverType='Container';container='selected';targetType='Dev';authentication='Windows'})}
+      Publish-Apps -scriptPath $PSScriptRoot -settingsJSON $settings -workspaceJSON @{} -publishAsDev $false
+      Write-Host 'UNEXPECTED CONTINUATION'
+      Write-Done
+    `);
+    const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', './Invoke-BcDevToolsetOperation.ps1',
+      '-Operation', 'publishApps', '-NonInteractive'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 30000 });
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    assert.equal(result.stderr, '');
+    assert.match(result.stdout, /FAILURE HEADING COLOR: Red/);
+    assert.match(result.stdout, /App publishing failed during Publishing \(Container\)/);
+    assert.match(result.stdout, /partially completed.*Inspect the installed app version and deployment status before retrying/);
+    assert.equal(result.stdout.split('PUBLISH ATTEMPT').length - 1, 1);
+    assert.doesNotMatch(result.stdout, /private backend payload|UNEXPECTED CONTINUATION|DONE|Exception:|At line:|Line\s*\|/);
+  });
+}
+
 test('invalid build dependency renders red recovery guidance and preserves failure', t => {
   const { root, write } = fixture(t);
   write('operations/operations.json', JSON.stringify([

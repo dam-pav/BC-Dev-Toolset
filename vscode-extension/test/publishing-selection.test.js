@@ -5,6 +5,12 @@ const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const { authorizeRoot, resolveWithinRoot } = require('../path-security');
 
+test('normal container publication installs or upgrades each app and stops safely on failure', () => {
+  const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File',
+    path.join(__dirname, 'container-publishing.tests.ps1')], { encoding: 'utf8', windowsHide: true });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
 test('SaaS app and dependency publishing stop on terminating or nonterminating deployment failures', () => {
   const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-File',
     path.join(__dirname, 'saas-publishing-failures.tests.ps1')], { encoding: 'utf8', windowsHide: true });
