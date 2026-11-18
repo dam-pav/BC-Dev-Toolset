@@ -21,7 +21,7 @@ function Write-Host { param($Object,$ForegroundColor,[switch]$NoNewline) $script
 function Publish-BcContainerApp {
     [CmdletBinding()]
     param($containerName,$appFile,[switch]$skipVerification,[switch]$install,[switch]$sync,$scope,
-        [switch]$upgrade,[switch]$ignoreIfAppExists,[switch]$useDevEndpoint,[switch]$replacePackageId,$credential)
+        [switch]$upgrade,[switch]$ignoreIfAppExists,[switch]$useDevEndpoint,[switch]$replacePackageId,[pscredential]$credential)
     $script:attempts++
     Assert ($containerName -eq 'selected') 'Publishing escaped selected target'
     Assert ($skipVerification -and $install -and $sync -and $scope -eq 'Tenant') 'Existing publish options changed'
@@ -61,6 +61,14 @@ function Invoke-Publish {
     $configuration=@{name='selected';serverType='Container';targetType=$Role;container='selected';authentication='UserPassword'}
     Publish-Apps -scriptPath $PSScriptRoot -settingsJSON @{configurations=@($configuration)} -workspaceJSON @{} -publishAsDev $script:dev
 }
+
+# Credential binding must reject an invalid object before entering the transport.
+Reset-Scenario
+$bindingFailure=$null
+try { Publish-BcContainerApp -credential ([pscustomobject]@{Invalid='not a credential'}) } catch { $bindingFailure=$_.Exception }
+Assert ($bindingFailure -is [Management.Automation.ParameterBindingException]) 'Invalid credential did not fail parameter binding'
+Assert ($script:attempts -eq 0 -and $script:events.Count -eq 0 -and $script:saves -eq 0) 'Invalid credential entered the transport or caused side effects'
+
 foreach ($role in @('Dev','Test','Production')) {
     Reset-Scenario
     Invoke-Publish $role
