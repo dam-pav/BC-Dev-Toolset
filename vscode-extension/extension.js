@@ -1667,7 +1667,6 @@ function getMcpWorkspaceSettings() {
 }
 
 function getDefaultLocalSettings() {
-  const localConfiguration = getDefaultLocalConfiguration();
   return {
     licenseFile: '',
     certificateFile: '',
@@ -1676,18 +1675,23 @@ function getDefaultLocalSettings() {
     recordingsPath: '',
     pageScriptTestResultsPath: '',
     pageScriptTestHeaded: 'false',
-    configurations: [localConfiguration]
+    configurations: getDefaultLocalConfigurations()
   };
 }
 
-function getDefaultLocalConfiguration() {
+function getDefaultLocalConfigurations() {
+  return [getDefaultLocalConfiguration(), getDefaultLocalConfiguration('Test')];
+}
+
+function getDefaultLocalConfiguration(targetType = 'Dev') {
   const workspaceName = getWorkspaceName();
+  const isTest = targetType === 'Test';
   return {
-    name: 'Local',
+    name: isTest ? 'Local Test' : 'Local',
     serverType: 'Container',
-    targetType: 'Dev',
-    container: workspaceName.replace(/ /g, '-'),
-    includeTestToolkit: 'true',
+    targetType,
+    container: `${workspaceName.replace(/ /g, '-')}${isTest ? '-test' : ''}`,
+    includeTestToolkit: isTest ? 'true' : 'false',
     authentication: 'UserPassword',
     bcUser: 'admin',
     bcPassword: 'P@ssw0rd',
@@ -1914,26 +1918,34 @@ function generateLocalMacAddress() {
   return ['02', ...Array.from(crypto.randomBytes(5), (byte) => byte.toString(16).padStart(2, '0').toUpperCase())].join(':');
 }
 
-function ensureDefaultLocalConfiguration(localPath) {
-  if (!fs.existsSync(localPath)) {
+function ensureDefaultLocalConfiguration(configPath) {
+  const localPath = resolveWithinRoot(configPath, 'settings.json');
+  if (!fs.existsSync(localPath)) { // nosemgrep -- fixed settings path is contained by the caller-authorized configuration root
     return;
   }
 
-  const localSettings = JSON.parse(fs.readFileSync(localPath, 'utf8'));
+  const localSettings = JSON.parse(fs.readFileSync(localPath, 'utf8')); // nosemgrep -- fixed settings path is contained by the caller-authorized configuration root
   const configurations = Array.isArray(localSettings.configurations) ? localSettings.configurations : [];
   let changed = Object.prototype.hasOwnProperty.call(localSettings, 'executeTestsInContainerName');
   delete localSettings.executeTestsInContainerName;
-  const hasUsableConfiguration = configurations.some((configuration) => configuration.name && configuration.name !== 'sample');
-  if (hasUsableConfiguration) {
-    if (changed) fs.writeFileSync(localPath, `${JSON.stringify(localSettings, null, 2)}\n`, 'utf8');
-    return;
+  for (const defaultConfiguration of getDefaultLocalConfigurations()) {
+    if (configurations.some((configuration) => String(configuration.name).toLowerCase() === defaultConfiguration.name.toLowerCase())) {
+      continue;
+    }
+    const conflict = configurations.find((configuration) =>
+      String(configuration.serverType).toLowerCase() === 'container' &&
+      String(configuration.container).toLowerCase() === defaultConfiguration.container.toLowerCase());
+    if (conflict) {
+      writeOutput(`${defaultConfiguration.name} was not added because container '${defaultConfiguration.container}' is already used by configuration '${conflict.name}'. Existing values were preserved. Review the container names in local settings and rename the conflicting container or add the intended configuration, then rerun Initialize Workspace.`);
+      continue;
+    }
+    configurations.push(defaultConfiguration);
+    changed = true;
   }
-
-  localSettings.configurations = [
-    getDefaultLocalConfiguration(),
-    ...configurations.filter((configuration) => configuration.name === 'sample')
-  ];
-  fs.writeFileSync(localPath, `${JSON.stringify(localSettings, null, 2)}\n`, 'utf8');
+  if (changed) {
+    localSettings.configurations = configurations;
+    fs.writeFileSync(localPath, `${JSON.stringify(localSettings, null, 2)}\n`, 'utf8'); // nosemgrep -- fixed settings path is contained by the caller-authorized configuration root
+  }
 }
 
 function quotePowerShellArgument(value) {
@@ -2097,7 +2109,7 @@ async function openLocalSettingsJson() {
 
   fs.mkdirSync(configPath, { recursive: true });
   writeJsonIfMissing(configPath, localPath, getDefaultLocalSettings());
-  ensureDefaultLocalConfiguration(localPath);
+  ensureDefaultLocalConfiguration(configPath);
 
   await vscode.window.showTextDocument(vscode.Uri.file(localPath));
 }

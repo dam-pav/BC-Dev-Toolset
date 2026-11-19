@@ -1340,15 +1340,17 @@ function Format-Json([Parameter(Mandatory, ValueFromPipeline)][String] $json) {
 function New-DefaultLocalConfiguration {
     Param (
         [Parameter(Mandatory=$true)]
-        [string] $containerName
+        [string] $containerName,
+        [ValidateSet('Dev', 'Test')]
+        [string] $targetType = 'Dev'
     )
 
     return [PSCustomObject][ordered]@{
-        name = "Local"
+        name = $(if ($targetType -eq 'Test') { 'Local Test' } else { 'Local' })
         serverType = "Container"
-        targetType = "Dev"
+        targetType = $targetType
         container = $containerName
-        includeTestToolkit = "true"
+        includeTestToolkit = $(if ($targetType -eq 'Test') { 'true' } else { 'false' })
         authentication = "UserPassword"
         bcUser = "admin"
         bcPassword = "P@ssw0rd"
@@ -1389,9 +1391,8 @@ function Build-Settings {
         $defaultContainerName = $workspaceName.Replace(' ','-')
         $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
 
-        # Add one local container configuration for development and test workflows.
-        $remoteConfiguration = New-DefaultLocalConfiguration -containerName $defaultContainerName
-        $defaultSettings.configurations += $remoteConfiguration
+        $defaultSettings.configurations += New-DefaultLocalConfiguration -containerName $defaultContainerName
+        $defaultSettings.configurations += New-DefaultLocalConfiguration -containerName "$defaultContainerName-test" -targetType Test
 
         $defaultSettings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
         Write-Host "$settingsPath created." -ForegroundColor Green
@@ -1400,20 +1401,25 @@ function Build-Settings {
         $configurations = if ($null -eq $settings.configurations) { @() } else { @($settings.configurations) }
         $settingsChanged = $false
         $defaultContainerName = $workspaceName.Replace(' ','-')
-        $existingLocalConfiguration = @($configurations | Where-Object { $_.name -eq "Local" }) | Select-Object -First 1
-
-        if ($null -ne $existingLocalConfiguration) {
-            Write-Host "Workspace local settings already contain Local; existing values were preserved." -ForegroundColor Gray
-        } else {
+        $defaults = @(
+            New-DefaultLocalConfiguration -containerName $defaultContainerName
+            New-DefaultLocalConfiguration -containerName "$defaultContainerName-test" -targetType Test
+        )
+        foreach ($defaultConfiguration in $defaults) {
+            $existingLocalConfiguration = @($configurations | Where-Object { $_.name -eq $defaultConfiguration.name }) | Select-Object -First 1
+            if ($null -ne $existingLocalConfiguration) {
+                Write-Host "Workspace local settings already contain $($defaultConfiguration.name); existing values were preserved." -ForegroundColor Gray
+                continue
+            }
             $localContainerConflict = @($configurations | Where-Object {
-                $_.serverType -eq "Container" -and $_.container -eq $defaultContainerName
+                $_.serverType -eq "Container" -and $_.container -eq $defaultConfiguration.container
             }) | Select-Object -First 1
             if ($null -ne $localContainerConflict) {
-                Write-Host "Local was not added because container '$defaultContainerName' is already used by configuration '$($localContainerConflict.name)'." -ForegroundColor Yellow
+                Write-Host "$($defaultConfiguration.name) was not added because container '$($defaultConfiguration.container)' is already used by configuration '$($localContainerConflict.name)'. Existing values were preserved. Review the container names in local settings and rename the conflicting container or add the intended configuration, then rerun Initialize Workspace." -ForegroundColor Yellow
             } else {
-                $configurations = @($configurations) + @(New-DefaultLocalConfiguration -containerName $defaultContainerName)
+                $configurations = @($configurations) + @($defaultConfiguration)
                 $settingsChanged = $true
-                Write-Host "Added Local configuration for '$defaultContainerName'." -ForegroundColor Green
+                Write-Host "Added $($defaultConfiguration.name) configuration for '$($defaultConfiguration.container)'." -ForegroundColor Green
             }
         }
 

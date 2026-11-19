@@ -43,6 +43,8 @@ You already have your VS Code running? It's as simple as 1,2,3.
 2. Open Command Palette, select *BC Dev Toolset: Install Prerequisites* and run the operation.
 3. Open Command Palette, select BC Dev Toolset: Initialize Workspace and run.
 
+Initialization prepares two local Container configurations in `.bcdevtoolset/settings.json`: `Local` (`targetType: Dev`, `includeTestToolkit: "false"`) for manual testing and debugging, and `Local Test` (`targetType: Test`, `includeTestToolkit: "true"`) for automated testing. Their container names are the workspace name with spaces replaced by hyphens, and that name with `-test` appended, respectively. Re-running initialization adds only missing defaults and preserves existing configuration values, including any existing toolkit setting. If a default container name is already assigned to another configuration, initialization reports the conflict and leaves that default unadded; review the local settings, resolve the conflict, and rerun initialization.
+
 Installing BC Dev Toolset also installs the official **Microsoft AL Language** extension automatically. It is a required VS Code extension dependency and supplies the platform-specific, signed ALTool used by the build and AL test operations.
 
 Your development environment for your current workspace is ready and you can start with creating your container, managing your workspace etc.

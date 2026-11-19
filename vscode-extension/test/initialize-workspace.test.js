@@ -93,11 +93,18 @@ test('workspace initialization recognizes BC apps nested in a workspace folder',
   assert.equal(fs.existsSync(settingsPath), true); // nosemgrep -- path is contained by the test-owned workspace root
   const localSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- settingsPath is contained by the test-owned workspace root
   assert.equal(Object.hasOwn(localSettings, 'executeTestsInContainerName'), false);
-  assert.deepEqual(localSettings.configurations.map(({ name }) => name), ['Local']);
-  assert.deepEqual(localSettings.configurations.map(({ container }) => container), ['sample']);
-  assert.deepEqual(localSettings.configurations.map(({ includeTestToolkit }) => includeTestToolkit), ['true']);
+  assert.deepEqual(localSettings.configurations.map(({ name }) => name), ['Local', 'Local Test']);
+  assert.deepEqual(localSettings.configurations.map(({ container }) => container), ['sample', 'sample-test']);
+  assert.deepEqual(localSettings.configurations.map(({ targetType }) => targetType), ['Dev', 'Test']);
+  assert.deepEqual(localSettings.configurations.map(({ serverType }) => serverType), ['Container', 'Container']);
+  assert.deepEqual(localSettings.configurations.map(({ includeTestToolkit }) => includeTestToolkit), ['false', 'true']);
   assert.equal(localSettings.configurations[0].sqlBackupPath, '.bcdevtoolset/.backups/Local');
+  assert.equal(localSettings.configurations[1].sqlBackupPath, '.bcdevtoolset/.backups/Local Test');
   assert.ok(fs.statSync(resolveWithinRoot(workspacePath, '.bcdevtoolset', '.backups', 'Local')).isDirectory()); // nosemgrep -- path is contained by the test-owned workspace root
+  assert.ok(fs.statSync(resolveWithinRoot(workspacePath, '.bcdevtoolset', '.backups', 'Local Test')).isDirectory()); // nosemgrep -- path is contained by the test-owned workspace root
+  const rerun = runInitializeWorkspace(workspacePath, workspaceFile);
+  assert.equal(rerun.status, 0, rerun.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')), localSettings); // nosemgrep -- settingsPath is contained by the test-owned workspace root
 });
 
 test('workspace initialization defaults missing backup paths by configuration name and preserves existing paths', () => {
@@ -136,13 +143,13 @@ test('workspace initialization defaults missing backup paths by configuration na
     ['Local', 'QA tests', 'Missing', 'Whitespace'].map((name) => `.bcdevtoolset/.backups/${name}`));
   assert.equal(localSettings.configurations[4].sqlBackupPath, 'D:/existing-backups');
   assert.equal(Object.hasOwn(localSettings.configurations[5], 'sqlBackupPath'), false);
-  assert.deepEqual(localSettings.configurations.slice(6).map(({ sqlBackupPath }) => sqlBackupPath),
+  assert.deepEqual(localSettings.configurations.slice(6, 9).map(({ sqlBackupPath }) => sqlBackupPath),
     ['.._escaped-backup', 'nested_backup', '_NUL'].map((name) => `.bcdevtoolset/.backups/${name}`));
   assert.equal(shared[0].sqlBackupPath, '.bcdevtoolset/.backups/Shared Dev');
   assert.equal(shared[1].sqlBackupPath, '../shared-backups');
   assert.equal(Object.hasOwn(shared[2], 'sqlBackupPath'), false);
   const backupRoot = resolveWithinRoot(workspacePath, '.bcdevtoolset', '.backups');
-  assert.deepEqual(fs.readdirSync(backupRoot).sort(), ['.._escaped-backup', 'Local', 'Missing', 'QA tests', 'Shared Dev', 'Whitespace', '_NUL', 'nested_backup']); // nosemgrep -- path is contained by the test-owned workspace root
+  assert.deepEqual(fs.readdirSync(backupRoot).sort(), ['.._escaped-backup', 'Local', 'Local Test', 'Missing', 'QA tests', 'Shared Dev', 'Whitespace', '_NUL', 'nested_backup']); // nosemgrep -- path is contained by the test-owned workspace root
   assert.equal(fs.existsSync(resolveWithinRoot(workspacePath, '.bcdevtoolset', 'escaped-backup')), false); // nosemgrep -- path is contained by the test-owned workspace root
   const init = childProcess.spawnSync('git', ['init', workspacePath], { encoding: 'utf8' });
   assert.equal(init.status, 0, init.stderr);
@@ -187,8 +194,8 @@ test('workspace initialization normalizes invalid folder characters and Windows 
   const result = runInitializeWorkspace(workspacePath, workspaceFile);
   assert.equal(result.status, 0, result.stderr);
   const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
-  assert.deepEqual(settings.configurations.map(({ name }) => name), cases.map(([name]) => name));
-  assert.deepEqual(settings.configurations.map(({ sqlBackupPath }) => sqlBackupPath), cases.map(([, folder]) => `.bcdevtoolset/.backups/${folder}`));
+  assert.deepEqual(settings.configurations.map(({ name }) => name), [...cases.map(([name]) => name), 'Local Test']);
+  assert.deepEqual(settings.configurations.map(({ sqlBackupPath }) => sqlBackupPath), [...cases.map(([, folder]) => `.bcdevtoolset/.backups/${folder}`), '.bcdevtoolset/.backups/Local Test']);
   for (const [, folder] of cases) {
     assert.ok(fs.statSync(resolveWithinRoot(workspacePath, '.bcdevtoolset', '.backups', folder)).isDirectory()); // nosemgrep -- path is contained by the test-owned workspace root
   }
@@ -233,7 +240,7 @@ test('backup defaults disambiguate normalized names across workspace and local c
   assert.deepEqual(sharedPaths, ['QA_Dev', '_NUL', 'Case'].map((name) => `.bcdevtoolset/.backups/${name}`));
   assert.deepEqual(settings.configurations.slice(0, 4).map(({ sqlBackupPath }) => sqlBackupPath),
     ['Local', 'QA_Dev_3', '_NUL_3', 'case_2'].map((name) => `.bcdevtoolset/.backups/${name}`));
-  assert.deepEqual(settings.configurations.slice(4), localConfigurations.slice(4));
+  assert.deepEqual(settings.configurations.slice(4, 6), localConfigurations.slice(4));
   const initialConfigurations = structuredClone(settings.configurations);
   const backupFile = resolveWithinRoot(workspacePath, '.bcdevtoolset', '.backups', 'QA_Dev', 'existing.bak');
   fs.writeFileSync(backupFile, 'existing backup'); // nosemgrep -- path is contained by the test-owned workspace root
@@ -346,7 +353,7 @@ test('workspace initialization adds missing test defaults without changing exist
     licenseFile: 'custom-license.flf',
     executeTestsInContainerName: '',
     configurations: [{
-      name: 'Local', serverType: 'Container', targetType: 'Dev', container: 'custom-dev', customValue: 'preserve-me'
+      name: 'Local', serverType: 'Container', targetType: 'Dev', container: 'custom-dev', includeTestToolkit: 'true', customValue: 'preserve-me'
     }]
   }, null, 2));
 
@@ -357,6 +364,12 @@ test('workspace initialization adds missing test defaults without changing exist
   const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- settingsPath is contained by the test-owned workspace root
   assert.equal(settings.licenseFile, 'custom-license.flf');
   assert.equal(settings.configurations[0].customValue, 'preserve-me');
+  assert.equal(settings.configurations[0].includeTestToolkit, 'true');
+  assert.equal(settings.configurations[0].container, 'custom-dev');
+  assert.deepEqual(settings.configurations.map(({ name }) => name), ['Local', 'Local Test']);
+  assert.equal(settings.configurations[1].targetType, 'Test');
+  assert.equal(settings.configurations[1].includeTestToolkit, 'true');
+  assert.equal(settings.configurations[1].container, 'sample-test');
   assert.equal(Object.hasOwn(settings, 'executeTestsInContainerName'), false);
 
   settings.executeTestsInContainerName = 'preselected-test';
@@ -365,7 +378,7 @@ test('workspace initialization adds missing test defaults without changing exist
   assert.equal(rerunResult.status, 0, rerunResult.stderr);
   const rerunSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- settingsPath is contained by the test-owned workspace root
   assert.equal(Object.hasOwn(rerunSettings, 'executeTestsInContainerName'), false);
-  assert.equal(rerunSettings.configurations.length, 1);
+  assert.deepEqual(rerunSettings.configurations, settings.configurations);
 });
 
 test('workspace initialization adds missing Local and removes obsolete named test target setting', () => {
@@ -382,7 +395,7 @@ test('workspace initialization adds missing Local and removes obsolete named tes
   const originalSettings = JSON.stringify({
     executeTestsInContainerName: 'custom-test',
     configurations: [{
-      name: 'Local-Test', serverType: 'Container', targetType: 'Production', container: 'custom-test', customValue: true
+      name: 'Local Test', serverType: 'Container', targetType: 'Production', includeTestToolkit: 'false', container: 'custom-test', customValue: true
     }]
   }, null, 2);
   fs.writeFileSync(settingsPath, originalSettings); // nosemgrep -- settingsPath is contained by the test-owned workspace root
@@ -395,8 +408,15 @@ test('workspace initialization adds missing Local and removes obsolete named tes
   assert.equal(Object.hasOwn(settings, 'executeTestsInContainerName'), false);
   assert.equal(settings.configurations[0].customValue, true);
   assert.equal(settings.configurations[0].container, 'custom-test');
+  assert.equal(settings.configurations[0].targetType, 'Production');
+  assert.equal(settings.configurations[0].includeTestToolkit, 'false');
   assert.equal(settings.configurations[1].name, 'Local');
   assert.equal(settings.configurations[1].container, 'sample');
+  assert.equal(settings.configurations[1].includeTestToolkit, 'false');
+  assert.equal(settings.configurations.length, 2);
+  const rerun = runInitializeWorkspace(workspacePath, workspaceFile);
+  assert.equal(rerun.status, 0, rerun.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')), settings); // nosemgrep -- settingsPath is contained by the test-owned workspace root
 });
 
 test('workspace initialization reports default container conflicts without changing local settings', () => {
@@ -423,9 +443,86 @@ test('workspace initialization reports default container conflicts without chang
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Local was not added because container 'sample' is already used/);
+  assert.match(result.stdout, /Local Test was not added because container 'sample-test' is already used/);
+  assert.match(result.stdout, /Existing-Test/);
+  assert.match(result.stdout, /(?:rename|change|edit|resolve|update).*configur|configur.*(?:rename|change|edit|resolve|update)/i);
   const migrated = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- settingsPath is contained by the test-owned workspace root
   assert.equal(Object.hasOwn(migrated, 'executeTestsInContainerName'), false);
   assert.deepEqual(migrated.configurations.map(({ container }) => container), ['sample', 'sample-Test']);
+});
+
+for (const [label, initialSettings] of [
+  ['missing', {}],
+  ['null', { configurations: null }],
+  ['empty', { configurations: [] }],
+  ['custom-only', { configurations: [{ name: 'Remote QA', serverType: 'Cloud', customField: 17 }] }]
+]) {
+  test(`workspace initialization fills ${label} configurations once and preserves unrelated settings`, () => {
+    const workspacePath = authorizeRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-default-roles-')), 'Test workspace');
+    const workspaceFile = resolveWithinRoot(workspacePath, 'sample.code-workspace');
+    const settingsPath = resolveWithinRoot(workspacePath, '.bcdevtoolset', 'settings.json');
+    fs.writeFileSync(resolveWithinRoot(workspacePath, 'app.json'), '{}\n'); // nosemgrep -- path is contained by the test-owned workspace root
+    fs.writeFileSync(workspaceFile, '{ "folders": [{ "path": "." }] }\n'); // nosemgrep -- path is contained by the test-owned workspace root
+    fs.mkdirSync(resolveWithinRoot(workspacePath, '.bcdevtoolset')); // nosemgrep -- path is contained by the test-owned workspace root
+    fs.writeFileSync(settingsPath, JSON.stringify({ licenseFile: 'preserve.flf', ...initialSettings })); // nosemgrep -- path is contained by the test-owned workspace root
+
+    const result = runInitializeWorkspace(workspacePath, workspaceFile);
+    assert.equal(result.status, 0, result.stderr);
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
+    assert.equal(settings.licenseFile, 'preserve.flf');
+    const existing = initialSettings.configurations || [];
+    assert.deepEqual(settings.configurations.slice(0, existing.length), existing);
+    assert.deepEqual(settings.configurations.slice(existing.length).map(({ name, serverType, targetType, includeTestToolkit, container }) =>
+      ({ name, serverType, targetType, includeTestToolkit, container })), [
+      { name: 'Local', serverType: 'Container', targetType: 'Dev', includeTestToolkit: 'false', container: 'sample' },
+      { name: 'Local Test', serverType: 'Container', targetType: 'Test', includeTestToolkit: 'true', container: 'sample-test' }
+    ]);
+    const rerun = runInitializeWorkspace(workspacePath, workspaceFile);
+    assert.equal(rerun.status, 0, rerun.stderr);
+    assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')), settings); // nosemgrep -- path is contained by the test-owned workspace root
+  });
+}
+
+test('workspace initialization preserves both existing default configurations even with customized roles', () => {
+  const workspacePath = authorizeRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-custom-defaults-')), 'Test workspace');
+  const workspaceFile = resolveWithinRoot(workspacePath, 'sample.code-workspace');
+  const settingsPath = resolveWithinRoot(workspacePath, '.bcdevtoolset', 'settings.json');
+  const originalSettings = { licenseFile: 'existing.flf', configurations: [
+    { name: 'Local', serverType: 'Cloud', targetType: 'Production', includeTestToolkit: 'true', customField: 'dev' },
+    { name: 'Local Test', serverType: 'Container', targetType: 'Dev', includeTestToolkit: 'false', container: 'custom-test', sqlBackupPath: 'D:/custom-backups', customField: 'test' }
+  ] };
+  fs.writeFileSync(resolveWithinRoot(workspacePath, 'app.json'), '{}\n'); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.writeFileSync(workspaceFile, '{ "folders": [{ "path": "." }] }\n'); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.mkdirSync(resolveWithinRoot(workspacePath, '.bcdevtoolset')); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.writeFileSync(settingsPath, JSON.stringify(originalSettings)); // nosemgrep -- path is contained by the test-owned workspace root
+
+  for (let run = 0; run < 2; run++) {
+    const result = runInitializeWorkspace(workspacePath, workspaceFile);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')), originalSettings); // nosemgrep -- path is contained by the test-owned workspace root
+  }
+});
+
+test('a conflicting Test container preserves its owner while the missing Dev default is added', () => {
+  const workspacePath = authorizeRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-test-conflict-')), 'Test workspace');
+  const workspaceFile = resolveWithinRoot(workspacePath, 'sample.code-workspace');
+  const settingsPath = resolveWithinRoot(workspacePath, '.bcdevtoolset', 'settings.json');
+  fs.writeFileSync(resolveWithinRoot(workspacePath, 'app.json'), '{}\n'); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.writeFileSync(workspaceFile, '{ "folders": [{ "path": "." }] }\n'); // nosemgrep -- path is contained by the test-owned workspace root
+  fs.mkdirSync(resolveWithinRoot(workspacePath, '.bcdevtoolset')); // nosemgrep -- path is contained by the test-owned workspace root
+  const existing = { name: 'Customized QA', serverType: 'Container', targetType: 'Production', container: 'SAMPLE-TEST', sqlBackupPath: 'custom-backups' };
+  fs.writeFileSync(settingsPath, JSON.stringify({ configurations: [existing] })); // nosemgrep -- path is contained by the test-owned workspace root
+
+  const result = runInitializeWorkspace(workspacePath, workspaceFile);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Local Test was not added.*sample-test.*Customized QA/i);
+  assert.match(result.stdout, /(?:rename|change|edit|resolve|update).*configur|configur.*(?:rename|change|edit|resolve|update)/i);
+  const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
+  assert.deepEqual(settings.configurations[0], existing);
+  assert.deepEqual(settings.configurations.map(({ name }) => name), ['Customized QA', 'Local']);
+  const rerun = runInitializeWorkspace(workspacePath, workspaceFile);
+  assert.equal(rerun.status, 0, rerun.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')), settings); // nosemgrep -- path is contained by the test-owned workspace root
 });
 
 test('workspace initialization migrates the obsolete country setting to the AL region setting', () => {
