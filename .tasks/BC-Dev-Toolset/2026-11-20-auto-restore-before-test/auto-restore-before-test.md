@@ -2,7 +2,7 @@
 
 - Objective: introduce autoRestoreBeforeTest (default true); test operations ignore autoRestoreBackup; newly initialized Local Test uses autoRestoreBackup false.
 - Plan revision: 1; approved by user message "ok" on 2026-11-20.
-- Overall status: active; current phase: ready-to-commit; next action: create approved phase commit, push and complete final review.
+- Overall status: complete; current phase: pushed; next action: none.
 - Repository/worktree: C:/Projekti/DAM-PAV/BC-Dev-Toolset
 - Verified base: main at ca68d37; task branch feat/auto-restore-before-test checked out; working tree clean before this record.
 - Intended branch: feat/auto-restore-before-test; intended destination: origin/feat/auto-restore-before-test.
@@ -22,7 +22,7 @@ Scope and acceptance:
 Validation: delegated test formulation, bounded implementation, delegated relevant tests and npm run validate, JSON and PowerShell syntax, independent phase review, staged diff review, confirmed commit and push, independent final review.
 
 Dependencies: plan approved; implementation, required validation and independent phase review passed; commit confirmation granted.
-Tests: focused68/68 and full653passed/0failed/2skipped. Independent phase review: passed after runtime revision repair. Delegation: test_design, implementation, validation, phase_review. Commit/push: confirmed, execution pending.
+Tests: focused68/68 and full653passed/0failed/2skipped. Independent phase review: passed after runtime revision repair. Delegation: test_design, implementation, validation, phase_review. Commit/push: a467f72 committed and pushed to origin/feat/auto-restore-before-test.
 
 ## Phase execution
 
@@ -64,10 +64,33 @@ Tests: focused68/68 and full653passed/0failed/2skipped. Independent phase review
 - Intended branch/destination: feat/auto-restore-before-test -> origin/feat/auto-restore-before-test.
 - Staged scope: source/helpers, extension defaults/settings schemas, documentation, regression tests and this task record only.
 - Limitation: automated source/mocked orchestration tests; no live container or Extension Development Host exercise.
-- Overall review after confirmed commit/push: pending, per workflow.
+- Overall review after confirmed commit/push: passed; no unresolved findings.
 ## Commit approval
 
 - User explicitly confirmed the presented staged phase commit and push with "ok" on 2026-11-20.
 - Approved message: Separate pre-test database restore from container creation.
 - Approved branch and push destination: feat/auto-restore-before-test -> origin/feat/auto-restore-before-test.
 - Rechecked branch, staged file list and validation evidence; source/test content unchanged since approval.
+## Commit and push result
+
+- Commit a467f72: Separate pre-test database restore from container creation.
+- Commit exit status0; approved scope only,12 files.
+- Push exit status0; new origin/feat/auto-restore-before-test branch created with upstream tracking.
+- Phase state: pushed. Independent overall review assigned to phase_review.
+- The user subsequently requested "commit and push" for this disclosed bookkeeping update.
+## Overall completion
+
+- Independent overall reviewer phase_review confirmed the integrated task satisfies the original request and approved criteria, with no unresolved findings.
+- Verified commit a467f72 equals origin/feat/auto-restore-before-test.
+- Required checks passed:68 focused tests; full653 passed,0 failed,2 unavailable file-symlink capability skips; JSON and PowerShell parse checks; committed diff check.
+- Overall status: complete. Source/tests/documentation delivered by confirmed commit and push.
+- Final bookkeeping scope: this task record only; source, tests and validation results are unchanged.
+- Live container/Extension Development Host qualification was not performed.
+
+## Bookkeeping commit authorization
+
+- User explicitly requested "commit and push" after the remaining task-record update was disclosed.
+- Authorized scope: final task-record bookkeeping, on feat/auto-restore-before-test, pushed to its origin upstream.
+- Proposed message: Record completed pre-test restore setting work.
+- Validation: inspected documentation-only diff and whitespace check; application validation remains unchanged and passed.
+- Do not create another bookkeeping update solely to record this bookkeeping commit hash; Git history records that result.
