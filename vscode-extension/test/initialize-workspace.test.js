@@ -98,6 +98,7 @@ test('workspace initialization recognizes BC apps nested in a workspace folder',
   assert.deepEqual(localSettings.configurations.map(({ targetType }) => targetType), ['Dev', 'Test']);
   assert.deepEqual(localSettings.configurations.map(({ serverType }) => serverType), ['Container', 'Container']);
   assert.deepEqual(localSettings.configurations.map(({ includeTestToolkit }) => includeTestToolkit), ['false', 'true']);
+  assert.deepEqual(localSettings.configurations.map(({ autoRestoreBackup }) => autoRestoreBackup), [true, false]);
   assert.equal(localSettings.configurations[0].sqlBackupPath, '.bcdevtoolset/.backups/Local');
   assert.equal(localSettings.configurations[1].sqlBackupPath, '.bcdevtoolset/.backups/Local Test');
   assert.ok(fs.statSync(resolveWithinRoot(workspacePath, '.bcdevtoolset', '.backups', 'Local')).isDirectory()); // nosemgrep -- path is contained by the test-owned workspace root
@@ -370,6 +371,7 @@ test('workspace initialization adds missing test defaults without changing exist
   assert.equal(settings.configurations[1].targetType, 'Test');
   assert.equal(settings.configurations[1].includeTestToolkit, 'true');
   assert.equal(settings.configurations[1].container, 'sample-test');
+  assert.equal(settings.configurations[1].autoRestoreBackup, false);
   assert.equal(Object.hasOwn(settings, 'executeTestsInContainerName'), false);
 
   settings.executeTestsInContainerName = 'preselected-test';
@@ -483,13 +485,14 @@ for (const [label, initialSettings] of [
   });
 }
 
-test('workspace initialization preserves both existing default configurations even with customized roles', () => {
+for (const restoreSettings of [{}, { autoRestoreBackup: true, autoRestoreBeforeTest: false }, { autoRestoreBackup: false, autoRestoreBeforeTest: true }]) {
+test(`workspace initialization preserves existing defaults and restore settings ${JSON.stringify(restoreSettings)}`, () => {
   const workspacePath = authorizeRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-custom-defaults-')), 'Test workspace');
   const workspaceFile = resolveWithinRoot(workspacePath, 'sample.code-workspace');
   const settingsPath = resolveWithinRoot(workspacePath, '.bcdevtoolset', 'settings.json');
   const originalSettings = { licenseFile: 'existing.flf', configurations: [
     { name: 'Local', serverType: 'Cloud', targetType: 'Production', includeTestToolkit: 'true', customField: 'dev' },
-    { name: 'Local Test', serverType: 'Container', targetType: 'Dev', includeTestToolkit: 'false', container: 'custom-test', sqlBackupPath: 'D:/custom-backups', customField: 'test' }
+    { name: 'Local Test', serverType: 'Container', targetType: 'Dev', includeTestToolkit: 'false', container: 'custom-test', sqlBackupPath: 'D:/custom-backups', ...restoreSettings, customField: 'test' }
   ] };
   fs.writeFileSync(resolveWithinRoot(workspacePath, 'app.json'), '{}\n'); // nosemgrep -- path is contained by the test-owned workspace root
   fs.writeFileSync(workspaceFile, '{ "folders": [{ "path": "." }] }\n'); // nosemgrep -- path is contained by the test-owned workspace root
@@ -502,6 +505,7 @@ test('workspace initialization preserves both existing default configurations ev
     assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')), originalSettings); // nosemgrep -- path is contained by the test-owned workspace root
   }
 });
+}
 
 test('a conflicting Test container preserves its owner while the missing Dev default is added', () => {
   const workspacePath = authorizeRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-test-conflict-')), 'Test workspace');
