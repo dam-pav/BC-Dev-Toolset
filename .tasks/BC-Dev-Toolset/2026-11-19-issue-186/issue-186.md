@@ -2,8 +2,8 @@
 
 - Objective: implement https://github.com/dam-pav/BC-Dev-Toolset/issues/186.
 - Plan revision: 1, approved.
-- Overall status: in-progress. Current phase: ready-to-commit.
-- Next action: commit the approved staged phase and push to origin/dam-pav/issue186, then obtain independent overall review.
+- Overall status: complete. Current phase: pushed and overall-reviewed.
+- Next action: none within the approved implementation scope.
 - Approval evidence: user replied `ok` to revision 1 on 2026-11-19. Commit confirmation: required; no task autonomy grant.
 
 ## Repository and environment
@@ -33,9 +33,10 @@
 - Testing: focused initial run passed 48/49 checks; remaining assertion counted newly appended Local Test among original backup-disambiguation entries. Test formulation repaired to assert original entries separately (new default creation remains covered). Also repaired old signature-based multitenant test extraction so its assertion remains nonvacuous. Extension fallback behavior coverage added.
 - Full validation: tests subagent ran `npm run validate` from vscode-extension, exit 0; 642 tests, 640 passed, 0 failed, 2 skipped, duration 51027.7011 ms. All issue-focused and extension fallback tests passed. One skip is unavailable file symlinks; second skip reason not retained in truncated output. Syntax checks passed. Schema JSON parsing and `git diff --check` passed. Evidence: tool session 49383 and `C:/Users/Damjan/AppData/Local/Temp/bcdevtoolset-issue-186-validation.txt`.
 - Review: independent review passed with no unresolved findings on finalized source/tests/schema/docs. Reviewer confirmed preservation and idempotency, actionable collision handling, caller-authorized root containment at changed extension sinks, and no introduced status swallowing, prohibited fallback, deployment or retry. Full validation remains a required gate.
-- Commit confirmation: user explicitly instructed `commit and push` on 2026-11-19, approving the presented staged phase and message `fix: initialize separate development and test containers`. Push approved to `origin/dam-pav/issue186` (set upstream on first push). Commit/push execution pending.
+- Commit confirmation: user explicitly instructed `commit and push` on 2026-11-19, approving the presented staged phase and message `fix: initialize separate development and test containers`. Push approved to `origin/dam-pav/issue186` (set upstream on first push).
+- Commit result: `16acdb1` (`fix: initialize separate development and test containers`) created successfully. Push succeeded to `origin/dam-pav/issue186` and upstream tracking established; local HEAD and upstream both verified as `16acdb1`. Phase status: pushed.
 - Commit gate: after passing tests/review, stage only intended files and request confirmation for a concrete commit and push.
 
 ## Overall review
 
-Pending independent review after the approved phase is committed and pushed. Completion requires required checks, phase push, and no unresolved overall review findings.
+Independent overall review passed after successful phase push with no unresolved findings. Reviewer verified commit `16acdb18da7208bb59ef8c7c60c3082d45a3ad19` matches origin/dam-pav/issue186, confirmed implementation/tests/schema/docs satisfy #186, and passed `git diff --check main...HEAD`. Validation: 640 passed, 0 failed, 2 skipped. No live container or Extension Development Host testing was performed; outside approved validation scope. User explicitly requested `commit and push` on 2026-11-20 for this remaining bookkeeping update, approving its commit and push to the same task branch.
