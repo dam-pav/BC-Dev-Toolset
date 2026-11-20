@@ -1918,25 +1918,26 @@ function generateLocalMacAddress() {
   return ['02', ...Array.from(crypto.randomBytes(5), (byte) => byte.toString(16).padStart(2, '0').toUpperCase())].join(':');
 }
 
-function ensureDefaultLocalConfiguration(configPath) {
+function ensureDefaultLocalConfiguration(configPath, sharedConfigurations = []) {
   const localPath = resolveWithinRoot(configPath, 'settings.json');
-  if (!fs.existsSync(localPath)) { // nosemgrep -- fixed settings path is contained by the caller-authorized configuration root
-    return;
-  }
-
-  const localSettings = JSON.parse(fs.readFileSync(localPath, 'utf8')); // nosemgrep -- fixed settings path is contained by the caller-authorized configuration root
+  const createSettings = !fs.existsSync(localPath); // nosemgrep -- fixed settings path is contained by the caller-authorized configuration root
+  const localSettings = createSettings
+    ? { ...getDefaultLocalSettings(), configurations: [] }
+    : JSON.parse(fs.readFileSync(localPath, 'utf8')); // nosemgrep -- fixed settings path is contained by the caller-authorized configuration root
   const configurations = Array.isArray(localSettings.configurations) ? localSettings.configurations : [];
-  let changed = Object.prototype.hasOwnProperty.call(localSettings, 'executeTestsInContainerName');
+  const shared = Array.isArray(sharedConfigurations) ? sharedConfigurations : [];
+  let changed = createSettings || Object.prototype.hasOwnProperty.call(localSettings, 'executeTestsInContainerName');
   delete localSettings.executeTestsInContainerName;
   for (const defaultConfiguration of getDefaultLocalConfigurations()) {
-    if (configurations.some((configuration) => String(configuration.name).toLowerCase() === defaultConfiguration.name.toLowerCase())) {
+    const combinedConfigurations = [...configurations, ...shared];
+    if (combinedConfigurations.some((configuration) => String(configuration.name).toLowerCase() === defaultConfiguration.name.toLowerCase())) {
       continue;
     }
-    const conflict = configurations.find((configuration) =>
+    const conflict = combinedConfigurations.find((configuration) =>
       String(configuration.serverType).toLowerCase() === 'container' &&
       String(configuration.container).toLowerCase() === defaultConfiguration.container.toLowerCase());
     if (conflict) {
-      writeOutput(`${defaultConfiguration.name} was not added because container '${defaultConfiguration.container}' is already used by configuration '${conflict.name}'. Existing values were preserved. Review the container names in local settings and rename the conflicting container or add the intended configuration, then rerun Initialize Workspace.`);
+      writeOutput(`${defaultConfiguration.name} was not added because container '${defaultConfiguration.container}' is already used by configuration '${conflict.name}'. Existing values were preserved. Review the container names in local or workspace settings and rename the conflicting container or add the intended configuration, then rerun Initialize Workspace.`);
       continue;
     }
     configurations.push(defaultConfiguration);
@@ -2108,8 +2109,7 @@ async function openLocalSettingsJson() {
   const localPath = resolveWithinRoot(configPath, 'settings.json');
 
   fs.mkdirSync(configPath, { recursive: true });
-  writeJsonIfMissing(configPath, localPath, getDefaultLocalSettings());
-  ensureDefaultLocalConfiguration(configPath);
+  ensureDefaultLocalConfiguration(configPath, getConfiguration().get('configurations') || []);
 
   await vscode.window.showTextDocument(vscode.Uri.file(localPath));
 }

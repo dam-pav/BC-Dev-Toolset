@@ -2,8 +2,8 @@
 
 - Objective: implement https://github.com/dam-pav/BC-Dev-Toolset/issues/186.
 - Plan revision: 1, approved.
-- Overall status: complete. Current phase: pushed and overall-reviewed.
-- Next action: none within the approved implementation scope.
+- Overall status: corrective change approved; PR monitoring pending. Current phase: ready-to-commit.
+- Next action: commit and push approved correction, resolve addressed review thread, and complete monitoring. Final push/check/readiness results will be reported in the PR or response to avoid uncommitted bookkeeping.
 - Approval evidence: user replied `ok` to revision 1 on 2026-11-19. Commit confirmation: required; no task autonomy grant.
 
 ## Repository and environment
@@ -38,5 +38,18 @@
 - Commit gate: after passing tests/review, stage only intended files and request confirmation for a concrete commit and push.
 
 ## Overall review
+
+## PR follow-through and review repair (2026-11-20)
+
+- PR: https://github.com/dam-pav/BC-Dev-Toolset/pull/187, title `Dual container configuration as default`, primary issue https://github.com/dam-pav/BC-Dev-Toolset/issues/186.
+- Fresh PR validation passed: `npm run validate`, 642 tests, 640 passed, 0 failed, 2 skipped. Initial workspace clean.
+- Repository automation added version-only commit `f963990` (1.11.16); fast-forwarded local branch and approved blocked workflow runs successfully. Checks running on that head.
+- Automated review https://github.com/dam-pav/BC-Dev-Toolset/pull/187#discussion_r4640466549 identified valid P2: shared workspace configurations are omitted from default name/container checks, so reinitialization can introduce duplicate container assignments and break subsequent container creation.
+- Repair is within approved preservation/idempotency criteria. Tests subagent owns regression coverage; implementation subagent owns PowerShell initialization/settings and extension fallback source. Shared values must remain intact; combined names/containers must be considered both for existing and absent local settings. Require focused/full validation and independent review before corrective commit approval. No task autonomy grant.
+- Six shared-configuration regression scenarios failed before the fix as expected (fresh/existing local settings, shared names/container ownership, Dev/Test and case-insensitive matching). Source repair complete and syntax/PowerShell parsing/diff prechecks passed. Full validation and final review pending.
+- Codacy reported one dynamic-path warning at workspace-mgt.test.js:14 for a fixed repository-relative test read. Added narrow sink comments explaining trusted fixed-segment containment, consistent with repository policy; remote reanalysis pending corrective push.
+- Corrective validation: focused 58/58 passed, no skips. Full `npm run validate` exited 0: 650 tests, 648 passed, 0 failed, 2 skipped (assembly linked-manifest/DLL and BCQuality linked-source tests; file symlinks unavailable), duration 47357.2191 ms. Evidence: `C:/Users/Damjan/AppData/Local/Temp/bcdevtoolset-issue186-shared-validation.log`, tool session 21943. Schema JSON parsing and diff checks passed.
+- Corrective independent review: no unresolved source/test/documentation findings; confirmed combined-source checks and no shared mutations, safe fixed-root sinks, accurate narrow test-read suppressions, no added failure swallowing or retry. User replied `ok` on 2026-11-20 to the presented corrective commit and push: `fix: preserve shared container configurations during initialization`, branch `dam-pav/issue186`, push destination `origin/dam-pav/issue186`. No further local status edits planned; final execution and monitoring evidence will be reported externally.
+- Final readiness requires corrective push, addressed thread resolution, clean local workspace and 60 continuous seconds of all-green checks on the final PR head.
 
 Independent overall review passed after successful phase push with no unresolved findings. Reviewer verified commit `16acdb18da7208bb59ef8c7c60c3082d45a3ad19` matches origin/dam-pav/issue186, confirmed implementation/tests/schema/docs satisfy #186, and passed `git diff --check main...HEAD`. Validation: 640 passed, 0 failed, 2 skipped. No live container or Extension Development Host testing was performed; outside approved validation scope. User explicitly requested `commit and push` on 2026-11-20 for this remaining bookkeeping update, approving its commit and push to the same task branch.

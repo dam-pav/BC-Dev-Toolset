@@ -525,6 +525,78 @@ test('a conflicting Test container preserves its owner while the missing Dev def
   assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, 'utf8')), settings); // nosemgrep -- path is contained by the test-owned workspace root
 });
 
+for (const scenario of [
+  {
+    label: 'existing local Dev and shared Test container owner',
+    local: [{ name: 'Local', serverType: 'Container', targetType: 'Dev', container: 'custom-dev', includeTestToolkit: 'true', sqlBackupPath: 'existing-local-backups' }],
+    shared: [{ name: 'Shared QA', serverType: 'Container', targetType: 'Test', container: 'SAMPLE-TEST', includeTestToolkit: 'true', sqlBackupPath: 'existing-shared-backups' }],
+    expectedLocal: ['Local'], conflict: /Local Test was not added.*sample-test.*Shared QA/i
+  },
+  {
+    label: 'shared default Test name with a custom container',
+    local: [],
+    shared: [{ name: 'LOCAL TEST', serverType: 'Container', targetType: 'Test', container: 'custom-shared-test', sqlBackupPath: 'existing-shared-backups' }],
+    expectedLocal: ['Local']
+  },
+  {
+    label: 'absent local settings with shared default Test name',
+    shared: [{ name: 'local test', serverType: 'Container', targetType: 'Test', container: 'custom-shared-test', sqlBackupPath: 'existing-shared-backups' }],
+    expectedLocal: ['Local']
+  },
+  {
+    label: 'absent local settings with shared Test container owner',
+    shared: [{ name: 'Shared QA', serverType: 'container', targetType: 'Test', container: 'SAMPLE-TEST', sqlBackupPath: 'existing-shared-backups' }],
+    expectedLocal: ['Local'], conflict: /Local Test was not added.*sample-test.*Shared QA/i
+  },
+  {
+    label: 'absent local settings with shared Dev container owner',
+    shared: [{ name: 'Shared Debug', serverType: 'Container', targetType: 'Dev', container: 'SAMPLE', sqlBackupPath: 'existing-shared-backups' }],
+    expectedLocal: ['Local Test'], conflict: /Local was not added.*sample.*Shared Debug/i
+  },
+  {
+    label: 'absent local settings with both shared default names',
+    shared: [
+      { name: 'LOCAL', serverType: 'Cloud', targetType: 'Dev', customField: 'preserve dev' },
+      { name: 'local test', serverType: 'Container', targetType: 'Test', container: 'custom-test', sqlBackupPath: 'existing-shared-backups', customField: 'preserve test' }
+    ], expectedLocal: []
+  }
+]) {
+  test(`workspace initialization respects ${scenario.label} without duplicating effective configurations`, () => {
+    const workspacePath = authorizeRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-shared-defaults-')), 'Test workspace');
+    const workspaceFile = resolveWithinRoot(workspacePath, 'sample.code-workspace');
+    const settingsPath = resolveWithinRoot(workspacePath, '.bcdevtoolset', 'settings.json');
+    fs.writeFileSync(resolveWithinRoot(workspacePath, 'app.json'), '{}\n'); // nosemgrep -- path is contained by the test-owned workspace root
+    fs.writeFileSync(workspaceFile, JSON.stringify({ // nosemgrep -- path is contained by the test-owned workspace root
+      folders: [{ path: '.' }], settings: { bcDevToolset: { configurations: scenario.shared, customSetting: 'keep shared' } }
+    }));
+    if (scenario.local) {
+      fs.mkdirSync(resolveWithinRoot(workspacePath, '.bcdevtoolset')); // nosemgrep -- path is contained by the test-owned workspace root
+      fs.writeFileSync(settingsPath, JSON.stringify({ configurations: scenario.local, licenseFile: 'existing.flf' })); // nosemgrep -- path is contained by the test-owned workspace root
+    }
+    let firstSettings;
+    for (let run = 0; run < 2; run++) {
+      const result = runInitializeWorkspace(workspacePath, workspaceFile);
+      assert.equal(result.status, 0, result.stderr);
+      if (scenario.conflict) {
+        assert.match(result.stdout, scenario.conflict);
+        assert.match(result.stdout, /(?:workspace|shared).*settings|settings.*(?:workspace|shared)/i);
+        assert.match(result.stdout, /rename.*rerun Initialize Workspace/i);
+      }
+      const localSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
+      const workspace = JSON.parse(fs.readFileSync(workspaceFile, 'utf8')); // nosemgrep -- path is contained by the test-owned workspace root
+      assert.deepEqual(localSettings.configurations.map(({ name }) => name), scenario.expectedLocal);
+      assert.deepEqual(workspace.settings.bcDevToolset.configurations, scenario.shared);
+      assert.equal(workspace.settings.bcDevToolset.customSetting, 'keep shared');
+      if (scenario.local) {
+        assert.equal(localSettings.licenseFile, 'existing.flf');
+        assert.deepEqual(localSettings.configurations.slice(0, scenario.local.length), scenario.local);
+      }
+      if (run === 0) firstSettings = localSettings;
+      else assert.deepEqual(localSettings, firstSettings);
+    }
+  });
+}
+
 test('workspace initialization migrates the obsolete country setting to the AL region setting', () => {
   const workspacePath = authorizeRoot(
     fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-country-migration-')),
