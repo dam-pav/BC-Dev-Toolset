@@ -35,7 +35,9 @@ Use this to prepare the workstation for the toolset. This operation is intended 
 
 ### 2. Initialize workspace
 
-Run `BC Dev Toolset: Initialize Workspace`. The PowerShell operation asks for the workspace name when a workspace file needs to be created; the opened folder name is suggested by default. MCP clients can supply `workspaceName` directly or answer the `initializeWorkspace.workspaceName` prompt. Initialization adds the workspace root under the workspace name and coordinates every discovered AL app as a workspace folder. It also adds each nested app path to `files.exclude` so it is not duplicated beneath the workspace-root view. New local settings include one `Local` container configuration for development and test app folders. Re-running initialization adds newly discovered apps and either default configuration when it is missing without replacing existing folder names, file exclusions, configurations, or an explicit test target; conflicting container names are reported and left unchanged.
+Run `BC Dev Toolset: Initialize Workspace`. The PowerShell operation asks for the workspace name when a workspace file needs to be created; the opened folder name is suggested by default. MCP clients can supply `workspaceName` directly or answer the `initializeWorkspace.workspaceName` prompt. Initialization adds the workspace root under the workspace name and coordinates every discovered AL app as a workspace folder. It also adds each nested app path to `files.exclude` so it is not duplicated beneath the workspace-root view.
+
+New local settings include two Container configurations: `Local` with `targetType: Dev` and `includeTestToolkit: "false"` for manual testing and debugging, and `Local Test` with `targetType: Test` and `includeTestToolkit: "true"` for automated testing. Container names use the workspace name with spaces replaced by hyphens; the Test container adds the suffix `-test`. Re-running initialization adds newly discovered apps and each missing default without replacing existing folder names, file exclusions, or configuration values, including existing toolkit settings. Defaults already named in local or shared workspace configurations are retained there without adding local duplicates. Conflicting container names in either settings source are reported and left unchanged; review the local and workspace settings, resolve the conflict, and rerun initialization to add the missing default.
 
 This initializes your current project. You will actually do this for every project you start.
 
@@ -45,7 +47,7 @@ The default settings may be enough to get started. To review or customize your l
 
 This opens `.bcdevtoolset/settings.json`. Start with these settings, changing them only as needed:
 
-- `configurations`: Check that the default `Local` container target suits your project, or add the Business Central environment you want to use.
+- `configurations`: Review the `Local` target for manual testing/debugging and `Local Test` target for automated tests, or add the Business Central environments you want to use.
 - `dependenciesPaths`: Add folders containing dependency `.app` packages or paths to `.zip` archives if your project needs external dependencies.
 - `licenseFile`: Set the path to your Business Central license file if your environment requires one.
 

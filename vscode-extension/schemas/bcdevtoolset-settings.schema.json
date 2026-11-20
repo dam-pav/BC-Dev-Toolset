@@ -75,6 +75,18 @@
           "serverType": "Container",
           "targetType": "Dev",
           "container": "",
+          "includeTestToolkit": "false",
+          "authentication": "UserPassword",
+          "bcUser": "admin",
+          "bcPassword": "P@ssw0rd",
+          "sqlBackupPath": "",
+          "autoRestoreBackup": true
+        },
+        {
+          "name": "Local Test",
+          "serverType": "Container",
+          "targetType": "Test",
+          "container": "",
           "includeTestToolkit": "true",
           "authentication": "UserPassword",
           "bcUser": "admin",

@@ -360,7 +360,7 @@ $settingsPath = if ([string]::IsNullOrWhiteSpace($env:BCDEVTOOLSET_LOCAL_SETTING
 } else {
     [System.IO.Path]::GetFullPath((Join-Path $workspaceConfigurationRoot $env:BCDEVTOOLSET_LOCAL_SETTINGS_PATH))
 }
-Build-Settings -settingsPath $settingsPath -workspaceName $workspaceName -ReconcileWorkspaceDefaults
+Build-Settings -settingsPath $settingsPath -workspaceName $workspaceName -ReconcileWorkspaceDefaults -SharedConfigurations @($toolsetSettings.configurations)
 $localSettings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
 Initialize-WorkspaceBackupFolders -Configurations (@($toolsetSettings.configurations) + @($localSettings.configurations)) -WorkspaceRootPath $workspaceConfigurationRoot
 $workspaceJson | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $workspaceFile.FullName

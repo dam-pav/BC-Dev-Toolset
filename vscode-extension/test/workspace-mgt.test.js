@@ -4,9 +4,124 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
+const vm = require('node:vm');
+const { authorizeRoot, resolveWithinRoot } = require('../path-security');
 
 const repositoryRoot = path.resolve(__dirname, '..', '..');
 const workspaceMgtPath = path.join(repositoryRoot, 'common', 'WorkspaceMgt.ps1');
+
+test('extension local settings and schema defaults separate manual Dev and automated Test containers', () => {
+  const source = fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8'); // nosemgrep -- fixed segments resolve beneath the trusted repository root
+  const defaultFunctions = source.match(/^function getDefaultLocal\w+\([^]*?\n}/gm);
+  assert.ok(defaultFunctions);
+  const context = vm.createContext({ getWorkspaceName: () => 'Sample Project' });
+  const settings = JSON.parse(vm.runInContext(`${defaultFunctions.join('\n')}\nJSON.stringify(getDefaultLocalSettings())`, context));
+  assert.deepEqual(settings.configurations.map(({ name, serverType, targetType, includeTestToolkit, container }) =>
+    ({ name, serverType, targetType, includeTestToolkit, container })), [
+    { name: 'Local', serverType: 'Container', targetType: 'Dev', includeTestToolkit: 'false', container: 'Sample-Project' },
+    { name: 'Local Test', serverType: 'Container', targetType: 'Test', includeTestToolkit: 'true', container: 'Sample-Project-test' }
+  ]);
+  const schema = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'schemas', 'bcdevtoolset-settings.schema.json'), 'utf8')); // nosemgrep -- fixed segments resolve beneath the trusted repository root
+  assert.deepEqual(schema.properties.configurations.default.map(({ name, targetType, includeTestToolkit }) =>
+    ({ name, targetType, includeTestToolkit })), [
+    { name: 'Local', targetType: 'Dev', includeTestToolkit: 'false' },
+    { name: 'Local Test', targetType: 'Test', includeTestToolkit: 'true' }
+  ]);
+});
+
+test('extension fallback adds missing defaults, preserves custom values and reports case-insensitive container conflicts', () => {
+  const source = fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8'); // nosemgrep -- fixed segments resolve beneath the trusted repository root
+  const defaultFunctions = source.match(/^function getDefaultLocal\w+\([^]*?\n}/gm);
+  const ensureFunction = source.match(/^function ensureDefaultLocalConfiguration\([^]*?\n}/m)?.[0];
+  assert.ok(defaultFunctions);
+  assert.ok(ensureFunction);
+  for (const initial of [
+    {},
+    { configurations: [] },
+    { configurations: [{ name: 'Local', container: 'legacy', includeTestToolkit: 'true', customField: 'keep' }] },
+    { configurations: [{ name: 'local test', container: 'custom', includeTestToolkit: 'false', customField: 7 }] },
+    { configurations: [{ name: 'QA', serverType: 'Container', container: 'SAMPLE-TEST' }] }
+  ]) {
+    const configPath = authorizeRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-fallback-')), 'Test configuration');
+    const settingsPath = resolveWithinRoot(configPath, 'settings.json');
+    fs.writeFileSync(settingsPath, JSON.stringify({ licenseFile: 'existing.flf', ...initial })); // nosemgrep -- fixed settings path is contained by the authorized test-owned configuration root
+    const messages = [];
+    const context = vm.createContext({ fs, resolveWithinRoot, getWorkspaceName: () => 'sample', writeOutput: (message) => messages.push(message), configPath });
+    vm.runInContext(`${defaultFunctions.join('\n')}\n${ensureFunction}\nensureDefaultLocalConfiguration(configPath)`, context);
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- fixed settings path is contained by the authorized test-owned configuration root
+    assert.equal(settings.licenseFile, 'existing.flf');
+    const original = initial.configurations || [];
+    assert.deepEqual(settings.configurations.slice(0, original.length), original);
+    assert.equal(settings.configurations.filter(({ name }) => name.toLowerCase() === 'local').length, 1);
+    if (original.some(({ name }) => name === 'QA')) {
+      assert.deepEqual(settings.configurations.map(({ name }) => name), ['QA', 'Local']);
+      assert.match(messages.join('\n'), /Local Test was not added.*sample-test.*QA/);
+      assert.match(messages.join('\n'), /rename.*rerun Initialize Workspace/i);
+    } else {
+      assert.equal(settings.configurations.length, 2);
+      assert.equal(settings.configurations.filter(({ name }) => name.toLowerCase() === 'local test').length, 1);
+    }
+    const firstContent = fs.readFileSync(settingsPath, 'utf8'); // nosemgrep -- fixed settings path is contained by the authorized test-owned configuration root
+    vm.runInContext('ensureDefaultLocalConfiguration(configPath)', context);
+    assert.equal(fs.readFileSync(settingsPath, 'utf8'), firstContent); // nosemgrep -- fixed settings path is contained by the authorized test-owned configuration root
+  }
+});
+
+test('extension local settings reconciles shared names and containers before creating missing defaults', () => {
+  const source = fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8'); // nosemgrep -- fixed segments resolve beneath the trusted repository root
+  const defaultFunctions = source.match(/^function getDefaultLocal\w+\([^]*?\n}/gm);
+  const ensureFunction = source.match(/^function ensureDefaultLocalConfiguration\([^]*?\n}/m)?.[0];
+  assert.ok(defaultFunctions);
+  assert.ok(ensureFunction);
+  for (const scenario of [
+    { local: [{ name: 'Local', container: 'custom-dev', customField: 'keep' }], shared: [{ name: 'QA', serverType: 'container', container: 'SAMPLE-TEST' }], expected: ['Local'], conflict: 'QA' },
+    { local: [], shared: [{ name: 'LOCAL TEST', container: 'custom-test', customField: 'keep shared' }], expected: ['Local'] },
+    { shared: [{ name: 'LOCAL TEST', container: 'custom-test' }], expected: ['Local'] },
+    { shared: [{ name: 'QA', serverType: 'Container', container: 'SAMPLE-TEST' }], expected: ['Local'], conflict: 'QA' },
+    { shared: [{ name: 'Debug', serverType: 'Container', container: 'SAMPLE' }], expected: ['Local Test'], conflict: 'Debug' },
+    { shared: [{ name: 'local', container: 'custom-dev' }, { name: 'LOCAL TEST', container: 'custom-test' }], expected: [] }
+  ]) {
+    const configPath = authorizeRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-shared-fallback-')), 'Test configuration');
+    const settingsPath = resolveWithinRoot(configPath, 'settings.json');
+    if (scenario.local) {
+      fs.writeFileSync(settingsPath, JSON.stringify({ licenseFile: 'keep.flf', configurations: scenario.local })); // nosemgrep -- fixed settings path is contained by the authorized test-owned configuration root
+    }
+    const sharedBefore = structuredClone(scenario.shared);
+    const messages = [];
+    const context = vm.createContext({ fs, resolveWithinRoot, getWorkspaceName: () => 'sample', writeOutput: (message) => messages.push(message), configPath, sharedConfigurations: scenario.shared });
+    vm.runInContext(`${defaultFunctions.join('\n')}\n${ensureFunction}\nensureDefaultLocalConfiguration(configPath, sharedConfigurations)`, context);
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); // nosemgrep -- fixed settings path is contained by the authorized test-owned configuration root
+    assert.deepEqual(settings.configurations.map(({ name }) => name), scenario.expected);
+    assert.deepEqual(scenario.shared, sharedBefore);
+    if (scenario.local) {
+      assert.deepEqual(settings.configurations.slice(0, scenario.local.length), scenario.local);
+      assert.equal(settings.licenseFile, 'keep.flf');
+    }
+    if (scenario.conflict) {
+      assert.ok(messages.some((message) => {
+        const skippedIndex = message.indexOf('was not added');
+        return skippedIndex >= 0 && message.indexOf(scenario.conflict, skippedIndex + 'was not added'.length) >= 0;
+      }), `Expected a skipped-default diagnostic naming ${scenario.conflict}`);
+      assert.match(messages.join('\n'), /(?:shared|workspace).*settings|settings.*(?:shared|workspace)/i);
+      assert.match(messages.join('\n'), /rename.*rerun Initialize Workspace/i);
+    }
+    const firstContent = fs.readFileSync(settingsPath, 'utf8'); // nosemgrep -- fixed settings path is contained by the authorized test-owned configuration root
+    vm.runInContext('ensureDefaultLocalConfiguration(configPath, sharedConfigurations)', context);
+    assert.equal(fs.readFileSync(settingsPath, 'utf8'), firstContent); // nosemgrep -- fixed settings path is contained by the authorized test-owned configuration root
+  }
+});
+
+test('Open Local Settings and PowerShell initialization pass shared configuration context into reconciliation', () => {
+  const source = fs.readFileSync(path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8'); // nosemgrep -- fixed segments resolve beneath the trusted repository root
+  const openLocalSettings = source.match(/(?:async )?function openLocalSettingsJson\([^]*?\n}/)?.[0];
+  assert.ok(openLocalSettings);
+  assert.match(openLocalSettings, /ensureDefaultLocalConfiguration\(configPath,\s*getConfiguration\(\)\.get\('configurations'\)/);
+  assert.doesNotMatch(openLocalSettings, /writeJsonIfMissing\([^;]*getDefaultLocalSettings/);
+  const workspaceMgt = fs.readFileSync(workspaceMgtPath, 'utf8'); // nosemgrep -- fixed segments resolve beneath the trusted repository root
+  const initializeContext = workspaceMgt.match(/function Initialize-Context[^]*?\n}/)?.[0];
+  assert.ok(initializeContext);
+  assert.match(initializeContext, /Build-Settings[^\n]*-SharedConfigurations/);
+});
 
 function runPowerShell(script, environment = {}) {
   const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], {
@@ -372,7 +487,8 @@ test('container creation supports an optional explicit multitenant mode', () => 
 
   const extensionSource = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
     path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
-  const defaultLocalConfiguration = extensionSource.match(/function getDefaultLocalConfiguration\(\)[\s\S]*?\n}/)?.[0] ?? '';
+  const defaultLocalConfiguration = extensionSource.match(/function getDefaultLocalConfiguration\([^)]*\)[\s\S]*?\n}/)?.[0] ?? '';
+  assert.ok(defaultLocalConfiguration);
   assert.doesNotMatch(defaultLocalConfiguration, /multitenant:/);
   assert.equal(Object.hasOwn(schema.properties.configurations.default[0], 'multitenant'), false);
 });

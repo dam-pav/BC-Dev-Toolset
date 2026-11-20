@@ -1340,15 +1340,17 @@ function Format-Json([Parameter(Mandatory, ValueFromPipeline)][String] $json) {
 function New-DefaultLocalConfiguration {
     Param (
         [Parameter(Mandatory=$true)]
-        [string] $containerName
+        [string] $containerName,
+        [ValidateSet('Dev', 'Test')]
+        [string] $targetType = 'Dev'
     )
 
     return [PSCustomObject][ordered]@{
-        name = "Local"
+        name = $(if ($targetType -eq 'Test') { 'Local Test' } else { 'Local' })
         serverType = "Container"
-        targetType = "Dev"
+        targetType = $targetType
         container = $containerName
-        includeTestToolkit = "true"
+        includeTestToolkit = $(if ($targetType -eq 'Test') { 'true' } else { 'false' })
         authentication = "UserPassword"
         bcUser = "admin"
         bcPassword = "P@ssw0rd"
@@ -1364,11 +1366,13 @@ function Build-Settings {
         [Parameter(Mandatory=$true)]
         [string] $workspaceName,
         [Parameter(Mandatory=$false)]
-        [switch] $ReconcileWorkspaceDefaults
+        [switch] $ReconcileWorkspaceDefaults,
+        [Parameter(Mandatory=$false)]
+        [object[]] $SharedConfigurations = @()
     )
 
-    # Check if settings.json file exists
-    if (-not (Test-Path -Path $settingsPath)) {
+    $createSettings = -not (Test-Path -LiteralPath $settingsPath)
+    if ($createSettings) {
         Write-Host ""
         Write-Host "Creating $settingsPath..." -ForegroundColor Gray
 
@@ -1386,46 +1390,51 @@ function Build-Settings {
         $defaultSettings | Add-Member -MemberType NoteProperty -Name recordingsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestResultsPath -Value ""
         $defaultSettings | Add-Member -MemberType NoteProperty -Name pageScriptTestHeaded -Value "false"
-        $defaultContainerName = $workspaceName.Replace(' ','-')
         $defaultSettings | Add-Member -MemberType NoteProperty -Name configurations -Value @()
-
-        # Add one local container configuration for development and test workflows.
-        $remoteConfiguration = New-DefaultLocalConfiguration -containerName $defaultContainerName
-        $defaultSettings.configurations += $remoteConfiguration
-
-        $defaultSettings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
-        Write-Host "$settingsPath created." -ForegroundColor Green
-    } elseif ($ReconcileWorkspaceDefaults) {
+        $settings = $defaultSettings
+    } elseif (-not $ReconcileWorkspaceDefaults) {
+        return
+    } else {
         $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
-        $configurations = if ($null -eq $settings.configurations) { @() } else { @($settings.configurations) }
-        $settingsChanged = $false
-        $defaultContainerName = $workspaceName.Replace(' ','-')
-        $existingLocalConfiguration = @($configurations | Where-Object { $_.name -eq "Local" }) | Select-Object -First 1
+    }
 
+    $configurations = if ($null -eq $settings.configurations) { @() } else { @($settings.configurations) }
+    $settingsChanged = $createSettings
+    $defaultContainerName = $workspaceName.Replace(' ','-')
+    $defaults = @(
+        New-DefaultLocalConfiguration -containerName $defaultContainerName
+        New-DefaultLocalConfiguration -containerName "$defaultContainerName-test" -targetType Test
+    )
+    foreach ($defaultConfiguration in $defaults) {
+        $combinedConfigurations = @($configurations) + @($SharedConfigurations)
+        $existingLocalConfiguration = @($combinedConfigurations | Where-Object { $_.name -eq $defaultConfiguration.name }) | Select-Object -First 1
         if ($null -ne $existingLocalConfiguration) {
-            Write-Host "Workspace local settings already contain Local; existing values were preserved." -ForegroundColor Gray
+            Write-Host "Local or workspace settings already contain $($defaultConfiguration.name); existing values were preserved." -ForegroundColor Gray
+            continue
+        }
+        $localContainerConflict = @($combinedConfigurations | Where-Object {
+            $_.serverType -eq "Container" -and $_.container -eq $defaultConfiguration.container
+        }) | Select-Object -First 1
+        if ($null -ne $localContainerConflict) {
+            Write-Host "$($defaultConfiguration.name) was not added because container '$($defaultConfiguration.container)' is already used by configuration '$($localContainerConflict.name)'. Existing values were preserved. Review the container names in local or workspace settings and rename the conflicting container or add the intended configuration, then rerun Initialize Workspace." -ForegroundColor Yellow
         } else {
-            $localContainerConflict = @($configurations | Where-Object {
-                $_.serverType -eq "Container" -and $_.container -eq $defaultContainerName
-            }) | Select-Object -First 1
-            if ($null -ne $localContainerConflict) {
-                Write-Host "Local was not added because container '$defaultContainerName' is already used by configuration '$($localContainerConflict.name)'." -ForegroundColor Yellow
-            } else {
-                $configurations = @($configurations) + @(New-DefaultLocalConfiguration -containerName $defaultContainerName)
-                $settingsChanged = $true
-                Write-Host "Added Local configuration for '$defaultContainerName'." -ForegroundColor Green
-            }
-        }
-
-        if ($settings.PSObject.Properties['executeTestsInContainerName']) {
-            $settings.PSObject.Properties.Remove('executeTestsInContainerName')
+            $configurations = @($configurations) + @($defaultConfiguration)
             $settingsChanged = $true
+            Write-Host "Added $($defaultConfiguration.name) configuration for '$($defaultConfiguration.container)'." -ForegroundColor Green
         }
+    }
 
-        if ($settingsChanged) {
-            $settings | Add-Member -MemberType NoteProperty -Name configurations -Value @($configurations) -Force
-            $settings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
-        }
+    if ($settings.PSObject.Properties['executeTestsInContainerName']) {
+        $settings.PSObject.Properties.Remove('executeTestsInContainerName')
+        $settingsChanged = $true
+    }
+
+    if ($settingsChanged) {
+        $settings | Add-Member -MemberType NoteProperty -Name configurations -Value @($configurations) -Force
+        $settings | ConvertTo-Json -Depth 10 | Format-Json | Out-File -FilePath $settingsPath -Force
+    }
+    if ($createSettings) {
+        Write-Host "$settingsPath created." -ForegroundColor Green
     }
 }
 function Select-IndexFromList {
@@ -1596,7 +1605,9 @@ function Initialize-Context {
     } else {
         $settingsPath = Join-Path $workspaceRootPath.FullName $SettingsPath
     }
-    Build-Settings $settingsPath $workspaceName
+    $workspaceToolsetSettings = $workspaceJSON.value.settings.bcDevToolset
+    if ($null -eq $workspaceToolsetSettings) { $workspaceToolsetSettings = $workspaceJSON.value.settings."dam-pav.bcdevtoolset" }
+    Build-Settings $settingsPath $workspaceName -SharedConfigurations @($workspaceToolsetSettings.configurations)
 
     # Read settings.json
     $settingsJSONvalue = Get-Content -Path $settingsPath | ConvertFrom-Json
