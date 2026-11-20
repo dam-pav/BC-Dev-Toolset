@@ -2,8 +2,8 @@
 
 - Objective: implement https://github.com/dam-pav/BC-Dev-Toolset/issues/186.
 - Plan revision: 1, approved.
-- Overall status: corrective change approved; PR monitoring pending. Current phase: ready-to-commit.
-- Next action: commit and push approved correction, resolve addressed review thread, and complete monitoring. Final push/check/readiness results will be reported in the PR or response to avoid uncommitted bookkeeping.
+- Overall status: correction approved; PR monitoring pending. Current phase: ready-to-commit.
+- Next action: commit and push the approved literal diagnostic assertion, then complete monitoring. Final execution/readiness results will be reported in the response or PR without leaving local bookkeeping.
 - Approval evidence: user replied `ok` to revision 1 on 2026-11-19. Commit confirmation: required; no task autonomy grant.
 
 ## Repository and environment
@@ -51,5 +51,8 @@
 - Corrective validation: focused 58/58 passed, no skips. Full `npm run validate` exited 0: 650 tests, 648 passed, 0 failed, 2 skipped (assembly linked-manifest/DLL and BCQuality linked-source tests; file symlinks unavailable), duration 47357.2191 ms. Evidence: `C:/Users/Damjan/AppData/Local/Temp/bcdevtoolset-issue186-shared-validation.log`, tool session 21943. Schema JSON parsing and diff checks passed.
 - Corrective independent review: no unresolved source/test/documentation findings; confirmed combined-source checks and no shared mutations, safe fixed-root sinks, accurate narrow test-read suppressions, no added failure swallowing or retry. User replied `ok` on 2026-11-20 to the presented corrective commit and push: `fix: preserve shared container configurations during initialization`, branch `dam-pav/issue186`, push destination `origin/dam-pav/issue186`. No further local status edits planned; final execution and monitoring evidence will be reported externally.
 - Final readiness requires corrective push, addressed thread resolution, clean local workspace and 60 continuous seconds of all-green checks on the final PR head.
+- Shared-configuration correction pushed as `e48cb18`; review thread resolution verified via GraphQL. Independent overall review passed. PR description updated with final behavior and 648 passing tests.
+- Codacy cleared the test file-path finding, then reported a non-literal RegExp constructor at workspace-mgt.test.js:101. Replacing it with literal same-message, ordered substring checks preserves diagnostic coverage without interpreting a configuration name as regex. No product changes. Tests subagent implements and validates; independent reviewer assigned. Commit confirmation pending.
+- Literal diagnostic repair validation: focused workspace-mgt 33/33 passed; full `npm run validate` 650 tests, 648 passed, 0 failed, 2 symlink-related skips, duration 47661.5897 ms. Log: `C:/Users/Damjan/AppData/Local/Temp/bcdevtoolset-issue186-literal-diagnostic-validation.log`. Independent review found no issues and confirmed same-message ordering and recovery assertions remain covered. User replied `ok` on 2026-11-20 approving presented commit `test: compare conflict diagnostics without dynamic regex` and push to `origin/dam-pav/issue186`. Final commit/push/check results will be reported externally.
 
 Independent overall review passed after successful phase push with no unresolved findings. Reviewer verified commit `16acdb18da7208bb59ef8c7c60c3082d45a3ad19` matches origin/dam-pav/issue186, confirmed implementation/tests/schema/docs satisfy #186, and passed `git diff --check main...HEAD`. Validation: 640 passed, 0 failed, 2 skipped. No live container or Extension Development Host testing was performed; outside approved validation scope. User explicitly requested `commit and push` on 2026-11-20 for this remaining bookkeeping update, approving its commit and push to the same task branch.

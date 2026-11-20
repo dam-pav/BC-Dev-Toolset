@@ -98,7 +98,10 @@ test('extension local settings reconciles shared names and containers before cre
       assert.equal(settings.licenseFile, 'keep.flf');
     }
     if (scenario.conflict) {
-      assert.match(messages.join('\n'), new RegExp(`was not added.*${scenario.conflict}`));
+      assert.ok(messages.some((message) => {
+        const skippedIndex = message.indexOf('was not added');
+        return skippedIndex >= 0 && message.indexOf(scenario.conflict, skippedIndex + 'was not added'.length) >= 0;
+      }), `Expected a skipped-default diagnostic naming ${scenario.conflict}`);
       assert.match(messages.join('\n'), /(?:shared|workspace).*settings|settings.*(?:shared|workspace)/i);
       assert.match(messages.join('\n'), /rename.*rerun Initialize Workspace/i);
     }
