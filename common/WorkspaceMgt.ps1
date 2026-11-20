@@ -870,6 +870,19 @@ function Test-AutoRestoreBackup {
     return $true
 }
 
+function Test-AutoRestoreBeforeTest {
+    Param (
+        [Parameter(Mandatory=$true)]
+        [PSObject] $configuration
+    )
+
+    if ($configuration.PSObject.Properties['autoRestoreBeforeTest']) {
+        return $configuration.autoRestoreBeforeTest -eq $true
+    }
+
+    return $true
+}
+
 function Test-ShouldExportInitialTestContainerBackup {
     Param (
         [Parameter(Mandatory=$true)]
@@ -1355,7 +1368,7 @@ function New-DefaultLocalConfiguration {
         bcUser = "admin"
         bcPassword = "P@ssw0rd"
         sqlBackupPath = ""
-        autoRestoreBackup = $true
+        autoRestoreBackup = ($targetType -ne 'Test')
     }
 }
 

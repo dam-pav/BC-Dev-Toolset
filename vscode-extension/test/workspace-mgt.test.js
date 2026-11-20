@@ -27,6 +27,10 @@ test('extension local settings and schema defaults separate manual Dev and autom
     { name: 'Local', targetType: 'Dev', includeTestToolkit: 'false' },
     { name: 'Local Test', targetType: 'Test', includeTestToolkit: 'true' }
   ]);
+  assert.equal(settings.configurations[1].autoRestoreBackup, false);
+  assert.notEqual(settings.configurations[0].autoRestoreBackup, false);
+  assert.equal(schema.properties.configurations.default[1].autoRestoreBackup, false);
+  assert.equal(schema.properties.configurations.default[0].autoRestoreBackup, true);
 });
 
 test('extension fallback adds missing defaults, preserves custom values and reports case-insensitive container conflicts', () => {
@@ -39,7 +43,9 @@ test('extension fallback adds missing defaults, preserves custom values and repo
     {},
     { configurations: [] },
     { configurations: [{ name: 'Local', container: 'legacy', includeTestToolkit: 'true', customField: 'keep' }] },
-    { configurations: [{ name: 'local test', container: 'custom', includeTestToolkit: 'false', customField: 7 }] },
+    { configurations: [{ name: 'local test', container: 'custom', includeTestToolkit: 'false', autoRestoreBackup: true, autoRestoreBeforeTest: false, customField: 7 }] },
+    { configurations: [{ name: 'Local Test', container: 'custom', autoRestoreBackup: false, autoRestoreBeforeTest: true }] },
+    { configurations: [{ name: 'Local Test', container: 'custom' }] },
     { configurations: [{ name: 'QA', serverType: 'Container', container: 'SAMPLE-TEST' }] }
   ]) {
     const configPath = authorizeRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'bcdevtoolset-fallback-')), 'Test configuration');
@@ -52,6 +58,9 @@ test('extension fallback adds missing defaults, preserves custom values and repo
     assert.equal(settings.licenseFile, 'existing.flf');
     const original = initial.configurations || [];
     assert.deepEqual(settings.configurations.slice(0, original.length), original);
+    const generatedTest = settings.configurations.find(({ name }) => name === 'Local Test' &&
+      !original.some((configuration) => configuration.name.toLowerCase() === 'local test'));
+    if (generatedTest) assert.equal(generatedTest.autoRestoreBackup, false);
     assert.equal(settings.configurations.filter(({ name }) => name.toLowerCase() === 'local').length, 1);
     if (original.some(({ name }) => name === 'QA')) {
       assert.deepEqual(settings.configurations.map(({ name }) => name), ['QA', 'Local']);
@@ -132,6 +141,30 @@ function runPowerShell(script, environment = {}) {
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return result.stdout.trim();
 }
+
+test('creation and pre-test restore flags each default to true and ignore the other flag', () => {
+  const output = runPowerShell(`
+    . '${workspaceMgtPath.replaceAll("'", "''")}'
+    $results = @()
+    foreach ($beforeTest in @('omitted', $true, $false)) {
+      foreach ($onCreate in @('omitted', $true, $false)) {
+        $configuration = [pscustomobject]@{}
+        if ($beforeTest -is [bool]) { $configuration | Add-Member autoRestoreBeforeTest $beforeTest }
+        if ($onCreate -is [bool]) { $configuration | Add-Member autoRestoreBackup $onCreate }
+        $results += [pscustomobject]@{
+          beforeTest = Test-AutoRestoreBeforeTest -configuration $configuration
+          onCreate = Test-AutoRestoreBackup -configuration $configuration
+        }
+      }
+    }
+    ConvertTo-Json -InputObject $results -Compress
+  `);
+  assert.deepEqual(JSON.parse(output), [
+    { beforeTest: true, onCreate: true }, { beforeTest: true, onCreate: true }, { beforeTest: true, onCreate: false },
+    { beforeTest: true, onCreate: true }, { beforeTest: true, onCreate: true }, { beforeTest: true, onCreate: false },
+    { beforeTest: false, onCreate: true }, { beforeTest: false, onCreate: true }, { beforeTest: false, onCreate: false }
+  ]);
+});
 
 test('container creation callers pass workspace context required for OnPrem app detection', () => {
   for (const relativePath of ['operations/NewDockerContainer.ps1', 'common/TestMgt.ps1']) {
@@ -361,7 +394,7 @@ test('automatic backup restore requires a boolean Container configuration flag w
   assert.deepEqual(containerRule.then.properties.autoRestoreBackup, {
     type: 'boolean',
     default: true,
-    description: 'Whether Create Docker container and Test operations automatically restore a compatible SQL backup set from sqlBackupPath. Defaults to true when omitted. Manual restore operations ignore this setting.'
+    description: 'Whether Create Docker container automatically restores a compatible SQL backup set from sqlBackupPath. Defaults to true when omitted. Test and manual restore operations ignore this setting.'
   });
 
   const nonContainerRule = schema.definitions.configuration.allOf.find((rule) =>
@@ -378,10 +411,10 @@ test('automatic backup restore requires a boolean Container configuration flag w
   assert.match(createContainerOperation, /New-DockerContainer[\s\S]*?-honorAutoRestoreBackup \$true/);
   const testManagement = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
     path.join(repositoryRoot, 'common', 'TestMgt.ps1'), 'utf8');
-  assert.match(testManagement, /New-DockerContainer[\s\S]*?-honorAutoRestoreBackup \$true/);
-  assert.match(testManagement, /if \(-not \(Test-AutoRestoreBackup -configuration \$configuration\)\)[\s\S]*?Skipping automatic SQL backup restore/);
+  assert.match(testManagement, /New-DockerContainer[\s\S]*?-honorAutoRestoreBackup \$false/);
+  assert.match(testManagement, /if \(-not \(Test-AutoRestoreBeforeTest -configuration \$configuration\)\)[\s\S]*?Skipping automatic SQL backup restore because autoRestoreBeforeTest is false/);
   const manualOperation = fs.readFileSync(path.join(repositoryRoot, 'operations', 'RestoreBcContainerDatabases.ps1'), 'utf8');
-  assert.doesNotMatch(manualOperation, /autoRestoreBackup/);
+  assert.doesNotMatch(manualOperation, /autoRestoreBackup|autoRestoreBeforeTest/);
 });
 
 test('every newly created test container with a SQL backup path exports its initial backup', () => {
@@ -739,8 +772,46 @@ test('runtime synchronization state includes an explicit content revision', () =
     path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
 
   const revision = Number(extensionSource.match(/const runtimeToolsetRevision = (\d+);/)?.[1]);
-  assert.equal(revision, 77, 'Bundled runtime changes must increment the synchronization revision');
+  assert.equal(revision, 78, 'Bundled runtime changes must increment the synchronization revision');
   assert.match(extensionSource, /`\$\{extensionVersion\}\.\$\{runtimeToolsetRevision\}\|\$\{getToolsetPath\(\)\}`/);
+});
+
+test('the restore-setting runtime revision resynchronizes an already installed extension version once', async () => {
+  const extensionSource = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
+    path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
+  const revisionDeclaration = extensionSource.match(/^const runtimeToolsetRevision = \d+;/m)?.[0];
+  const syncKeyFunction = extensionSource.match(/^function getRuntimeSyncStateKey\([^]*?\n}/m)?.[0];
+  const synchronizeFunction = extensionSource.match(/^async function syncRuntimeToolsetAfterExtensionUpdate\([^]*?\n}/m)?.[0];
+  assert.ok(revisionDeclaration && syncKeyFunction && synchronizeFunction);
+  const previousKey = '1.11.16.77|fixture-runtime';
+  let storedKey = previousKey;
+  let syncCount = 0;
+  const updates = [];
+  const context = vm.createContext({
+    getToolsetPath: () => 'fixture-runtime',
+    isExtensionDevelopmentMode: () => false,
+    getMissingRuntimeFiles: () => [],
+    syncRuntimeToolsetQuietly: async () => { syncCount++; },
+    extensionContext: {
+      extension: { packageJSON: { version: '1.11.16' } },
+      globalState: {
+        get: (key) => { assert.equal(key, 'runtimeToolsetSyncedForExtension'); return storedKey; },
+        update: async (key, value) => {
+          assert.equal(key, 'runtimeToolsetSyncedForExtension');
+          updates.push(value);
+          storedKey = value;
+        }
+      }
+    }
+  });
+  vm.runInContext(`${revisionDeclaration}\n${syncKeyFunction}\n${synchronizeFunction}`, context);
+  await vm.runInContext('syncRuntimeToolsetAfterExtensionUpdate(extensionContext)', context);
+  assert.equal(syncCount, 1, 'Old revision must refresh complete runtime files even when the extension version is unchanged');
+  assert.deepEqual(updates, ['1.11.16.78|fixture-runtime']);
+  assert.notEqual(storedKey, previousKey);
+  await vm.runInContext('syncRuntimeToolsetAfterExtensionUpdate(extensionContext)', context);
+  assert.equal(syncCount, 1, 'An already refreshed runtime must not be synchronized again');
+  assert.equal(updates.length, 1);
 });
 
 test('prerequisites distinguish Windows Server roles from client optional features', () => {

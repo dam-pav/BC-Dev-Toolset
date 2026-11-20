@@ -44,7 +44,7 @@ const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
 const mcpServerDefinitionRevision = 47;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 77;
+const runtimeToolsetRevision = 78;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -1696,6 +1696,7 @@ function getDefaultLocalConfiguration(targetType = 'Dev') {
     bcUser: 'admin',
     bcPassword: 'P@ssw0rd',
     sqlBackupPath: '',
+    ...(isTest ? { autoRestoreBackup: false } : {}),
     network: '',
     hostIP: '',
     updateHosts: true
