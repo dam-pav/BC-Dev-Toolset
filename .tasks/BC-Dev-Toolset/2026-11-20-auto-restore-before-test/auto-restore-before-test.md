@@ -2,7 +2,7 @@
 
 - Objective: introduce autoRestoreBeforeTest (default true); test operations ignore autoRestoreBackup; newly initialized Local Test uses autoRestoreBackup false.
 - Plan revision: 1; approved by user message "ok" on 2026-11-20.
-- Overall status: complete; current phase: pushed; next action: none.
+- Overall status: PR follow-through; current phase: ready-to-commit; next action: autonomously commit/push reviewed repair and finish final-head CI monitoring.
 - Repository/worktree: C:/Projekti/DAM-PAV/BC-Dev-Toolset
 - Verified base: main at ca68d37; task branch feat/auto-restore-before-test checked out; working tree clean before this record.
 - Intended branch: feat/auto-restore-before-test; intended destination: origin/feat/auto-restore-before-test.
@@ -94,3 +94,35 @@ Tests: focused68/68 and full653passed/0failed/2skipped. Independent phase review
 - Proposed message: Record completed pre-test restore setting work.
 - Validation: inspected documentation-only diff and whitespace check; application validation remains unchanged and passed.
 - Do not create another bookkeeping update solely to record this bookkeeping commit hash; Git history records that result.
+
+## PR follow-through and validation repair loop 2
+
+- User requested prepare PR; opened https://github.com/dam-pav/BC-Dev-Toolset/pull/188 targeting main.
+- Repository automation added commit5431102 (version1.11.17); fetched, inspected version-only change and fast-forwarded local branch.
+- New-head workflows initially action_required with no jobs; explicitly rerun through GitHub CLI. Codacy succeeded; Codex completed source review with no findings; no review threads.
+- Companion compilation and Ubuntu validation/VSIX packaging succeeded.
+- Windows validation failed existing inventory fixture subprocess deadline30s. One bounded failed-job retry: stable passed, prerelease repeated inventory timeout (654pass/1fail). No further unchanged retries.
+- Root and test_design inspected fixture: parent Get-Module discovery override is not serialized into the fresh host child; child scans runner modules. This is a test fixture isolation problem; production restore source remains unchanged.
+- Bounded repair within phase validation loop: implementation owns restore-diagnostics.test.js only. Serialize controlled discovery into child; regression asserts controlled module record in both real parent/freshchild snapshot stages and distinct PIDs; preserve native error/no-write assertions and deadline.
+- Separate transient OnPrem fixture timeout did not repeat; no scope expansion into credential behavior.
+- Delegation: test formulation test_design; fixture implementation implementation; independent validation/review pending.
+- Commit authorization for this corrective commit: granted by the task-scoped autonomy request on2026-11-22.
+- Prepare-pr completion remains pending final-head successful checks for60s and a clean workspace. Final monitoring results belong in final response, without new uncommitted bookkeeping afterward.
+- Fixture repair implementation complete: controlled module-discovery code is serialized with original diagnostic code; Full parent/child records both assert exact marker module inventory and distinct PIDs.30s deadline, native exit/no-write and real hooks retained.
+- Author-focused restore diagnostics tests:11/11 passed,6.5s. Independent validation notified; no production source changes.
+- Independent repair2 validation passed: focused11/11; npm run validate655 total/653 passed/0 failed/2 unavailable file-symlink skips,48.3s; node syntax and diff whitespace checks passed.
+- Evidence: C:/Users/Damjan/AppData/Local/Temp/bcdevtoolset-auto-restore-before-test-ci-repair2-{focused,full}-validation.log.
+- Independent repair2 review delegated to phase_review; corrective commit gate follows review.
+- Independent repair2 review passed, no findings. Original diagnostic implementation, hooks, distinct child process, native failures/no-writes and30s deadline preserved; no production changes.
+- Main agent reviewed exact repair diff and Expected Failure Handling/Filesystem Path Safety: no new filesystem operations, no weakened failure assertions or arbitrary backend text handling.
+- Repair2 ready-to-commit scope: restore-diagnostics.test.js plus this task record only.
+- Proposed corrective commit: Isolate restore diagnostic inventory in test child processes.
+- Branch/push destination: feat/auto-restore-before-test -> origin/feat/auto-restore-before-test.
+- User explicitly authorized autonomous commits and pushes until all PR checks are green on2026-11-22.
+
+## Autonomous PR completion authorization
+
+- On2026-11-22 user requested: "commit and push autonomously until all checks are green".
+- Scope: this task/PR188 corrective commits and pushes; expires on task completion. No merging or deployment authorization.
+- Previously reviewed and validated repair is unchanged. Both PR-related files are included in the corrective commit.
+- Final CI/review/stability outcome will be reported in the PR response after checking a clean synchronized workspace, without another local bookkeeping edit solely to record this commit hash.
