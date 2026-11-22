@@ -5,11 +5,18 @@ const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const source = path.resolve(__dirname, '../../common/RestoreDiagnostics.ps1').replace(/'/g, "''");
 function run(body) {
-  // Inventory the fixture's loaded modules, without scanning machine-wide module
-  // installations at every snapshot. Restore boundaries and hooks remain real.
-  const moduleInventory = 'function Get-Module { param([string[]]$Name,[switch]$ListAvailable) if($ListAvailable){return}; Microsoft.PowerShell.Core\\Get-Module @PSBoundParameters }';
+  // Serialize the fixture inventory with the real diagnostic code so fresh child
+  // processes also avoid scanning machine-wide module installations. Loaded-module
+  // lookup, restore boundaries, hooks, and child process execution remain real.
+  const moduleInventory = "function Get-Module { param([string[]]$Name,[switch]$ListAvailable) if($ListAvailable){ [pscustomobject]@{Name='BcContainerHelperDiagnosticFixture';Version=[version]'0.0.0';Path='fixture-only/BcContainerHelperDiagnosticFixture.psd1'};return }; Microsoft.PowerShell.Core\\Get-Module @PSBoundParameters }";
+  const diagnosticFixture = [
+    '$script:fixtureDiagnosticCode=Get-BcRestoreDiagnosticCode',
+    "$script:fixtureModuleInventory='"+moduleInventory.replaceAll("'", "''")+"'",
+    'function Get-BcRestoreDiagnosticCode { $script:fixtureModuleInventory+[Environment]::NewLine+$script:fixtureDiagnosticCode }',
+    moduleInventory
+  ].join('\n');
   return spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command',
-    "$ErrorActionPreference='Stop'; . '"+source+"'; . (Join-Path (Split-Path '"+source+"') 'PublishingDiagnostics.ps1');\n"+moduleInventory+'\n'+body.join('\n')], {
+    "$ErrorActionPreference='Stop'; . '"+source+"'; . (Join-Path (Split-Path '"+source+"') 'PublishingDiagnostics.ps1');\n"+diagnosticFixture+'\n'+body.join('\n')], {
     encoding:'utf8',timeout:30000,windowsHide:true
   });
 }
@@ -150,6 +157,18 @@ for(const nativeFailure of [false,true]) {
     ]);
     assert.equal(r.status,nativeFailure?1:0,r.stderr);
     assert.doesNotMatch(r.stdout+r.stderr,/UNEXPECTED/);
+    const records=r.stdout.split(/\r?\n/).filter(l=>l.startsWith('BC_RESTORE_DIAGNOSTIC '))
+      .map(l=>JSON.parse(Buffer.from(l.slice('BC_RESTORE_DIAGNOSTIC '.length),'base64').toString('utf8')));
+    const parentInventory=records.find(record=>record.stage==='host-inventory');
+    const childInventory=records.find(record=>record.stage==='host-fresh-process');
+    assert.ok(parentInventory, 'Full inventory must capture the parent process');
+    assert.ok(childInventory, 'Full inventory must capture a fresh child process');
+    assert.notEqual(parentInventory.pid,childInventory.pid,'Full inventory must launch a distinct process');
+    for(const record of [parentInventory,childInventory]) {
+      assert.deepEqual(record.availableModules,[{
+        Name:'BcContainerHelperDiagnosticFixture',Version:'0.0.0',Path:'fixture-only/BcContainerHelperDiagnosticFixture.psd1'
+      }],record.stage+' must use only the serialized fixture module inventory');
+    }
     if(nativeFailure) assert.match(r.stdout,/powershell exit=9/);
   });
 }

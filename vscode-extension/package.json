@@ -2,7 +2,7 @@
   "name": "bc-dev-toolset",
   "displayName": "Business Central Developer's Toolset",
   "description": "Manage your Business Central development environment. Containers, backups, workspaces and more.",
-  "version": "1.11.16",
+  "version": "1.11.17",
   "publisher": "dam-pav",
   "icon": "assets/bc-dev-toolset.logo.png",
   "license": "MIT",
@@ -472,7 +472,12 @@
                           "autoRestoreBackup": {
                             "type": "boolean",
                             "default": true,
-                            "description": "Whether Create Docker container and Test operations automatically restore a compatible SQL backup set from sqlBackupPath. Defaults to true when omitted. Manual restore operations ignore this setting."
+                            "description": "Whether Create Docker container automatically restores a compatible SQL backup set from sqlBackupPath. Defaults to true when omitted. Test and manual restore operations ignore this setting."
+                          },
+                          "autoRestoreBeforeTest": {
+                            "type": "boolean",
+                            "default": true,
+                            "description": "Whether Test operations automatically restore a compatible SQL backup set from sqlBackupPath before deployment and test execution. Defaults to true when omitted. Container creation and manual restore operations ignore this setting."
                           },
                           "restoreDiagnostics": {
                             "type": "boolean",
@@ -663,6 +668,11 @@
                           "autoRestoreBackup": {
                             "not": {},
                             "errorMessage": "Field \"autoRestoreBackup\" is not valid when \"serverType\" is not \"Container\".",
+                            "doNotSuggest": true
+                          },
+                          "autoRestoreBeforeTest": {
+                            "not": {},
+                            "errorMessage": "Field \"autoRestoreBeforeTest\" is not valid when \"serverType\" is not \"Container\".",
                             "doNotSuggest": true
                           },
                           "memoryLimit": {

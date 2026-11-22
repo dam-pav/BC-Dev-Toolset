@@ -216,7 +216,7 @@ function New-TestExecutionContainerIfMissing {
         -workspaceJSON $workspaceJSON `
         -selectArtifact $selectArtifact `
         -pullFullArtifact $pullFullArtifact `
-        -honorAutoRestoreBackup $true `
+        -honorAutoRestoreBackup $false `
         -deferInitialBackupExport $true
 
     if ($success -ne $true) {
@@ -343,8 +343,8 @@ function Initialize-TestExecutionContainer {
     $testSettings | Add-Member -MemberType NoteProperty -Name bcDevToolsetActualPlatformVersion -Value $actualPlatform -Force
     Write-Host "Verified test container application release '$actualPlatform' against target '$expectedPlatform'." -ForegroundColor Gray
 
-    if (-not (Test-AutoRestoreBackup -configuration $configuration)) {
-        Write-Host "Skipping automatic SQL backup restore because autoRestoreBackup is false for '$containerName'." -ForegroundColor Gray
+    if (-not (Test-AutoRestoreBeforeTest -configuration $configuration)) {
+        Write-Host "Skipping automatic SQL backup restore because autoRestoreBeforeTest is false for '$containerName'." -ForegroundColor Gray
     } elseif ($containerWasCreated) {
         Write-Host "Skipping SQL backup restore because the container was just created." -ForegroundColor Gray
     } else {
