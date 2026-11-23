@@ -86,6 +86,23 @@ earlier preparation failures is unknown.
 
 ## Application verification
 
+Manual restores and automatic restores before tests validate a configured workspace
+`licenseFile` before stopping the service or restoring SQL. It must be an accessible,
+nonempty local file no larger than 16 MB. URLs, network/device and provider paths,
+wildcards and parent traversal are rejected. After SQL restore and service start,
+Toolset imports that license into `NavDatabase` and restarts the BC service before
+tenant and application verification. License content is transported to an owned
+temporary file under `C:\Run\my`, which is removed in `finally`; cleanup failures
+also fail the operation and report how to reconcile the file and service state.
+
+An omitted `licenseFile` preserves the existing license behavior. A backup can
+contain an expired license, so application discovery failures include guidance to
+check the restored license, install a valid license and restart the service before
+retrying verification. A generic exception code does not establish that a license
+expired. Container-side discovery and license-import errors return bounded status
+records instead of exposing backend exception text. Failed import, restart or
+verification stops administrator repair and never retries SQL restoration.
+
 BC27 removed the legacy `Set-NAVApplication -ApplicationVersion` parameter
 ([Microsoft cmdlet changes](https://learn.microsoft.com/en-us/powershell/business-central/cmdlets-changes?view=businesscentral-ps-27)).
 For BC27 and later, Toolset verifies each restored tenant's installed Microsoft
