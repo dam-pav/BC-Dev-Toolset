@@ -693,9 +693,9 @@ test('rejects downgrade, cross-major, and mismatched-package upgrade assessments
   assert.match(platformMismatch.Reason, /platform major version/i);
 });
 
-test('system application restore upgrade keeps additive sync and dependency order', () => {
+test('legacy system application restore upgrade keeps additive sync and dependency order', () => {
   const source = fs.readFileSync(backupMgtPath, 'utf8');
-  const upgradeFunction = source.match(/function Invoke-BcContainerSystemApplicationUpgradeAfterRestore[\s\S]*?^}/m)?.[0] ?? '';
+  const upgradeFunction = source.match(/function Invoke-BcLegacySystemApplicationUpgradeAfterRestore[\s\S]*?^}/m)?.[0] ?? '';
   const publishCommand = upgradeFunction.match(/Publish-NAVApp[\s\S]*?\| Out-Null/)?.[0] ?? '';
 
   assert.match(upgradeFunction, /System Application[\s\S]*Base Application[\s\S]*Application/);
@@ -986,6 +986,9 @@ test('multitenant restore discovers and upgrades actual restored tenants without
       $script:events=[collections.generic.list[string]]::new()
       $script:databaseVersion=if ('${mode}' -eq 'aligned') {'23.5.0.0'} else {'23.0.0.0'}
       $script:versions=@{north=$script:databaseVersion;south=$script:databaseVersion}
+      # Preserve the legacy BC23 orchestration test independently of modern
+      # context discovery, which has production-shaped regression coverage.
+      function Get-BcRestoredApplicationContext { [pscustomobject]@{PlatformVersion='23.5.0.0'} }
       function Restore-DatabasesInBcContainer { $script:events.Add('restore') }
       function Invoke-ScriptInBcContainer { param($containerName,$ScriptBlock,[object[]]$ArgumentList) & $ScriptBlock @ArgumentList }
       function Get-NAVTenant { [pscustomobject]@{Id='north'}; [pscustomobject]@{Id='south'} }

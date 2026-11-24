@@ -5,6 +5,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const test = require('node:test');
 const { authorizeRoot, resolveWithinRoot } = require('../path-security');
+const {workflowFixture}=require('./fixtures/modern-restore.cjs');
 
 const repositoryRoot = path.resolve(__dirname, '..', '..');
 const operations = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'operations', 'operations.json'), 'utf8'));
@@ -19,6 +20,7 @@ function fixture(t) {
   };
   write('Invoke-BcDevToolsetOperation.ps1', fs.readFileSync(path.join(repositoryRoot, 'Invoke-BcDevToolsetOperation.ps1'), 'utf8'));
   write('common/PublishingDiagnostics.ps1', fs.readFileSync(resolveWithinRoot(repositoryRoot, 'common/PublishingDiagnostics.ps1'), 'utf8')); // nosemgrep -- fixed source read contained by repository root through resolveWithinRoot
+  write('common/ModernRestoreUpgrade.ps1', fs.readFileSync(resolveWithinRoot(repositoryRoot, 'common/ModernRestoreUpgrade.ps1'), 'utf8')); // nosemgrep -- fixed dependency contained by repository root
   write('common/WorkspaceMgt.ps1', `
     function Get-OperationDefinitions {
       param($ScriptPath)
@@ -131,7 +133,7 @@ test('invalid build dependency renders red recovery guidance and preserves failu
   assert.equal(result.stderr, '');
 });
 
-for (const mode of ['prepare-error', 'sql-throw', 'sql-error', 'start-error', 'version-empty', 'version-error', 'modern-empty']) {
+for (const mode of ['prepare-error', 'sql-throw', 'sql-error', 'start-error', 'version-empty', 'version-error']) {
   test(`single-tenant restore stops with clean recovery guidance (${mode})`, (t) => {
     const { root, write } = fixture(t);
     write('operations/operations.json', JSON.stringify([
@@ -143,6 +145,9 @@ for (const mode of ['prepare-error', 'sql-throw', 'sql-error', 'start-error', 'v
     const stage = mode === 'prepare-error' ? 'restore preparation' : mode.startsWith('sql') ? 'SQL restoration' : mode === 'start-error' ? 'BC service start' : mode === 'modern-empty' ? 'application version compatibility verification' : 'application version discovery';
     write('operations/Test.ps1', `
       . (Join-Path $PSScriptRoot '../common/BackupMgt.ps1')
+      # This fixture covers legacy restore stage failures; modern discovery and
+      # upgrade have their own full production-shaped fixtures below.
+      function Get-BcRestoredApplicationContext { [pscustomobject]@{PlatformVersion='26.0.0.0'} }
       function global:Write-Host {
         param($Object,[ConsoleColor]$ForegroundColor)
         if ($Object -eq 'Restore SQL backup failed during ${stage}.') {
@@ -193,6 +198,89 @@ for (const mode of ['prepare-error', 'sql-throw', 'sql-error', 'start-error', 'v
   });
 }
 
+for(const mode of ['second-tenant-blocked','publish-error','app-upgrade-error','sync-null-reference']) {
+  test(`modern restore launcher preserves red stage guidance and failure (${mode})`,{skip:process.platform==='win32'?false:'Requires Windows local drive paths and Business Central administration; covered by AL compatibility Windows CI.'},t=>{
+    const {root,write}=fixture(t);
+    write('operations/operations.json',JSON.stringify([{id:'restore',title:'Restore SQL backup',script:'operations/Test.ps1'}]));
+    write('common/BackupMgt.ps1',fs.readFileSync(resolveWithinRoot(repositoryRoot,'common/BackupMgt.ps1'),'utf8')); // nosemgrep -- fixed source contained by repository root
+    write('common/CredentialMgt.ps1','');write('common/RemotingMgt.ps1','');
+    write('operations/Test.ps1',`
+      . (Join-Path $PSScriptRoot '../common/BackupMgt.ps1')
+      function global:Write-Host {
+        param($Object,[ConsoleColor]$ForegroundColor)
+        if($Object -like 'Restore SQL backup failed during modern *'){
+          if($ForegroundColor -ne [ConsoleColor]::Red){throw 'UNEXPECTED HEADING COLOR'}
+          [Console]::WriteLine('FAILURE HEADING COLOR: Red')
+        }
+        Microsoft.PowerShell.Utility\\Write-Host @PSBoundParameters
+      }
+      ${workflowFixture({mode,multitenant:true}).replace('catch {$failure=$_.Exception}','catch {throw}')}
+      Write-Host 'UNEXPECTED SUCCESS'
+    `);
+    const result=spawnSync('pwsh',['-NoProfile','-NonInteractive','-File','./Invoke-BcDevToolsetOperation.ps1','-Operation','restore','-NonInteractive'],{cwd:root,encoding:'utf8',windowsHide:true,timeout:30000});
+    assert.equal(result.status,1,result.stderr+'\n'+result.stdout);assert.equal(result.stderr,'');
+    assert.match(result.stdout,/FAILURE HEADING COLOR: Red/);
+    assert.match(result.stdout,/SQL restore returned/);assert.match(result.stdout,/Inspect|Check/);
+    assert.match(result.stdout,/No automatic retry/);
+    if(mode!=='second-tenant-blocked') {assert.match(result.stdout,/Error code: -?\d+/);assert.match(result.stdout,/partially completed/)}
+    if(mode==='sync-null-reference') {
+      assert.match(result.stdout,/null[- ]?reference/i);
+      assert.match(result.stdout,/publication.*not.*started|not.*started.*publication/i);
+      assert.doesNotMatch(result.stdout,/license|expired|unexpired/i);
+    }
+    assert.doesNotMatch(result.stdout,/PRIVATE|password=secret|UNEXPECTED|Exception:|Line\s*\||At line:|DONE/);
+  });
+}
+
+
+for (const mode of ['missing', 'invalid-config']) {
+  test(`restore runtime initialization renders plain red guidance after startup/staging (${mode})`, t => {
+    const {root,write}=fixture(t);
+    write('operations/operations.json',JSON.stringify([{id:'restore',title:'Restore SQL backup',script:'operations/Test.ps1'}]));
+    write('common/BackupMgt.ps1',fs.readFileSync(resolveWithinRoot(repositoryRoot,'common/BackupMgt.ps1'),'utf8')); // nosemgrep -- fixed source contained by repository root
+    write('common/CredentialMgt.ps1','');
+    write('common/RemotingMgt.ps1','');
+    write('operations/Test.ps1',`
+      . (Join-Path $PSScriptRoot '../common/BackupMgt.ps1')
+      function global:Write-Host {
+        param($Object,[ConsoleColor]$ForegroundColor)
+        if($Object -eq 'Restore SQL backup failed during restore runtime selection.'){
+          if($ForegroundColor -ne [ConsoleColor]::Red){throw 'UNEXPECTED HEADING COLOR'}
+          [Console]::WriteLine('FAILURE HEADING COLOR: Red')
+        }
+        Microsoft.PowerShell.Utility\\Write-Host @PSBoundParameters
+      }
+      $env:PSModulePath=$PSScriptRoot
+      ${mode==='missing'?"$PSModuleAutoLoadingPreference='None'":`
+      $module=New-Module -Name BcContainerHelper -ScriptBlock {
+        $script:bcContainerHelperConfig=@{usePwshForBc24='private incompatible value'}
+        function Restore-DatabasesInBcContainer {throw 'UNEXPECTED SQL'}
+        Export-ModuleMember -Function Restore-DatabasesInBcContainer
+      }
+      Import-Module $module
+      `}
+      $bcContainerHelperConfig=@{usePwshForBc24=$true}
+      function Invoke-BcContainerSqlBackupRestoreCore {throw 'UNEXPECTED SQL PREPARATION'}
+      Write-Host 'TARGET STARTED'
+      Write-Host 'BACKUP STAGED'
+      Restore-BcContainerSqlBackupEntries -containerName selected -bakFolder unused -backupEntries @([pscustomobject]@{DatabaseRole='database'}) -configuration ([pscustomobject]@{})
+      Write-Host 'UNEXPECTED SUCCESS'
+    `);
+    const result=spawnSync('pwsh',['-NoProfile','-NonInteractive','-File','./Invoke-BcDevToolsetOperation.ps1','-Operation','restore','-NonInteractive'],{
+      cwd:root,encoding:'utf8',windowsHide:true,timeout:30000
+    });
+    assert.equal(result.status,1,result.stderr+'\n'+result.stdout);
+    assert.equal(result.stderr,'');
+    assert.match(result.stdout,/FAILURE HEADING COLOR: Red/);
+    assert.match(result.stdout,/TARGET STARTED/);assert.match(result.stdout,/BACKUP STAGED/);
+    assert.match(result.stdout,/BcContainerHelper/);
+    assert.match(result.stdout,/Install or repair.*reload the operation host/);
+    assert.match(result.stdout,/No BC service stop or SQL restoration was started/);
+    assert.match(result.stdout,/may already have been started.*backup files staged/);
+    assert.match(result.stdout,/No automatic retry/);
+    assert.doesNotMatch(result.stdout,/UNEXPECTED|private incompatible|No restore preparation|Exception:|Line\s*\||At line:|DONE/);
+  });
+}
 
 for (const mode of ['unsupported-helper', 'target-mismatch', 'already-active', 'missing-module', 'verify-native', 'verify-setup', 'verify-unavailable', 'verify-pass']) {
   test(`restore diagnostic rejection survives the outer restore boundary (${mode})`, (t) => {
@@ -232,7 +320,6 @@ for (const mode of ['unsupported-helper', 'target-mismatch', 'already-active', '
         if ($ListAvailable) { return }
         Microsoft.PowerShell.Core\\Get-Module @PSBoundParameters
       }
-      $bcContainerHelperConfig=@{usePwshForBc24=$true}
       function Get-BcContainerSqlBackupRestoreParameters { @{containerName='target';bakFile='database.bak'} }
       function Invoke-ScriptInBcContainer { Write-Host 'PREPARATION ONCE'; 'CRONUS' }
       function Repair-BcContainerAdministratorAfterRestore { ${success ? "Write-Host 'ADMIN ONCE'" : "throw 'UNEXPECTED ADMIN REPAIR'"} }
@@ -255,6 +342,7 @@ for (const mode of ['unsupported-helper', 'target-mismatch', 'already-active', '
         }
         function Restore-DatabasesInBcContainer {
           [CmdletBinding()]param($containerName,$bakFile,$databaseName)
+          if($script:bcContainerHelperConfig.usePwshForBc24){throw 'UNEXPECTED HELPER RUNTIME'}
           Write-Host 'HELPER ATTEMPT'
           Invoke-ScriptInBcContainer -containerName '${mode === 'target-mismatch' ? 'other' : 'target'}' -scriptblock {
             param($name,$backup)
@@ -271,7 +359,7 @@ for (const mode of ['unsupported-helper', 'target-mismatch', 'already-active', '
       ${mode === 'missing-module' ? "function Restore-DatabasesInBcContainer { throw 'UNEXPECTED SQL EXECUTION' }" : ''}
       $before=& $module { (Get-Command Invoke-ScriptInBcContainer).ScriptBlock.ToString() }
       try {
-        Restore-BcContainerSqlBackupEntries -containerName target -bakFolder unused -backupEntries @([pscustomobject]@{DatabaseRole='database'}) -configuration ([pscustomobject]@{restoreDiagnostics=$true})
+        Restore-BcContainerSqlBackupEntries -containerName target -bakFolder unused -backupEntries @([pscustomobject]@{DatabaseRole='database'}) -configuration ([pscustomobject]@{restoreDiagnostics=$true${mode === 'missing-module' ? ';restoreUseWindowsPowerShell=$false' : ''}})
         Write-Host '${success ? 'RESTORE COMPLETED' : 'UNEXPECTED SUCCESS'}'
       } finally {
         $after=& $module { (Get-Command Invoke-ScriptInBcContainer).ScriptBlock.ToString() }
@@ -280,7 +368,7 @@ for (const mode of ['unsupported-helper', 'target-mismatch', 'already-active', '
         if ($active -ne $${mode === 'already-active'}) { throw 'UNEXPECTED WRAPPER STATE' }
         $owned=& $module { @(Get-Variable BcRestoreDiagnosticCode,BcRestoreDiagnosticTarget,BcRestoreDiagnosticRejections,BcRestoreVerificationToken,BcRestoreExpectedFailureFactory -Scope Script -ErrorAction Ignore).Count }
         if ($owned -ne 0) { throw 'UNEXPECTED DIAGNOSTIC STATE' }
-        if (-not $bcContainerHelperConfig.usePwshForBc24) { throw 'UNEXPECTED RUNTIME STATE' }
+        if (-not (& $module {$script:bcContainerHelperConfig.usePwshForBc24})) { throw 'UNEXPECTED RUNTIME STATE' }
         Write-Host 'CLEANUP VERIFIED'
       }
     `);

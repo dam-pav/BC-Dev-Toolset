@@ -1,6 +1,7 @@
 . (Join-Path $PSScriptRoot 'CredentialMgt.ps1')
 . (Join-Path $PSScriptRoot 'RemotingMgt.ps1')
 . (Join-Path $PSScriptRoot 'PublishingDiagnostics.ps1')
+. (Join-Path $PSScriptRoot 'ModernRestoreUpgrade.ps1')
 
 function New-BcRestoreFailure {
     param([string] $Stage, [string] $State, [string] $Detail = '', $Cause)
@@ -12,6 +13,128 @@ function New-BcRestoreFailure {
     }
     if (-not $Detail) { $Detail = 'The underlying cause has not been established from safe structured diagnostics.' }
     return (New-BcExpectedFailure -Stage $Stage -Message "SQL backup restore failed during $Stage.$status $Detail $State Check the target database, BC service state and container administration-module compatibility before an explicitly approved retry. Preserve the backup set; do not assume the target database is usable. No automatic retry or alternate restore was attempted.")
+}
+
+function Get-BcRestoreValidatedLicenseFile {
+    param([PSObject] $SettingsJSON)
+    $ErrorActionPreference = 'Stop'
+    $configuredPath = [string]$SettingsJSON.licenseFile
+    if ([string]::IsNullOrWhiteSpace($configuredPath)) { return '' }
+    $detail = 'licenseFile must name an accessible local license file; URLs, provider paths, network/device paths, wildcards and parent traversal are unsupported.'
+    try {
+        $localPath = $configuredPath.Replace('/', '\')
+        $absolute = $localPath -match '^[A-Za-z]:\\'
+        $segments = if ($absolute) { $localPath.Substring(3) } else { $localPath }
+        if ((-not $absolute -and $localPath.StartsWith('\')) -or
+            $segments -match '[:<>"|?*\[\]\x00-\x1f]' -or
+            $segments -match '(?i)(^|\\)(\.\.|CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])(?:[ .]|$)' -or
+            @($segments.Split('\') | Where-Object { $_ -and $_ -ne '.' -and $_ -match '[ .]$' }).Count -gt 0) {
+            throw 'Unsupported license path.'
+        }
+        # licenseFile is intentionally configurable outside the workspace. Validate
+        # that configured local file at this boundary before accessing it.
+        $validatedLicenseFile = [IO.Path]::GetFullPath($configuredPath, (Get-Location).ProviderPath)
+        if ($validatedLicenseFile -notmatch '^[A-Za-z]:[\\/]') { throw 'Unsupported license root.' }
+        $licenseItem = Get-Item -LiteralPath $validatedLicenseFile -ErrorAction Stop
+        if ($licenseItem.PSProvider.Name -ne 'FileSystem' -or $licenseItem.PSIsContainer -or
+            $licenseItem.Length -le 0 -or $licenseItem.Length -gt 16MB) {
+            $detail = 'licenseFile must name a nonempty local file no larger than 16 MB.'
+            throw 'Invalid license file.'
+        }
+        # Open read-only now so inaccessible licenses fail before SQL changes.
+        $stream = [IO.File]::OpenRead($validatedLicenseFile)
+        try { $null = $stream.ReadByte() } finally { $stream.Dispose() }
+        return $validatedLicenseFile
+    } catch {
+        throw (New-BcExpectedFailure -Stage 'restore license validation' -Message "SQL backup restore license validation failed. $detail Correct the workspace licenseFile setting and file permissions before retrying. No BC service stop or SQL restoration was started by this restore; the selected container may already have been started and backup files staged.")
+    }
+}
+
+function Invoke-BcRestoreLicenseImport {
+    param([Parameter(Mandatory)][string] $ContainerName,
+        [Parameter(Mandatory)][string] $ValidatedLicenseFile)
+    $ErrorActionPreference = 'Stop'
+    $state = 'SQL restore returned; license installation and BC service restart may have partially completed. Application versions and administrator access have not been verified.'
+    $remoteImportStarted = $false
+    try {
+        # Only the file returned by the restore configuration boundary reaches this
+        # sink. Recheck size while reading because the file may have changed.
+        $stream = [IO.File]::OpenRead($ValidatedLicenseFile)
+        try {
+            if ($stream.Length -le 0 -or $stream.Length -gt 16MB) { throw 'Invalid license size.' }
+            $licenseBytes = New-Object byte[] ([int]$stream.Length)
+            $offset = 0
+            while ($offset -lt $licenseBytes.Length) {
+                $count = $stream.Read($licenseBytes, $offset, $licenseBytes.Length - $offset)
+                if ($count -eq 0) { throw 'License file changed while reading.' }
+                $offset += $count
+            }
+        } finally { $stream.Dispose() }
+        $extension = if ([IO.Path]::GetExtension($ValidatedLicenseFile) -ieq '.flf') { '.flf' } else { '.bclicense' }
+        $ownedFileName = 'bcdevtoolset-restore-license-' + [Guid]::NewGuid().ToString('N') + $extension
+        Write-Host 'Applying the configured workspace license before restored application verification.' -ForegroundColor Green
+        $remoteImportStarted = $true
+        $result = Invoke-ScriptInBcContainer -containerName $ContainerName -ScriptBlock {
+            param([byte[]]$licenseBytes, [string]$ownedFileName)
+            $ErrorActionPreference = 'Stop'
+            $status = 'Failed'; $errorCode = $null; $cleanupFailed = $false
+            $failureStage = 'staging'
+            $ownedPath = $null
+            try {
+                # Host-created GUID filename and fixed root confine the only write.
+                if ($ownedFileName -cnotmatch '^bcdevtoolset-restore-license-[0-9a-f]{32}\.(bclicense|flf)$') { throw 'Invalid owned license filename.' }
+                if ($licenseBytes.Length -le 0 -or $licenseBytes.Length -gt 16MB) { throw 'Invalid license payload size.' }
+                $ownedPath = Join-Path 'C:\Run\my' $ownedFileName
+                [IO.File]::WriteAllBytes($ownedPath, $licenseBytes)
+                $failureStage = 'license-import'
+                Import-NAVServerLicense -LicenseFile $ownedPath -ServerInstance BC -Database NavDatabase -ErrorAction Stop -WarningAction Ignore | Out-Null
+                $failureStage = 'service-restart'
+                Set-NAVServerInstance -ServerInstance BC -Restart -ErrorAction Stop | Out-Null
+                $status = 'Passed'
+                $failureStage = 'complete'
+            } catch { $errorCode = $_.Exception.HResult }
+            finally {
+                if ($ownedPath) {
+                    try { if (Test-Path -LiteralPath $ownedPath -ErrorAction Stop) { Remove-Item -LiteralPath $ownedPath -Force -ErrorAction Stop } }
+                    catch { $cleanupFailed = $true; if ($null -eq $errorCode) { $errorCode = $_.Exception.HResult } }
+                }
+            }
+            [pscustomobject]@{ BcRestoreLicenseResult = 1; Status = $status; FailureStage = $failureStage; ErrorCode = $errorCode; CleanupFailed = $cleanupFailed }
+        } -ArgumentList @($licenseBytes, $ownedFileName) -ErrorAction Stop
+        if (@($result).Count -ne 1 -or $result.BcRestoreLicenseResult -isnot [int] -or $result.BcRestoreLicenseResult -ne 1 -or
+            $result.Status -isnot [string] -or $result.Status -cne 'Passed' -or
+            $result.FailureStage -isnot [string] -or $result.FailureStage -cne 'complete' -or
+            $result.CleanupFailed -isnot [bool] -or $result.CleanupFailed -ne $false -or $null -ne $result.ErrorCode) {
+            $numericCode = 0
+            $codeDetail = if ([int]::TryParse([string]$result.ErrorCode, [ref]$numericCode)) { " Error code: $numericCode." } else { '' }
+            # Only this fixed protocol enum selects reviewed stage-specific text.
+            $stageDetail = switch -CaseSensitive ([string]$result.FailureStage) {
+                'staging' { 'The temporary license staging step failed. Check free disk space and write access to C:\Run\my.' }
+                'license-import' { 'The license import step failed in Import-NAVServerLicense. Check that the configured license is valid for this BC version and has not expired; the service restart was not started.' }
+                'service-restart' { 'The BC service restart step failed after license import returned. Inspect the BC service state and correct its startup failure before retrying verification.' }
+                'complete' { 'License import and BC service restart returned, but temporary-file cleanup or the completion result could not be verified.' }
+                default { 'The license installation stage could not be established from the transport result. Inspect the target license and BC service state before retrying verification.' }
+            }
+            $failureHeadingStage = switch -CaseSensitive ([string]$result.FailureStage) {
+                'staging' { 'restored license staging' }
+                'license-import' { 'restored license import' }
+                'service-restart' { 'restored license service restart' }
+                'complete' {
+                    if ($result.CleanupFailed -is [bool] -and $result.CleanupFailed) { 'restored license cleanup' }
+                    else { 'restored license installation' }
+                }
+                default { 'restored license installation' }
+            }
+            $cleanupDetail = if ($result.CleanupFailed -eq $true) { " Temporary license cleanup failed; inspect C:\Run\my\$ownedFileName and remove that owned temporary file after reconciliation." } else { " If the transport result is incomplete, temporary-file cleanup is unverified; inspect C:\Run\my\$ownedFileName before proceeding." }
+            throw (New-BcRestoreFailure -Stage $failureHeadingStage -State $state -Detail "$stageDetail$codeDetail$cleanupDetail Inspect the target license and service state; install a valid license and restart the BC service before explicitly retrying verification.")
+        }
+    } catch {
+        if ($_.Exception.Data['BcDevToolsetExpectedFailure']) { throw }
+        if (-not $remoteImportStarted) {
+            throw (New-BcRestoreFailure -Stage 'restored license read' -State 'SQL restore returned; license import and its BC service restart were not started. Application versions and administrator access have not been verified.' -Cause $_.Exception -Detail 'The configured license file could not be read after SQL restore. It may have been removed, locked, become inaccessible or changed size since validation. Restore access to the configured local licenseFile and ensure it remains nonempty and no larger than 16 MB. Inspect the restored database and BC service state, then install a valid license and restart the service before explicitly retrying verification.')
+        }
+        throw (New-BcRestoreFailure -Stage 'restored license installation' -State $state -Cause $_.Exception -Detail 'Configured-license installation could not be verified. Inspect the target license, BC service state and C:\Run\my for owned bcdevtoolset-restore-license-* temporary files. Correct the workspace licenseFile setting, install a valid unexpired license and restart the BC service before explicitly retrying verification.')
+    }
 }
 
 function Get-SqlBackupRootPath {
@@ -421,35 +544,21 @@ function Get-BcSystemApplicationUpgradeAssessment {
     }
 }
 
-function Assert-BcModernRestoredApplicationVersions {
-    Param ([Parameter(Mandatory=$true)] $State)
-    # BC27 removed Set-NAVApplication -ApplicationVersion. Verify actual tenant
-    # installations, never infer a database version from the media or artifact URL.
-    # https://learn.microsoft.com/en-us/powershell/business-central/cmdlets-changes?view=businesscentral-ps-27
-    $platform = $null
-    $valid = [Version]::TryParse([string]$State.PlatformVersion, [ref]$platform)
-    $versions = @()
-    foreach ($name in @('System Application', 'Base Application', 'Application')) {
-        $installed = @($State.InstalledApps | Where-Object Name -eq $name)
-        $packages = @($State.PackageApps | Where-Object Name -eq $name)
-        $installedVersion = $null; $packageVersion = $null
-        if ($installed.Count -ne 1 -or $packages.Count -ne 1 -or
-            -not [Version]::TryParse([string]$installed[0].Version, [ref]$installedVersion) -or
-            -not [Version]::TryParse([string]$packages[0].Version, [ref]$packageVersion)) {
-            $valid = $false
-            continue
-        }
-        $versions += [string]$packageVersion
-        if ($null -eq $platform -or $installedVersion.Major -ne $platform.Major -or $installedVersion -ne $packageVersion) {
-            $valid = $false
-        }
+function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {
+    param([Parameter(Mandatory)][string] $containerName, [string[]] $tenantIds)
+    $context=Get-BcRestoredApplicationContext -ContainerName $containerName
+    $platform=$null
+    if(-not [Version]::TryParse([string]$context.PlatformVersion,[ref]$platform)) {
+        throw (New-BcRestoreFailure -Stage 'application platform discovery' -State 'SQL restore returned; no application upgrade or administrator repair was started.' -Detail 'A valid installed BC platform version could not be established. Inspect the service executable and administration tools before retrying verification.')
     }
-    if (-not $valid -or @($versions | Select-Object -Unique).Count -ne 1) {
-        throw (New-BcRestoreFailure -Stage 'application version compatibility verification' -State 'SQL restore returned; application compatibility and administrator access have not been verified. No application upgrade or administrator repair was started for this tenant.' -Detail 'BC27 and later require exactly one installed Microsoft System Application, Base Application and Application per restored tenant, with valid versions matching each corresponding container package, one common package version and the platform major. Inspect Get-NAVAppInfo -ServerInstance BC -Tenant <tenant> and the container media. Use compatible media or complete a supported application upgrade before retrying verification; this restore does not run the legacy ApplicationVersion upgrade routine for BC27 and later.')
+    if($platform.Major -ge 27) {
+        Invoke-BcModernSystemApplicationUpgradeAfterRestore -ContainerName $containerName -TenantIds $tenantIds -Context $context
+    } else {
+        Invoke-BcLegacySystemApplicationUpgradeAfterRestore -containerName $containerName -tenantIds $tenantIds
     }
 }
 
-function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {
+function Invoke-BcLegacySystemApplicationUpgradeAfterRestore {
     Param (
         [Parameter(Mandatory=$true)]
         [string] $containerName,
@@ -476,6 +585,7 @@ function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {
             $state = Invoke-ScriptInBcContainer -containerName $containerName -ScriptBlock {
                 Param ($restoredTenantId)
                 $ErrorActionPreference = 'Stop'
+                try {
                 $serverInstance = "BC"
                 $tenant = $restoredTenantId
                 $packageDefinitions = @(
@@ -515,10 +625,23 @@ function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {
                     InstalledApps = $installedApps
                     PackageApps = $packageApps
                 }
+                } catch {
+                    # Return bounded structured status so the helper does not print
+                    # backend exception bodies, source decoration or event payloads.
+                    [pscustomobject]@{ BcRestoreDiscoveryFailure = $true; ErrorCode = $_.Exception.HResult; TypeLoadFailure = $_.Exception -is [TypeLoadException] }
+                }
             } -ArgumentList $tenantId -ErrorAction Stop
+            if ($state.BcRestoreDiscoveryFailure -eq $true) {
+                $numericCode = 0
+                $codeDetail = if ([int]::TryParse([string]$state.ErrorCode, [ref]$numericCode)) { " Error code: $numericCode." } else { '' }
+                $typeDetail = if ($state.TypeLoadFailure -eq $true) { ' The container administration module could not load a required .NET type. Check its assembly dependencies and PowerShell runtime compatibility.' } else { '' }
+                throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Detail "Application version discovery failed; the underlying cause has not been established from safe structured diagnostics.$codeDetail$typeDetail Check whether the restored database license has expired; install a valid license and restart the BC service before retrying verification. Configure workspace licenseFile to apply the license during future restores.")
+            }
         }
         catch {
-            throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Cause $_.Exception)
+            if ($_.Exception.Data['BcDevToolsetExpectedFailure']) { throw }
+            $typeDetail = if ($_.Exception -is [TypeLoadException]) { ' The container administration module could not load a required .NET type. Check its assembly dependencies and PowerShell runtime compatibility.' } else { '' }
+            throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Cause $_.Exception -Detail "Application version discovery could not be completed.$typeDetail Check whether the restored database license has expired; install a valid license and restart the BC service before retrying verification. Configure workspace licenseFile to apply the license during future restores.")
         }
 
         $parsedPlatform = $null
@@ -526,14 +649,7 @@ function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {
             throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Detail 'The administration tools returned an empty or invalid platform version. Inspect the BC service executable and administration tools before retrying verification.')
         }
         if ($parsedPlatform.Major -ge 27) {
-            Assert-BcModernRestoredApplicationVersions -State $state
-            Write-Host "Platform/media: $($state.PlatformVersion)" -ForegroundColor Gray
-            foreach ($app in $state.InstalledApps) {
-                $package = @($state.PackageApps | Where-Object Name -eq $app.Name)[0]
-                Write-Host "$($app.Name): installed '$($app.Version)', container package '$($package.Version)'" -ForegroundColor Gray
-            }
-            Write-Host "Tenant '$tenantId': installed Microsoft application versions match the container packages and platform major. BC27 and later do not use the legacy database ApplicationVersion." -ForegroundColor Gray
-            continue
+            throw (New-BcRestoreFailure -Stage 'legacy application upgrade selection' -State 'SQL restore returned; no legacy application upgrade was started.' -Detail 'BC27 and later require the modern installed-app upgrade workflow. Check the platform selection before retrying verification.')
         }
         if ([string]::IsNullOrWhiteSpace($state.DatabaseApplicationVersion)) {
             throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Detail 'The administration commands returned an empty platform or database application version. Inspect Get-NAVApplication and the BC administration tools for this container; no version was inferred from app packages.')
@@ -789,12 +905,46 @@ function Repair-BcContainerAdministratorAfterRestore {
     }
 }
 
+function Get-BcRestoreRuntimeConfiguration {
+    $ErrorActionPreference = 'Stop'
+    $runtimeDetail = ''
+    try {
+        # Resolve the restore command first so a fresh process can auto-load the
+        # helper. Read its own script configuration, never a caller-side shadow.
+        $helperRestoreCommand = Get-Command Restore-DatabasesInBcContainer -ErrorAction Stop
+        $helperModule = $helperRestoreCommand.Module
+        if ($null -eq $helperModule -or $helperModule.Name -cne 'BcContainerHelper') {
+            $runtimeDetail = 'The resolved SQL restore command is not owned by the BcContainerHelper module.'
+            throw 'Unexpected restore command owner.'
+        }
+        $helperConfig = & $helperModule { Get-Variable bcContainerHelperConfig -Scope Script -ValueOnly -ErrorAction Stop }
+        if ($helperConfig -isnot [System.Collections.IDictionary] -or $helperConfig.IsReadOnly -or
+            $helperConfig.usePwshForBc24 -isnot [bool]) {
+            $runtimeDetail = 'The BcContainerHelper module configuration does not expose a writable dictionary with a boolean usePwshForBc24 option.'
+            throw 'Incompatible helper configuration.'
+        }
+    } catch {
+        if (-not $runtimeDetail) {
+            $runtimeDetail = if ($_.Exception -is [System.Management.Automation.CommandNotFoundException]) {
+                'The BcContainerHelper SQL restore command is unavailable.'
+            } elseif ($_.FullyQualifiedErrorId -like 'VariableNotFound*') {
+                'The BcContainerHelper module does not expose its script-scoped runtime configuration.'
+            } else {
+                "The helper runtime configuration could not be initialized; the underlying cause is unknown. Error code: $($_.Exception.HResult)."
+            }
+        }
+        throw (New-BcExpectedFailure -Stage 'restore runtime selection' -Message "SQL backup restore runtime selection failed. $runtimeDetail Install or repair a compatible BcContainerHelper module, check command ownership and its usePwshForBc24 configuration, then reload the operation host before retrying. No BC service stop or SQL restoration was started by this restore; the selected container may already have been started and backup files staged. No automatic retry or alternate restore was attempted.")
+    }
+    return $helperConfig
+}
+
 function Restore-BcContainerSqlBackupEntries {
     Param (
         [Parameter(Mandatory=$true)] [string] $containerName,
         [Parameter(Mandatory=$true)] [string] $bakFolder,
         [Parameter(Mandatory=$true)] [AllowEmptyCollection()] [array] $backupEntries,
-        [Parameter(Mandatory=$true)] [PSObject] $configuration
+        [Parameter(Mandatory=$true)] [PSObject] $configuration,
+        [PSObject] $settingsJSON
     )
     $forceWindowsPowerShell = $configuration.restoreUseWindowsPowerShell
     if ($null -ne $configuration.restoreDiagnostics -and $configuration.restoreDiagnostics -isnot [bool]) {
@@ -813,18 +963,33 @@ function Restore-BcContainerSqlBackupEntries {
         Invoke-BcContainerSqlBackupRestoreCore @PSBoundParameters
         return
     }
-    $helperConfig = $bcContainerHelperConfig
-    if ($null -eq $helperConfig -or $helperConfig.usePwshForBc24 -isnot [bool]) {
-        throw (New-BcExpectedFailure -Stage 'restore runtime selection' -Message 'The loaded BcContainerHelper configuration does not expose a boolean usePwshForBc24 option. Import a compatible helper and inspect its configuration before retrying. No restore preparation, service stop or SQL restoration was started.')
-    }
+    $helperConfig = Get-BcRestoreRuntimeConfiguration
     $previousUsePwsh = $helperConfig.usePwshForBc24
+    try { $helperConfig.usePwshForBc24 = $false }
+    catch {
+        throw (New-BcExpectedFailure -Stage 'restore runtime selection' -Message "SQL backup restore could not apply the helper runtime override. Error code: $($_.Exception.HResult). The underlying cause is unknown. Check that the loaded BcContainerHelper configuration is writable, then reload the operation host before retrying. No BC service stop or SQL restoration was started by this restore; the selected container may already have been started and backup files staged. No automatic retry or alternate restore was attempted.")
+    }
+    $restoreFailure = $null
     try {
-        $helperConfig.usePwshForBc24 = $false
         Write-Host 'Restore runtime override: Windows PowerShell inside the container (usePwshForBc24=False), for this restore workflow only.'
         Invoke-BcContainerSqlBackupRestoreCore @PSBoundParameters
+    } catch {
+        $restoreFailure = $_
+        throw
     } finally {
-        $helperConfig.usePwshForBc24 = $previousUsePwsh
-        Write-Host "Restore runtime option reset: usePwshForBc24=$previousUsePwsh."
+        try {
+            $helperConfig.usePwshForBc24 = $previousUsePwsh
+            Write-Host "Restore runtime option reset: usePwshForBc24=$previousUsePwsh."
+        } catch {
+            $resetGuidance = "The BcContainerHelper runtime option could not be reset; its value is unverified. Error code: $($_.Exception.HResult). Inspect usePwshForBc24 and reload the operation host before another operation. SQL restoration may have returned or partially completed; inspect the target database and BC service state before any explicitly approved retry. No automatic retry was attempted."
+            if ($restoreFailure) {
+                # Keep the original failed status/cause and report secondary
+                # cleanup guidance without exposing another backend exception.
+                Write-Host $resetGuidance -ForegroundColor Red
+            } else {
+                throw (New-BcExpectedFailure -Stage 'restore runtime cleanup' -Message $resetGuidance)
+            }
+        }
     }
 }
 
@@ -838,10 +1003,12 @@ function Invoke-BcContainerSqlBackupRestoreCore {
         [AllowEmptyCollection()]
         [array] $backupEntries,
         [Parameter(Mandatory=$true)]
-        [PSObject] $configuration
+        [PSObject] $configuration,
+        [PSObject] $settingsJSON
     )
 
     $ErrorActionPreference = 'Stop'
+    $validatedLicenseFile = Get-BcRestoreValidatedLicenseFile -SettingsJSON $settingsJSON
     $stage = 'restore preparation'
     $state = 'SQL restoration was not started; the BC service may have been stopped during preparation.'
     try {
@@ -884,6 +1051,10 @@ function Invoke-BcContainerSqlBackupRestoreCore {
     catch {
         if ($_.Exception.Data['BcDevToolsetExpectedFailure']) { throw }
         throw (New-BcRestoreFailure -Stage $stage -State $state -Cause $_.Exception)
+    }
+
+    if ($validatedLicenseFile) {
+        Invoke-BcRestoreLicenseImport -ContainerName $containerName -ValidatedLicenseFile $validatedLicenseFile
     }
 
     $stage = 'restored tenant verification'
@@ -1276,7 +1447,8 @@ function Restore-BcContainerSqlBackupSet {
             -containerName $configuration.container `
             -bakFolder $sharedRestorePath `
             -backupEntries $backupEntries `
-            -configuration $configuration
+            -configuration $configuration `
+            -settingsJSON $settingsJSON
 
         Write-Host "SQL backup set restored to container '$($configuration.container)'." -ForegroundColor Green
     }

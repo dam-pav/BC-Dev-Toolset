@@ -87,7 +87,8 @@ function Restore-TestContainerBackupIfExists {
         [Parameter(Mandatory=$true)]
         [string] $scriptPath,
         [Parameter(Mandatory=$true)]
-        [PSObject] $configuration
+        [PSObject] $configuration,
+        [PSObject] $settingsJSON
     )
 
     if (-not $configuration.PSObject.Properties['sqlBackupPath'] -or [string]::IsNullOrWhiteSpace($configuration.sqlBackupPath)) {
@@ -122,7 +123,8 @@ function Restore-TestContainerBackupIfExists {
         -containerName $configuration.container `
         -bakFolder $sharedRestorePath `
         -backupEntries $backupEntries `
-        -configuration $configuration
+        -configuration $configuration `
+        -settingsJSON $settingsJSON
 
     Write-Host "SQL backup set restored to container '$($configuration.container)'." -ForegroundColor Green
 }
@@ -350,7 +352,8 @@ function Initialize-TestExecutionContainer {
     } else {
         Restore-TestContainerBackupIfExists `
             -scriptPath $scriptPath `
-            -configuration $configuration
+            -configuration $configuration `
+            -settingsJSON $testSettings
     }
 
     Write-Host ""
