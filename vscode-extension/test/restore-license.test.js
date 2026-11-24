@@ -26,7 +26,10 @@ function fixture(t) {
 
 function run(script, cwd) {
   return spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command',
-    "$ErrorActionPreference='Stop'; . " + quote(backupSource) + ';\n' + script], {
+    "$ErrorActionPreference='Stop'; . " + quote(backupSource) + ';\n' +
+    // Runtime ownership has its own isolated-module regression suite. License
+    // tests keep that boundary narrow and never import the installed helper.
+    'function Get-BcRestoreRuntimeConfiguration { $bcContainerHelperConfig };\n' + script], {
     cwd, encoding: 'utf8', windowsHide: true, timeout: 30000
   });
 }
@@ -250,13 +253,19 @@ for (const mode of ['success', 'staging-error', 'import-throw', 'import-error', 
   });
 }
 
-test('discovery failure includes conditional expired-license recovery without exposing backend text', () => {
+test('modern discovery preserves stage and numeric failure without guessing an expired license from backend text', () => {
   const result = run(`
-    function Invoke-ScriptInBcContainer { param($ScriptBlock,$ArgumentList) & $ScriptBlock @ArgumentList }
-    function Get-Item { [pscustomobject]@{FullName='C:\\fixture';VersionInfo=@{FileVersion='27.0.0.0'}} }
-    function Get-NAVAppInfo { Write-Error 'Your program license has expired. PRIVATE connection password=secret' }
+    Import-Module Microsoft.PowerShell.Utility
+    Import-Module Microsoft.PowerShell.Management
+    $PSModuleAutoLoadingPreference='None'
+    function Invoke-ScriptInBcContainer { param($ScriptBlock,$ArgumentList,[bool]$usePwsh,[bool]$useSession) & $ScriptBlock @ArgumentList }
+    function Get-NAVAppInfo {
+      [CmdletBinding()]param($ServerInstance,$Tenant,[switch]$TenantSpecificProperties,$Id,$Name,$Publisher,$Version,$Path)
+      Write-Error 'Your program license has expired. PRIVATE connection password=secret'
+    }
+    $context=[pscustomobject]@{PlatformVersion='27.0.0.0';Multitenant=$false;TenantIds=@('default');TenantStates=@([pscustomobject]@{Id='default';State='Operational';AllowAppDatabaseWrite=$true})}
     $failure=$null
-    try { Invoke-BcContainerSystemApplicationUpgradeAfterRestore -containerName selected -tenantIds default }
+    try { Get-BcModernRestoredApplicationState -ContainerName selected -TenantId default -Context $context }
     catch { $failure=$_.Exception }
     @{message=$failure.Message;expected=$failure.Data['BcDevToolsetExpectedFailure']}|ConvertTo-Json -Compress
     if($failure){exit 1}
@@ -264,8 +273,9 @@ test('discovery failure includes conditional expired-license recovery without ex
   const value = jsonResult(result, 1);
   assert.equal(value.expected, true);
   assert.match(value.message, /application version discovery/);
-  assert.match(value.message, /license.*expir|expir.*license/i);
-  assert.match(value.message, /restart/i);
+  assert.match(value.message, /Error code: -?\d+/);
+  assert.match(value.message, /Inspect|Check/);
+  assert.doesNotMatch(value.message, /expir|unexpired|invalid license|license is invalid/i);
   assert.match(value.message, /SQL restore returned/);
   assert.match(value.message, /No automatic retry/);
   assert.doesNotMatch(result.stdout + result.stderr, /PRIVATE|password=secret|Your program license has expired|Line\s*\|/);
@@ -386,6 +396,7 @@ test('launcher renders license import failure as a red heading, plain guidance a
   `);
   f.write('operations/Test.ps1', `
     . ${quote(backupSource)}
+    function Get-BcRestoreRuntimeConfiguration {$bcContainerHelperConfig}
     function global:Write-Host {
       param($Object,[ConsoleColor]$ForegroundColor)
       if($Object -like 'Restore SQL backup failed during*'){

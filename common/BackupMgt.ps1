@@ -1,6 +1,7 @@
 . (Join-Path $PSScriptRoot 'CredentialMgt.ps1')
 . (Join-Path $PSScriptRoot 'RemotingMgt.ps1')
 . (Join-Path $PSScriptRoot 'PublishingDiagnostics.ps1')
+. (Join-Path $PSScriptRoot 'ModernRestoreUpgrade.ps1')
 
 function New-BcRestoreFailure {
     param([string] $Stage, [string] $State, [string] $Detail = '', $Cause)
@@ -543,35 +544,21 @@ function Get-BcSystemApplicationUpgradeAssessment {
     }
 }
 
-function Assert-BcModernRestoredApplicationVersions {
-    Param ([Parameter(Mandatory=$true)] $State)
-    # BC27 removed Set-NAVApplication -ApplicationVersion. Verify actual tenant
-    # installations, never infer a database version from the media or artifact URL.
-    # https://learn.microsoft.com/en-us/powershell/business-central/cmdlets-changes?view=businesscentral-ps-27
-    $platform = $null
-    $valid = [Version]::TryParse([string]$State.PlatformVersion, [ref]$platform)
-    $versions = @()
-    foreach ($name in @('System Application', 'Base Application', 'Application')) {
-        $installed = @($State.InstalledApps | Where-Object Name -eq $name)
-        $packages = @($State.PackageApps | Where-Object Name -eq $name)
-        $installedVersion = $null; $packageVersion = $null
-        if ($installed.Count -ne 1 -or $packages.Count -ne 1 -or
-            -not [Version]::TryParse([string]$installed[0].Version, [ref]$installedVersion) -or
-            -not [Version]::TryParse([string]$packages[0].Version, [ref]$packageVersion)) {
-            $valid = $false
-            continue
-        }
-        $versions += [string]$packageVersion
-        if ($null -eq $platform -or $installedVersion.Major -ne $platform.Major -or $installedVersion -ne $packageVersion) {
-            $valid = $false
-        }
+function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {
+    param([Parameter(Mandatory)][string] $containerName, [string[]] $tenantIds)
+    $context=Get-BcRestoredApplicationContext -ContainerName $containerName
+    $platform=$null
+    if(-not [Version]::TryParse([string]$context.PlatformVersion,[ref]$platform)) {
+        throw (New-BcRestoreFailure -Stage 'application platform discovery' -State 'SQL restore returned; no application upgrade or administrator repair was started.' -Detail 'A valid installed BC platform version could not be established. Inspect the service executable and administration tools before retrying verification.')
     }
-    if (-not $valid -or @($versions | Select-Object -Unique).Count -ne 1) {
-        throw (New-BcRestoreFailure -Stage 'application version compatibility verification' -State 'SQL restore returned; application compatibility and administrator access have not been verified. No application upgrade or administrator repair was started for this tenant.' -Detail 'BC27 and later require exactly one installed Microsoft System Application, Base Application and Application per restored tenant, with valid versions matching each corresponding container package, one common package version and the platform major. Inspect Get-NAVAppInfo -ServerInstance BC -Tenant <tenant> and the container media. Use compatible media or complete a supported application upgrade before retrying verification; this restore does not run the legacy ApplicationVersion upgrade routine for BC27 and later.')
+    if($platform.Major -ge 27) {
+        Invoke-BcModernSystemApplicationUpgradeAfterRestore -ContainerName $containerName -TenantIds $tenantIds -Context $context
+    } else {
+        Invoke-BcLegacySystemApplicationUpgradeAfterRestore -containerName $containerName -tenantIds $tenantIds
     }
 }
 
-function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {
+function Invoke-BcLegacySystemApplicationUpgradeAfterRestore {
     Param (
         [Parameter(Mandatory=$true)]
         [string] $containerName,
@@ -662,14 +649,7 @@ function Invoke-BcContainerSystemApplicationUpgradeAfterRestore {
             throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Detail 'The administration tools returned an empty or invalid platform version. Inspect the BC service executable and administration tools before retrying verification.')
         }
         if ($parsedPlatform.Major -ge 27) {
-            Assert-BcModernRestoredApplicationVersions -State $state
-            Write-Host "Platform/media: $($state.PlatformVersion)" -ForegroundColor Gray
-            foreach ($app in $state.InstalledApps) {
-                $package = @($state.PackageApps | Where-Object Name -eq $app.Name)[0]
-                Write-Host "$($app.Name): installed '$($app.Version)', container package '$($package.Version)'" -ForegroundColor Gray
-            }
-            Write-Host "Tenant '$tenantId': installed Microsoft application versions match the container packages and platform major. BC27 and later do not use the legacy database ApplicationVersion." -ForegroundColor Gray
-            continue
+            throw (New-BcRestoreFailure -Stage 'legacy application upgrade selection' -State 'SQL restore returned; no legacy application upgrade was started.' -Detail 'BC27 and later require the modern installed-app upgrade workflow. Check the platform selection before retrying verification.')
         }
         if ([string]::IsNullOrWhiteSpace($state.DatabaseApplicationVersion)) {
             throw (New-BcRestoreFailure -Stage 'application version discovery' -State 'SQL restore returned, but application versions and administrator access have not been verified.' -Detail 'The administration commands returned an empty platform or database application version. Inspect Get-NAVApplication and the BC administration tools for this container; no version was inferred from app packages.')
@@ -925,6 +905,39 @@ function Repair-BcContainerAdministratorAfterRestore {
     }
 }
 
+function Get-BcRestoreRuntimeConfiguration {
+    $ErrorActionPreference = 'Stop'
+    $runtimeDetail = ''
+    try {
+        # Resolve the restore command first so a fresh process can auto-load the
+        # helper. Read its own script configuration, never a caller-side shadow.
+        $helperRestoreCommand = Get-Command Restore-DatabasesInBcContainer -ErrorAction Stop
+        $helperModule = $helperRestoreCommand.Module
+        if ($null -eq $helperModule -or $helperModule.Name -cne 'BcContainerHelper') {
+            $runtimeDetail = 'The resolved SQL restore command is not owned by the BcContainerHelper module.'
+            throw 'Unexpected restore command owner.'
+        }
+        $helperConfig = & $helperModule { Get-Variable bcContainerHelperConfig -Scope Script -ValueOnly -ErrorAction Stop }
+        if ($helperConfig -isnot [System.Collections.IDictionary] -or $helperConfig.IsReadOnly -or
+            $helperConfig.usePwshForBc24 -isnot [bool]) {
+            $runtimeDetail = 'The BcContainerHelper module configuration does not expose a writable dictionary with a boolean usePwshForBc24 option.'
+            throw 'Incompatible helper configuration.'
+        }
+    } catch {
+        if (-not $runtimeDetail) {
+            $runtimeDetail = if ($_.Exception -is [System.Management.Automation.CommandNotFoundException]) {
+                'The BcContainerHelper SQL restore command is unavailable.'
+            } elseif ($_.FullyQualifiedErrorId -like 'VariableNotFound*') {
+                'The BcContainerHelper module does not expose its script-scoped runtime configuration.'
+            } else {
+                "The helper runtime configuration could not be initialized; the underlying cause is unknown. Error code: $($_.Exception.HResult)."
+            }
+        }
+        throw (New-BcExpectedFailure -Stage 'restore runtime selection' -Message "SQL backup restore runtime selection failed. $runtimeDetail Install or repair a compatible BcContainerHelper module, check command ownership and its usePwshForBc24 configuration, then reload the operation host before retrying. No BC service stop or SQL restoration was started by this restore; the selected container may already have been started and backup files staged. No automatic retry or alternate restore was attempted.")
+    }
+    return $helperConfig
+}
+
 function Restore-BcContainerSqlBackupEntries {
     Param (
         [Parameter(Mandatory=$true)] [string] $containerName,
@@ -950,18 +963,33 @@ function Restore-BcContainerSqlBackupEntries {
         Invoke-BcContainerSqlBackupRestoreCore @PSBoundParameters
         return
     }
-    $helperConfig = $bcContainerHelperConfig
-    if ($null -eq $helperConfig -or $helperConfig.usePwshForBc24 -isnot [bool]) {
-        throw (New-BcExpectedFailure -Stage 'restore runtime selection' -Message 'The loaded BcContainerHelper configuration does not expose a boolean usePwshForBc24 option. Import a compatible helper and inspect its configuration before retrying. No restore preparation, service stop or SQL restoration was started.')
-    }
+    $helperConfig = Get-BcRestoreRuntimeConfiguration
     $previousUsePwsh = $helperConfig.usePwshForBc24
+    try { $helperConfig.usePwshForBc24 = $false }
+    catch {
+        throw (New-BcExpectedFailure -Stage 'restore runtime selection' -Message "SQL backup restore could not apply the helper runtime override. Error code: $($_.Exception.HResult). The underlying cause is unknown. Check that the loaded BcContainerHelper configuration is writable, then reload the operation host before retrying. No BC service stop or SQL restoration was started by this restore; the selected container may already have been started and backup files staged. No automatic retry or alternate restore was attempted.")
+    }
+    $restoreFailure = $null
     try {
-        $helperConfig.usePwshForBc24 = $false
         Write-Host 'Restore runtime override: Windows PowerShell inside the container (usePwshForBc24=False), for this restore workflow only.'
         Invoke-BcContainerSqlBackupRestoreCore @PSBoundParameters
+    } catch {
+        $restoreFailure = $_
+        throw
     } finally {
-        $helperConfig.usePwshForBc24 = $previousUsePwsh
-        Write-Host "Restore runtime option reset: usePwshForBc24=$previousUsePwsh."
+        try {
+            $helperConfig.usePwshForBc24 = $previousUsePwsh
+            Write-Host "Restore runtime option reset: usePwshForBc24=$previousUsePwsh."
+        } catch {
+            $resetGuidance = "The BcContainerHelper runtime option could not be reset; its value is unverified. Error code: $($_.Exception.HResult). Inspect usePwshForBc24 and reload the operation host before another operation. SQL restoration may have returned or partially completed; inspect the target database and BC service state before any explicitly approved retry. No automatic retry was attempted."
+            if ($restoreFailure) {
+                # Keep the original failed status/cause and report secondary
+                # cleanup guidance without exposing another backend exception.
+                Write-Host $resetGuidance -ForegroundColor Red
+            } else {
+                throw (New-BcExpectedFailure -Stage 'restore runtime cleanup' -Message $resetGuidance)
+            }
+        }
     }
 }
 
