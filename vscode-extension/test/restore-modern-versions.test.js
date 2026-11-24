@@ -1,10 +1,11 @@
 'use strict';
-const test=require('node:test');
+const {describe,test}=require('node:test');
 const assert=require('node:assert/strict');
 const path=require('node:path');
 const {spawn,spawnSync}=require('node:child_process');
 const {ids,implicitApplicationId,zeroId,workflowFixture}=require('./fixtures/modern-restore.cjs');
 const source=path.resolve(__dirname,'../../common/BackupMgt.ps1').replaceAll("'","''");
+describe('Windows modern restore workflow', {skip:process.platform==='win32'?false:'Requires Windows local drive paths and Business Central administration; covered by AL compatibility Windows CI.'},()=>{
 function run(options,expectedStatus=0) {
   const result=spawnSync('pwsh',['-NoProfile','-NonInteractive','-Command',`
     $ErrorActionPreference='Stop';. '${source}'
@@ -132,7 +133,7 @@ for(const [mode,kind,hresult] of [
   test(`${mode} reports typed failure and precise tenant-sync side effects without guessed causes`,()=>{
     const value=run({mode},1);
     assert.equal(value.expected,true);assert.equal(value.admin,0);
-    assert.match(value.stage,/tenant.*sync|sync.*tenant/i);assert.match(value.message,new RegExp('Error code: '+hresult));
+    assert.match(value.stage,/tenant.*sync|sync.*tenant/i);assert.ok(value.message.includes('Error code: '+hresult+'.'),value.message);
     assert.equal(value.syncCalls.length,1);assert.equal(value.events.filter(event=>event.Stage==='sync-tenant').length,1);
     assert.deepEqual(value.events.filter(event=>writes.has(event.Stage)).map(event=>event.Stage),['sync-tenant']);
     assert.match(value.message,/tenant synchronization.*(?:partially|partial|uncertain)/i);
@@ -375,7 +376,7 @@ for(const [stage,pattern] of Object.entries(failureStages)) for(const failure of
     const value=run({mode,multitenant:['sync-tenant','repair','restart'].includes(stage)},1);
     assert.equal(value.expected,true);assert.equal(value.admin,0);
     assert.match(value.stage,pattern);
-    assert.match(value.message,new RegExp('Error code: '+(failure==='throw'?'-2146233079':'-2146233087')));
+    assert.ok(value.message.includes('Error code: '+(failure==='throw'?'-2146233079':'-2146233087')+'.'),value.message);
     assert.match(value.message,/SQL restore returned/);
     assert.match(value.message,/Inspect|Check/);
     assert.match(value.message,/No automatic retry/);
@@ -449,4 +450,6 @@ test('serialized remote nonterminating failure retains reviewed stage/status and
   assert.equal(value.expected,true);assert.equal(value.admin,0);
   assert.match(value.stage,/publication/i);assert.match(value.message,/Error code: -?\d+/);
   assert.equal(value.events.filter(event=>event.Stage==='publish').length,1);
+});
+
 });

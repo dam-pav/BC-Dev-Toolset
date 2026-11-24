@@ -340,8 +340,8 @@ function Get-BcModernRestoredApplicationState {
         param($tenantId,$context)
         $ErrorActionPreference='Stop'; $step='runtime'
         try {
-            $sender=Get-Variable PSSenderInfo -ErrorAction Ignore
-            if($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7 -or ($sender -and $null -ne $sender.Value)){throw 'Unsupported administration process.'}
+            $adminRemotingContextVariable=Get-Variable PSSenderInfo -ErrorAction Ignore
+            if($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7 -or ($adminRemotingContextVariable -and $null -ne $adminRemotingContextVariable.Value)){throw 'Unsupported administration process.'}
             $step='capabilities'
             $caps=@{}
             foreach($name in @('Get-NAVAppInfo','Publish-NAVApp','Sync-NAVApp','Install-NAVApp','Start-NAVAppDataUpgrade','Sync-NAVTenant','Start-NAVDataUpgrade','Get-NAVDataUpgrade','Repair-NAVApp','Restart-NAVServerInstance')) {
@@ -504,8 +504,8 @@ function Invoke-BcModernSystemApplicationUpgradeAfterRestore {
             }
             try {
                 Write-ModernRestoreStatus START
-                $sender=Get-Variable PSSenderInfo -ErrorAction Ignore
-                if($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7 -or ($sender -and $null -ne $sender.Value)){$failureState.ReasonCode='UnsupportedAdminRuntime';throw 'Unsupported administration process.'}
+                $adminRemotingContextVariable=Get-Variable PSSenderInfo -ErrorAction Ignore
+                if($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7 -or ($adminRemotingContextVariable -and $null -ne $adminRemotingContextVariable.Value)){$failureState.ReasonCode='UnsupportedAdminRuntime';throw 'Unsupported administration process.'}
                 Write-ModernRestoreStatus COMPLETED
                 $step='publication preflight'
                 $publish=@(); $seen=@{}; $repairs=@(); $repairSeen=@{}

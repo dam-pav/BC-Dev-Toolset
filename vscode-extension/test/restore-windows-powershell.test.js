@@ -15,11 +15,13 @@ function moduleFixture(t,config='@{usePwshForBc24=$true}') {
   t.after(()=>fs.rmSync(root,{recursive:true,force:true})); // nosemgrep -- test-owned authorized root
   fs.mkdirSync(resolveWithinRoot(root,'BcContainerHelper')); // nosemgrep -- fixed module directory contained by owned root
   fs.writeFileSync(resolveWithinRoot(root,'BcContainerHelper/BcContainerHelper.psd1'),"@{RootModule='BcContainerHelper.psm1';ModuleVersion='0.0.0';GUID='00000000-0000-0000-0000-000000000089';FunctionsToExport=@('Restore-DatabasesInBcContainer');VariablesToExport=@()}"); // nosemgrep -- fixed manifest contained by owned root
-  fs.writeFileSync(resolveWithinRoot(root,'BcContainerHelper/BcContainerHelper.psm1'),`
+  // This fixture owns root; resolveWithinRoot verifies path.relative containment.
+  fs.writeFileSync(resolveWithinRoot(root,'BcContainerHelper/BcContainerHelper.psm1'), // nosemgrep -- fixed module source authorized and contained by the test-owned root
+    `
     $script:bcContainerHelperConfig=${config};$script:calls=0;$script:observed=$null
     function Restore-DatabasesInBcContainer {$script:calls++;$script:observed=$script:bcContainerHelperConfig.usePwshForBc24}
     Export-ModuleMember -Function Restore-DatabasesInBcContainer
-  `); // nosemgrep -- fixed module source contained by owned root
+  `);
   return root;
 }
 function run(body,moduleRoot,expectedStatus=0) {

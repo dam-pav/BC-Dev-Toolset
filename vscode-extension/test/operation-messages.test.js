@@ -199,7 +199,7 @@ for (const mode of ['prepare-error', 'sql-throw', 'sql-error', 'start-error', 'v
 }
 
 for(const mode of ['second-tenant-blocked','publish-error','app-upgrade-error','sync-null-reference']) {
-  test(`modern restore launcher preserves red stage guidance and failure (${mode})`,t=>{
+  test(`modern restore launcher preserves red stage guidance and failure (${mode})`,{skip:process.platform==='win32'?false:'Requires Windows local drive paths and Business Central administration; covered by AL compatibility Windows CI.'},t=>{
     const {root,write}=fixture(t);
     write('operations/operations.json',JSON.stringify([{id:'restore',title:'Restore SQL backup',script:'operations/Test.ps1'}]));
     write('common/BackupMgt.ps1',fs.readFileSync(resolveWithinRoot(repositoryRoot,'common/BackupMgt.ps1'),'utf8')); // nosemgrep -- fixed source contained by repository root

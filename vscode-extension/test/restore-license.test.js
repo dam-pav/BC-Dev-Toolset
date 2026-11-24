@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const test = require('node:test');
+const {describe,test} = require('node:test');
 const { spawnSync } = require('node:child_process');
 const { authorizeRoot, resolveWithinRoot } = require('../path-security');
 
@@ -12,8 +12,13 @@ const quote = value => "'" + value.replaceAll("'", "''") + "'";
 const backupSource = resolveWithinRoot(repositoryRoot, 'common/BackupMgt.ps1');
 const testSource = resolveWithinRoot(repositoryRoot, 'common/TestMgt.ps1');
 
+describe('Windows restore license workflow', {skip:process.platform==='win32'?false:'Requires Windows local drive paths and Business Central administration; covered by AL compatibility Windows CI.'},()=>{
+
 function fixture(t) {
-  const root = authorizeRoot(fs.mkdtempSync(path.join(os.tmpdir(), 'bc-restore-license-')), 'Owned license test fixture');
+  // Canonicalize this newly owned directory before deriving expected file paths;
+  // Windows may expose its temp parent through an 8.3 alias such as RUNNER~1.
+  const ownedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bc-restore-license-'));
+  const root = authorizeRoot(fs.realpathSync.native(ownedRoot), 'Owned license test fixture'); // nosemgrep -- owned mkdtemp directory authorized here; child sinks retain path.relative containment checks
   t.after(() => fs.rmSync(root, { recursive: true, force: true })); // nosemgrep -- test-owned authorized root
   const write = (relative, content) => {
     const validatedTarget = resolveWithinRoot(root, relative);
@@ -177,6 +182,33 @@ test('license resolver returns a normalized local file and skips an omitted sett
   `, f.root));
   assert.equal(value.file, f.license);
   assert.ok(value.empty === '' || value.empty === null);
+});
+
+test('Windows 8.3 license aliases resolve to the exact owned canonical file', {skip:process.platform!=='win32'}, t => {
+  const f=fixture(t);
+  const value=jsonResult(run(`
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class OwnedLicenseShortPathFixture {
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+  public static extern uint GetShortPathName(string path, StringBuilder result, uint length);
+}
+'@
+    $buffer=[Text.StringBuilder]::new(32768)
+    $length=[OwnedLicenseShortPathFixture]::GetShortPathName(${quote(f.license)},$buffer,[uint32]$buffer.Capacity)
+    $alias=$buffer.ToString()
+    if($length -eq 0 -or $length -ge $buffer.Capacity -or $alias -ieq ${quote(f.license)}){
+      @{available=$false;nativeCode=[Runtime.InteropServices.Marshal]::GetLastWin32Error()}|ConvertTo-Json -Compress
+    }else{
+      $resolved=Get-BcRestoreValidatedLicenseFile -SettingsJSON @{licenseFile=$alias}
+      @{available=$true;alias=$alias;resolved=$resolved}|ConvertTo-Json -Compress
+    }
+  `,f.root));
+  if(!value.available){t.skip('This Windows volume did not provide a distinct 8.3 alias (native code '+value.nativeCode+').');return}
+  assert.notEqual(value.alias.toLowerCase(),f.license.toLowerCase());
+  assert.equal(value.resolved,f.license);
 });
 
 for (const mode of ['success', 'staging-error', 'import-throw', 'import-error', 'restart-throw', 'restart-error', 'cleanup-error', 'import-cleanup-error', 'missing-result', 'invalid-stage']) {
@@ -418,4 +450,6 @@ test('launcher renders license import failure as a red heading, plain guidance a
   assert.match(result.stdout, /license/i);
   assert.match(result.stdout, /SQL restore returned/);
   assert.doesNotMatch(result.stdout, /PRIVATE|password=secret|UNEXPECTED|Exception:|At line:|Line\s*\|/);
+});
+
 });

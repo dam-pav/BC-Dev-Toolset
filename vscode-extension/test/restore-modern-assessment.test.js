@@ -1,10 +1,11 @@
 'use strict';
-const test=require('node:test');
+const {describe,test}=require('node:test');
 const assert=require('node:assert/strict');
 const path=require('node:path');
 const {spawnSync}=require('node:child_process');
 const {ids,state,implicitApplicationState,implicitApplicationId,zeroId,nativeDependencyDtoScript}=require('./fixtures/modern-restore.cjs');
 const source=path.resolve(__dirname,'../../common/BackupMgt.ps1').replaceAll("'","''");
+describe('Windows modern restore assessment', {skip:process.platform==='win32'?false:'Requires Windows local drive paths and Business Central administration; covered by AL compatibility Windows CI.'},()=>{
 function assess(value,{nativeDependencies=false,versionAlias=false}={}) {
   const data=JSON.stringify(value).replaceAll("'","''");
   const result=spawnSync('pwsh',['-NoProfile','-NonInteractive','-Command',`
@@ -72,6 +73,7 @@ for(const [label,minimum] of [['unsatisfied','27.14.0.0'],['invalid','PRIVATE in
     assert.doesNotMatch(result.Reasons.join('\n'),/PRIVATE|password=secret/);
   });
 }
+
 test('Version-only normalized dependency records remain supported when MinVersion is absent',()=>{
   const input=implicitApplicationState();
   for(const app of [...input.PackageApps,...input.InstalledApps]) for(const dependency of app.Dependencies){dependency.Version=dependency.MinVersion;delete dependency.MinVersion}
@@ -234,3 +236,5 @@ for(const mode of ['invalid-id','wrong-name','wrong-publisher','invalid-minimum'
     assert.doesNotMatch(result.Reasons.join('\n'),/PRIVATE|password=secret/);
   });
 }
+
+});
