@@ -3,6 +3,10 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawn } = require('node:child_process');
+const { randomUUID } = require('node:crypto');
+const http = require('node:http');
+const readline = require('node:readline');
 process.env.BCDEVTOOLSET_MCP_TOOL_SETTINGS = JSON.stringify({"bc_dev_toolset_show_help": true, "bc_dev_toolset_invoke_tests": true, "bc_dev_toolset_invoke_page_script_tests": true});
 const { afterEach, test } = require('node:test');
 
@@ -138,16 +142,102 @@ test('build tool description directs AL compilation through workspace-aware tool
   assert.match(buildTool.description, /assembly probing paths/);
 });
 
-test('test preflight exposes confirmation and creation questions without a container-name selector', async () => {
-  for (const name of ['bc_dev_toolset_invoke_tests', 'bc_dev_toolset_invoke_page_script_tests']) {
-    const result = await mcpServer.callTool({ name, arguments: {} });
-    const preflight = JSON.parse(result.content[0].text);
-    assert.equal(preflight.status, 'input_required');
-    assert.ok(preflight.missingInputs.includes('executeTestsInContainer'));
-    assert.equal(preflight.questions.some(input => input.inputName === 'testContainerSelection'), false);
-    assert.ok(preflight.questions.some(input => input.inputName === 'pullFullArtifact'));
-    assert.equal(Object.hasOwn(preflight, 'conditionalPrompts'), false);
+test('page script preflight exposes confirmation and creation questions without a container-name selector', async () => {
+  const result = await mcpServer.callTool({ name: 'bc_dev_toolset_invoke_page_script_tests', arguments: {} });
+  const preflight = JSON.parse(result.content[0].text);
+  assert.equal(preflight.status, 'input_required');
+  assert.ok(preflight.missingInputs.includes('executeTestsInContainer'));
+  assert.equal(preflight.questions.some(input => input.inputName === 'testContainerSelection'), false);
+  assert.ok(preflight.questions.some(input => input.inputName === 'pullFullArtifact'));
+  assert.equal(Object.hasOwn(preflight, 'conditionalPrompts'), false);
+});
+
+test('AL test tool exposes the codeunit list input', () => {
+  const tools = mcpServer.getTools();
+  const testTool = tools.find(tool => tool.name === 'bc_dev_toolset_invoke_tests');
+  assert.deepEqual(testTool.inputSchema.properties.codeunitIds.items, { type: 'integer', minimum: 1, maximum: 2147483647 });
+  const pageScriptTool = tools.find(tool => tool.name === 'bc_dev_toolset_invoke_page_script_tests');
+  assert.equal(pageScriptTool.inputSchema.properties.codeunitIds, undefined);
+});
+
+test('AL test preflight reads the grouped catalog, and execute forwards only validated inputs', { timeout: 10000 }, async t => {
+  const identity = { protocolVersion: 2, instanceId: randomUUID(), extensionHostPid: process.pid, workspace: { workspacePath: process.cwd() } };
+  const token = randomUUID();
+  const catalog = [{ appId: 'app', appName: 'Test app', codeunits: [{ id: 60992, name: 'Sales test' }] }];
+  const requests = [];
+  let catalogAvailable = true;
+  const bridge = http.createServer(async (request, response) => {
+    let input = '';
+    for await (const chunk of request) input += chunk;
+    const body = JSON.parse(input);
+    if (request.headers.authorization !== `Bearer ${token}` || body.binding?.instanceId !== identity.instanceId) {
+      response.writeHead(401).end('{}');
+      return;
+    }
+    response.setHeader('content-type', 'application/json');
+    if (request.url === '/handshake') {
+      response.end(JSON.stringify(identity));
+      return;
+    }
+    requests.push({ route: request.url, body });
+    if (request.url === '/test-codeunit-catalog' && catalogAvailable) response.end(JSON.stringify({ testCodeunitCatalog: catalog }));
+    else if (request.url === '/run-operation') response.end(JSON.stringify({ status: 'completed' }));
+    else response.writeHead(404).end('{}');
+  });
+  await new Promise(resolve => bridge.listen(0, '127.0.0.1', resolve));
+  t.after(() => bridge.close());
+  const child = spawn(process.execPath, [path.join(__dirname, '../mcp-server.js')], { windowsHide: true, env: {
+    ...process.env,
+    BCDEVTOOLSET_MCP_TOOL_SETTINGS_SOURCE: '',
+    BCDEVTOOLSET_MCP_BRIDGE_URL: `http://127.0.0.1:${bridge.address().port}`,
+    BCDEVTOOLSET_MCP_BRIDGE_TOKEN: token,
+    BCDEVTOOLSET_MCP_BRIDGE_INSTANCE_ID: identity.instanceId,
+    BCDEVTOOLSET_MCP_BRIDGE_PROTOCOL_VERSION: '2',
+    BCDEVTOOLSET_MCP_EXTENSION_HOST_PID: String(process.pid),
+    BCDEVTOOLSET_MCP_WORKSPACE_CONTEXT: JSON.stringify(identity.workspace)
+  } });
+  child.stderr.resume();
+  const lines = readline.createInterface({ input: child.stdout });
+  t.after(() => { lines.close(); child.kill(); });
+  let id = 0;
+  async function invoke(args) {
+    const response = new Promise(resolve => lines.once('line', line => resolve(JSON.parse(line))));
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: ++id, method: 'tools/call', params: {
+      name: 'bc_dev_toolset_invoke_tests', arguments: args
+    } }) + '\n');
+    return (await response).result;
   }
+
+  const preflight = JSON.parse((await invoke({ execute: false })).content[0].text);
+  assert.deepEqual(preflight.testCodeunitCatalog, catalog);
+  assert.deepEqual(preflight.questions.map(question => question.inputName), [
+    'executeTestsInContainer', 'clearTranslationFiles', 'clearAppFiles', 'pullFullArtifact'
+  ]);
+  assert.deepEqual(requests.map(request => request.route), ['/test-codeunit-catalog']);
+
+  const execute = { execute: true, executeTestsInContainer: true, clearTranslationFiles: false, clearAppFiles: false, pullFullArtifact: false };
+  for (const invalid of [
+    { ...execute, clearAppFiles: undefined }, { ...execute, pullFullArtifact: 'sometimes' },
+    { ...execute, promptAnswers: { 'clearArtifacts.appFiles': 'maybe' } },
+    ...[null, [], ['60992'], [Infinity], [2147483648], [1.5]].map(codeunitIds => ({ ...execute, codeunitIds }))
+  ]) {
+    const result = await invoke(invalid);
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /No test operation was started/);
+  }
+  assert.equal(requests.length, 1);
+
+  assert.equal((await invoke({ ...execute, codeunitIds: [60992, 60992] })).isError, false);
+  assert.deepEqual(requests[1].body.codeunitIds, [60992]);
+  assert.equal(requests[1].body.promptAnswers['clearArtifacts.appFiles'], false);
+  assert.equal((await invoke(execute)).isError, false);
+  assert.equal(Object.hasOwn(requests[2].body, 'codeunitIds'), false);
+
+  catalogAvailable = false;
+  const unavailable = await invoke({ execute: false });
+  assert.equal(unavailable.isError, true);
+  assert.match(unavailable.content[0].text, /HTTP 404.*Reload.*No test operation was started/);
+  assert.equal(requests.filter(request => request.route === '/run-operation').length, 2);
 });
 
 test('test preflight no longer reads settings to select a named container', t => {
@@ -194,6 +284,7 @@ test('serves repository help as an agent tool and Markdown resource', async () =
 test('compiles successful test output without prerequisite stage chatter', () => {
   const report = {
     applicationCount: 2,
+    selectedCodeunitIds: [60990, 60992],
     total: 12,
     passed: 11,
     failed: 0,
@@ -216,6 +307,7 @@ test('compiles successful test output without prerequisite stage chatter', () =>
 
   const compiled = mcpServer.compileInvokeTestsReport(output, 'completed', report);
 
+  assert.match(compiled, /Test scope: codeunits 60990, 60992/);
   assert.match(compiled, /12 total, 11 passed, 0 failed, 1 skipped/);
   assert.match(compiled, /Build workspace apps: succeeded/);
   assert.doesNotMatch(compiled, /verbose successful compiler output/);

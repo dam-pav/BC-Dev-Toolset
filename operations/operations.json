@@ -194,6 +194,12 @@
     "requiresConfirmation": true
   },
   {
+    "id": "selectAlTestCodeunits",
+    "title": "Select AL test codeunits",
+    "command": "selectAlTestCodeunits",
+    "category": "Tests"
+  },
+  {
     "id": "invokeTests",
     "title": "Run AL test tool tests",
     "script": "operations/Invoke-Tests.ps1",

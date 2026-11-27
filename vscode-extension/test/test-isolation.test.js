@@ -11,6 +11,28 @@ test('selective isolation settings, partitioning, reporting and failure handling
   assert.equal(result.status, 0, result.stdout + result.stderr);
 });
 
+test('an invalid codeunit selection exits through the red launcher diagnostic before starting work', () => {
+  const command = `
+    function global:Write-Host {
+      param($Object, [ConsoleColor] $ForegroundColor)
+      if ($Object -eq 'Run AL test tool tests failed during test selection validation.' -and
+          $ForegroundColor -ne 'Red') { throw 'Test selection failure heading must be red' }
+      Microsoft.PowerShell.Utility\\Write-Host $Object
+    }
+    & ./Invoke-BcDevToolsetOperation.ps1 -Operation invokeTests -NonInteractive
+    exit $LASTEXITCODE
+  `;
+  const result = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command], {
+    cwd: path.resolve(__dirname, '..', '..'), encoding: 'utf8',
+    env: { ...process.env, BCDEVTOOLSET_TEST_CODEUNIT_IDS: '[]', BCDEVTOOLSET_TEST_SUITE: '' }
+  });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stdout, /Run AL test tool tests failed during test selection validation\./);
+  assert.match(result.stdout, /codeunitIds must be a non-empty JSON array.*Choose valid test codeunits or request all tests.*No build, container preparation, or test execution was started\./);
+  assert.doesNotMatch(result.stdout, /DONE/);
+  assert.equal(result.stderr, '');
+});
+
 test('shared and local isolation setting schemas stay aligned', () => {
   const pkg = require('../package.json');
   const schema = require('../schemas/bcdevtoolset-settings.schema.json');

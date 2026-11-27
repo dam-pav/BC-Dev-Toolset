@@ -11,6 +11,7 @@ const bridgeIdentity = require('./mcp-bridge-identity');
 const { authorizeRoot, resolveWithinRoot } = require('./path-security');
 const { parseSettingsJsonc } = require('./settings-migration');
 const { dataTools, validateDataArguments } = require('./bc-data-tools');
+const { normalizeTestCodeunitIds } = require('./test-codeunit-selection');
 
 const defaultProtocolVersion = '2025-11-25';
 const toolsetPath = authorizeRoot(process.env.BCDEVTOOLSET_MCP_TOOLSET_PATH || path.resolve(__dirname, '..'), 'BC Dev Toolset MCP toolset path');
@@ -670,9 +671,11 @@ function getOperationToolDescription(operation) {
   const confirmationText = operation.requiresConfirmation
     ? ' This operation changes state and requires confirm: true.'
     : '';
-  const preflightText = getOperationPromptInputs(operation).length > 0
-    ? ' Call without execute:true to return relevant input decisions, including conditional questions, without starting the operation; then call again with execute:true and the answers.'
-    : '';
+  const preflightText = operation.id === 'invokeTests'
+    ? ' Call with execute:false to list workspace codeunits by app and collect all run decisions, including conditional questions. Then call with execute:true and every named answer. Pass codeunitIds to run a subset or omit it to run all workspace tests.'
+    : getOperationPromptInputs(operation).length > 0
+      ? ' Call without execute:true to return relevant input decisions, including conditional questions, without starting the operation; then call again with execute:true and the answers.'
+      : '';
   const compiledReportText = ['invokeTests', 'invokeCompatibilityTests'].includes(operation.id)
     ? ' Reports completed stages through MCP progress notifications and returns one compiled report with stage status, test totals, failure details, and diagnostics for the failed stage; do not rerun a failed build or test merely to retrieve output. The testBuildWarningsAsErrors workspace/local setting defaults to false; when true, compiler warnings block tests. Resolve the reported warnings before rerunning.'
     : ['alRunnerTest', 'alRunnerCompatibilityTest'].includes(operation.id)
@@ -842,6 +845,20 @@ function getOperationToolInputSchema(operation) {
     };
   }
 
+  if (operation.id === 'invokeTests') {
+    for (const question of getOperationPromptInputs(operation)) {
+      properties[question.inputName] = {
+        type: 'boolean',
+        description: `${question.question} Answer before launch, even if the question is conditional.`
+      };
+    }
+    properties.codeunitIds = {
+      type: 'array', minItems: 1,
+      items: { type: 'integer', minimum: 1, maximum: 2147483647 },
+      description: 'Workspace test codeunit IDs to run. Omit to run all tests. Call with execute:false to list codeunits by app.'
+    };
+  }
+
   if (isContainerBackupOperation(operation)) {
     properties.containerSelection = {
       anyOf: [
@@ -937,7 +954,14 @@ async function runOperation(args, progress) {
     !promptInput.conditional &&
     !Object.prototype.hasOwnProperty.call(args, promptInput.inputName)
   ));
-  if (promptInputs.length > 0 && (args.execute !== true || missingPromptInputs.length > 0)) {
+  if (operation.id === 'invokeTests') {
+    if (args.execute !== true) return getAlTestPreflight(operation, args);
+    try {
+      args = validateAlTestOperationInputs(operation, args);
+    } catch (error) {
+      return textResult(`${error.message} No test operation was started. Call with execute:false to review the test catalog and run questions.`, true);
+    }
+  } else if (promptInputs.length > 0 && (args.execute !== true || missingPromptInputs.length > 0)) {
     return textResult(JSON.stringify({
       status: 'input_required',
       operationId: operation.id,
@@ -963,7 +987,7 @@ async function runOperation(args, progress) {
   }
 
   const workspacePath = String(args.workspacePath || defaultWorkspacePath || '').trim();
-  if (!workspacePath || !fs.existsSync(workspacePath)) {
+  if (operation.id !== 'invokeTests' && (!workspacePath || !fs.existsSync(workspacePath))) {
     return textResult(`Workspace path not found: ${workspacePath}`, true);
   }
 
@@ -977,6 +1001,55 @@ async function runOperation(args, progress) {
   return runOperationInTerminal(operation, args, progress);
 }
 
+async function getAlTestPreflight(operation, args) {
+  if (!shouldUseTerminalBridge()) {
+    return textResult('AL test preflight could not read the workspace test catalog because the VS Code bridge is unavailable. Start or reload the matching VS Code extension host and retry preflight. No test operation was started.', true);
+  }
+  let response;
+  try {
+    response = await postBridgeJson('/test-codeunit-catalog', {
+      workspacePath: args.workspacePath,
+      workspaceFile: args.workspaceFile,
+      localSettingsPath: args.localSettingsPath
+    });
+  } catch {
+    return textResult('AL test preflight could not read the workspace test catalog. Reload the matching VS Code extension host, then retry preflight. No test operation was started.', true);
+  }
+  if (response.statusCode !== 200 || !Array.isArray(response.body?.testCodeunitCatalog)) {
+    const reason = typeof response.body?.error === 'string' ? ` ${response.body.error}` : '';
+    const recovery = response.statusCode === 404
+      ? 'Reload the matching VS Code extension host with the updated extension and restart the MCP client.'
+      : 'Check the open workspace and retry preflight.';
+    return textResult(`AL test preflight could not read the workspace test catalog (HTTP ${response.statusCode}).${reason} ${recovery} No test operation was started.`, true);
+  }
+  return textResult(JSON.stringify({
+    status: 'input_required',
+    operationId: operation.id,
+    instruction: 'Choose codeunitIds from the source catalog or omit them to run all workspace tests. Codeunits marked conditional may depend on AL preprocessor symbols. The test run verifies that the selected codeunits are deployed before executing any tests. Call this tool with execute:true and an explicit answer to every named question, including conditional questions. No test operation was started.',
+    questions: getOperationPromptInputs(operation),
+    testCodeunitCatalog: response.body.testCodeunitCatalog
+  }, null, 2));
+}
+
+function validateAlTestOperationInputs(operation, args) {
+  const codeunitIds = normalizeTestCodeunitIds(args.codeunitIds);
+  const suppliedAnswers = new Map(Object.entries(args.promptAnswers || {}).map(([id, answer]) => [id.trim(), answer]));
+  const promptAnswers = {};
+  for (const { inputName, promptId } of getOperationPromptInputs(operation)) {
+    if (!suppliedAnswers.has(promptId) && !Object.hasOwn(args, inputName)) {
+      throw new Error(`Missing run answer '${inputName}'.`);
+    }
+    const answer = suppliedAnswers.has(promptId) ? suppliedAnswers.get(promptId) : args[inputName];
+    if (typeof answer === 'boolean') promptAnswers[promptId] = answer;
+    else if (typeof answer === 'string' && /^(yes|no)$/i.test(answer.trim())) {
+      promptAnswers[promptId] = answer.trim().toLowerCase() === 'yes';
+    } else {
+      throw new Error(`Run answer '${inputName}' must be true or false.`);
+    }
+  }
+  return { ...args, codeunitIds, promptAnswers };
+}
+
 async function runOperationInTerminal(operation, args, progress) {
   progress.report(`Starting BC Dev Toolset operation in VS Code terminal: ${operation.title}`, true);
   const response = await postBridgeJson('/run-operation', {
@@ -985,6 +1058,7 @@ async function runOperationInTerminal(operation, args, progress) {
     workspaceFile: args.workspaceFile,
     localSettingsPath: args.localSettingsPath,
     promptAnswers: getOperationPromptAnswers(operation, args),
+    codeunitIds: operation.id === 'invokeTests' ? args.codeunitIds : undefined,
     timeoutSeconds: getTerminalTimeoutSeconds(operation, args)
   });
 
@@ -1695,6 +1769,9 @@ function compileInvokeTestsReport(output, operationStatus, operationReport) {
     }
 
     const omittedFailureCount = Number(testReport.omittedFailureCount) || 0;
+    if (Object.hasOwn(testReport, 'selectedCodeunitIds')) {
+      lines.push(`Test scope: ${Array.isArray(testReport.selectedCodeunitIds) ? `codeunits ${testReport.selectedCodeunitIds.join(', ')}` : 'all workspace test codeunits'}`);
+    }
     if (Array.isArray(testReport.testIsolationDisabledCodeunits)) {
       lines.push(`Isolation disabled for codeunits: ${testReport.testIsolationDisabledCodeunits.join(', ') || '(none)'}`);
     }

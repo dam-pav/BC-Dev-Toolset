@@ -37,6 +37,17 @@ function Write-McpTestReport {
 
 $settingsJSON = @{}
 $workspaceJSON = @{}
+$suite = if ($env:BCDEVTOOLSET_TEST_SUITE -eq 'Compatibility') { 'Compatibility' } else { 'Development' }
+$testInputs = @{}
+if ($suite -eq 'Development' -and -not [string]::IsNullOrEmpty($env:BCDEVTOOLSET_TEST_CODEUNIT_IDS)) {
+    try {
+        $codeunitIds = ConvertFrom-Json -InputObject $env:BCDEVTOOLSET_TEST_CODEUNIT_IDS -NoEnumerate -ErrorAction Stop
+    } catch {
+        throw (New-BcExpectedFailure -Stage 'test selection validation' -Message 'Could not read codeunitIds as JSON. Choose valid test codeunits or request all tests. No build, container preparation, or test execution was started.')
+    }
+    $testInputs.CodeunitIds = @(ConvertTo-BcTestCodeunitIds -Value $codeunitIds)
+}
+
 Initialize-Context `
     -scriptPath $scriptRoot  `
     -settingsJSON ([ref]$settingsJSON)  `
@@ -47,7 +58,6 @@ $null = @(Get-TestIsolationDisabledCodeunits -SettingsJSON $settingsJSON -Worksp
 Assert-TestIsolationCapabilities
 
 $baselineVersion = Get-BcWorkspaceBaselineApplicationVersion -ScriptPath $scriptRoot -WorkspaceJSON $workspaceJSON
-$suite = if ($env:BCDEVTOOLSET_TEST_SUITE -eq 'Compatibility') { 'Compatibility' } else { 'Development' }
 $testContainerSelection = Request-TestExecutionContainerSelection `
     -settingsJSON $settingsJSON `
     -BaselineApplicationVersion $baselineVersion `
@@ -55,6 +65,10 @@ $testContainerSelection = Request-TestExecutionContainerSelection `
 if ($null -eq $testContainerSelection) {
     Write-Done
     return
+}
+
+if ($testInputs.ContainsKey('CodeunitIds')) {
+    Write-Host "AL test scope: selected codeunit IDs $($testInputs.CodeunitIds -join ', ')." -ForegroundColor Blue
 }
 
 Write-McpStageMarker -Stage build -Status started
@@ -69,6 +83,7 @@ try {
 
 $targetResults = @()
 $targetReports = @()
+$selectionFailure = $null
 foreach ($selection in @($testContainerSelection.Targets)) {
     $targetResult = [PSCustomObject]@{
         name = $selection.Configuration.name
@@ -99,13 +114,16 @@ foreach ($selection in @($testContainerSelection.Targets)) {
         $targetReport = Invoke-Tests `
             -scriptPath $scriptRoot `
             -settingsJSON $testSettingsJSON `
-            -workspaceJSON $workspaceJSON
+            -workspaceJSON $workspaceJSON @testInputs
         $targetReports += $targetReport
         $targetResult.status = if ($targetReport.allPassed) { 'passed' } else { 'failed' }
         if (-not $targetReport.allPassed) { $targetResult.error = "$($targetReport.failed) of $($targetReport.total) AL tests failed." }
         Write-McpStageMarker -Stage tests -Status $(if ($targetReport.allPassed) { 'succeeded' } else { 'failed' })
     } catch {
         $targetResult.error = "Tests: $($_.Exception.Message)"
+        if ($_.Exception.Data['BcDevToolsetExpectedFailure'] -and $_.Exception.Data['Stage'] -eq 'deployed test selection validation') {
+            $selectionFailure = $_.Exception
+        }
         Write-McpStageMarker -Stage tests -Status failed
     }
     $targetResults += $targetResult
@@ -121,11 +139,13 @@ $testReport = [PSCustomObject]@{
     groups = @($targetReports | ForEach-Object { $_.groups })
     failures = @($targetReports | ForEach-Object { $_.failures })
     unmatchedCodeunitIds = @($targetReports | ForEach-Object { $_.unmatchedCodeunitIds } | Sort-Object -Unique)
+    selectedCodeunitIds = $testInputs.CodeunitIds
     testIsolationDisabledCodeunits = @(Get-TestIsolationDisabledCodeunits -SettingsJSON $settingsJSON -WorkspaceJSON $workspaceJSON)
     targets = $targetResults
     allPassed = (@($targetResults | Where-Object status -ne 'passed').Count -eq 0)
 }
 Write-McpTestReport -Report $testReport
+if ($null -ne $selectionFailure) { throw $selectionFailure }
 foreach ($target in $targetResults) {
     Write-Host "Compatibility target '$($target.name)' (configured $($target.targetPlatform), actual $($target.actualApplicationVersion)): $($target.status). $($target.error)" -ForegroundColor $(if ($target.status -eq 'passed') { 'Green' } else { 'Red' })
 }
