@@ -21,6 +21,7 @@ const { assertWithinRoot, authorizeRoot, resolveWithinRoot } = require('./path-s
 const { registerBcQualityIntegration } = require('./bcquality-vscode');
 const { registerCuratedSkillsIntegration } = require('./curated-skills-vscode');
 const { redactContainerHelperCommandLines } = require('./operation-output');
+const { assertKnownTestCodeunits, getTestCodeunitCatalog, normalizeTestCodeunitIds, pickTestCodeunits } = require('./test-codeunit-selection');
 
 let extensionContext;
 let runtimeSyncPromise;
@@ -35,6 +36,7 @@ let mcpBridgeToken;
 let mcpBridgeStatePath;
 let mcpBridgeInstanceId;
 let mcpBridgeWorkspace;
+let mcpAlTestStartPending = false;
 let bcDataRuntime;
 let bcDataCredentialProvider;
 const mcpPromptSessions = new Map();
@@ -42,9 +44,9 @@ const mcpPromptSessionMaxAgeMs = 60 * 60 * 1000;
 const mcpPromptSessionMaxCount = 50;
 const mcpPromptSessionCleanupIntervalMs = 5 * 60 * 1000;
 // Increment when MCP tools or schemas change so VS Code refreshes its cached server definition.
-const mcpServerDefinitionRevision = 47;
+const mcpServerDefinitionRevision = 48;
 // Increment when bundled runtime content changes without an extension version bump.
-const runtimeToolsetRevision = 78;
+const runtimeToolsetRevision = 79;
 
 const operationsRequiringAlTool = new Set([
   'buildAllApps',
@@ -140,6 +142,7 @@ async function activate(context) {
     vscode.commands.registerCommand('bcDevToolset.showMcpStatus', showMcpStatus),
     vscode.commands.registerCommand('bcDevToolset.configureMcpTools', configureMcpTools),
     vscode.commands.registerCommand('bcDevToolset.signInBcData', signInBcData),
+    vscode.commands.registerCommand('bcDevToolset.selectAlTestCodeunits', selectAlTestCodeunits),
     vscode.commands.registerCommand('bcDevToolset.configureCodexMcp', configureCodexMcp),
     vscode.commands.registerCommand('bcDevToolset.disableCodexMcp', disableCodexMcp),
     vscode.commands.registerCommand('bcDevToolset.runOperation', runOperation),
@@ -315,19 +318,67 @@ async function handleMcpBridgeRequest(request, response) {
       return;
     }
 
-    if (request.url !== '/run-operation') {
+    if (!['/run-operation', '/test-codeunit-catalog'].includes(request.url)) {
       writeMcpBridgeResponse(response, 404, { error: 'Not found.' });
       return;
     }
 
-    const operationId = String((body && body.operationId) || '').trim();
+    const requestedPaths = [body.workspacePath, body.workspaceFile, body.localSettingsPath].filter(Boolean);
+    if (requestedPaths.some((candidate) => !bridgeIdentity.workspaceOwnsPath(mcpBridgeWorkspace, candidate))) {
+      writeMcpBridgeResponse(response, 409, { error: 'The requested workspace does not belong to this bound BC Dev Toolset bridge.' });
+      return;
+    }
+
+    const operationId = String(body.operationId || '').trim();
+    if (request.url === '/test-codeunit-catalog' || operationId === 'invokeTests') {
+      const workspaceOverrides = [
+        [body.workspacePath, mcpBridgeWorkspace.workspacePath],
+        [body.workspaceFile, mcpBridgeWorkspace.workspaceFilePath]
+      ];
+      if (workspaceOverrides.some(([requested, bound]) =>
+        requested && (!bound || typeof requested !== 'string' || path.relative(bound, requested) !== ''))) {
+        writeMcpBridgeResponse(response, 409, {
+          error: 'AL test preflight and execution require the open VS Code workspace. Omit the workspace path overrides or open the intended workspace and reconnect. No test operation was started.'
+        });
+        return;
+      }
+    }
+
+    if (request.url === '/test-codeunit-catalog') {
+      writeMcpBridgeResponse(response, 200, { testCodeunitCatalog: await getTestCodeunitCatalog(vscode) });
+      return;
+    }
+
     if (!operationId) {
       writeMcpBridgeResponse(response, 400, { error: 'operationId is required.' });
       return;
     }
-    const requestedPaths = [body.workspacePath, body.workspaceFile, body.localSettingsPath].filter(Boolean);
-    if (requestedPaths.some((candidate) => !bridgeIdentity.workspaceOwnsPath(mcpBridgeWorkspace, candidate))) {
-      writeMcpBridgeResponse(response, 409, { error: 'The requested workspace does not belong to this bound BC Dev Toolset bridge.' });
+    let codeunitIds;
+    if (operationId === 'invokeTests' && body.codeunitIds !== undefined) {
+      try {
+        codeunitIds = normalizeTestCodeunitIds(body.codeunitIds);
+        assertKnownTestCodeunits(codeunitIds, await getTestCodeunitCatalog(vscode));
+      } catch (error) {
+        writeMcpBridgeResponse(response, 400, { error: `${error.message} No test operation was started.` });
+        return;
+      }
+    }
+
+    const existingTestRun = operationId === 'invokeTests'
+      ? getExistingMcpOperationForPromptAnswers(operationId, body.promptAnswers)
+      : undefined;
+    if (existingTestRun) {
+      const activeScope = mcpPromptSessions.get(existingTestRun.sessionId)?.codeunitIds;
+      if (JSON.stringify(activeScope) !== JSON.stringify(codeunitIds)) {
+        writeMcpBridgeResponse(response, 409, {
+          error: `AL test session '${existingTestRun.sessionId}' is already running with a different codeunit selection. Use bc_dev_toolset_get_operation_status to wait for that session, then retry. No new test operation was started.`
+        });
+        return;
+      }
+    } else if (operationId === 'invokeTests' && mcpAlTestStartPending) {
+      writeMcpBridgeResponse(response, 409, {
+        error: 'An AL test operation is already starting. Check the existing request or VS Code terminal for its outcome before retrying. No new test operation was started.'
+      });
       return;
     }
 
@@ -337,7 +388,7 @@ async function handleMcpBridgeRequest(request, response) {
       return;
     }
 
-    const existingOperationResult = getExistingMcpOperationForPromptAnswers(operationId, body.promptAnswers);
+    const existingOperationResult = existingTestRun || getExistingMcpOperationForPromptAnswers(operationId, body.promptAnswers);
     if (existingOperationResult) {
       writeMcpBridgeResponse(response, existingOperationResult.status === 'failed' ? 400 : 200, existingOperationResult);
       return;
@@ -350,16 +401,23 @@ async function handleMcpBridgeRequest(request, response) {
     }
 
     const timeoutSeconds = Number(body.timeoutSeconds);
-    const result = await runOperationByIdForMcp(operationId, {
-      workspacePath: body.workspacePath,
-      workspaceFile: body.workspaceFile,
+    const options = {
+      workspacePath: operationId === 'invokeTests' ? mcpBridgeWorkspace.workspacePath : body.workspacePath,
+      workspaceFile: operationId === 'invokeTests' ? mcpBridgeWorkspace.workspaceFilePath : body.workspaceFile,
       localSettingsPath: body.localSettingsPath,
       promptAnswers: body.promptAnswers,
+      codeunitIds,
       timeoutMs: Number.isFinite(timeoutSeconds) && timeoutSeconds > 0
         ? timeoutSeconds * 1000
         : undefined
-    });
-    writeMcpBridgeResponse(response, 200, result);
+    };
+    if (operationId === 'invokeTests') mcpAlTestStartPending = true;
+    try {
+      const result = await runOperationByIdForMcp(operationId, options);
+      writeMcpBridgeResponse(response, 200, result);
+    } finally {
+      if (operationId === 'invokeTests') mcpAlTestStartPending = false;
+    }
   } catch (error) {
     writeMcpBridgeResponse(response, 500, { error: error.message });
   }
@@ -2249,6 +2307,15 @@ function getOperations(toolsetPath) {
   return JSON.parse(fs.readFileSync(getOperationMetadataPath(toolsetPath), 'utf8'));
 }
 
+async function selectAlTestCodeunits() {
+  try {
+    return await pickTestCodeunits(vscode, getWorkspaceBasePath(), getOptionalLocalSettingsPath());
+  } catch (error) {
+    await vscode.window.showErrorMessage(`BC Dev Toolset: Select AL test codeunits. ${error.message} No test operation was started.`);
+    return undefined;
+  }
+}
+
 async function executeOperation(operation, toolsetPath) {
   if (['configureCuratedSkillsAccessToken', 'removeCuratedSkillsAccessToken', 'checkCuratedSkillsAccess'].includes(operation.command)) {
     try {
@@ -2297,6 +2364,11 @@ async function executeOperation(operation, toolsetPath) {
     return;
   }
 
+  if (operation.command === 'selectAlTestCodeunits') {
+    await selectAlTestCodeunits();
+    return;
+  }
+
   if (operation.command === 'configureCodexMcp') {
     await configureCodexMcp();
     return;
@@ -2332,7 +2404,19 @@ async function executeOperation(operation, toolsetPath) {
     return;
   }
 
-  const { command, powershellExecutable } = buildOperationTerminalCommand(operation, toolsetPath, { nonInteractive: false });
+  let codeunitIds;
+  if (operation.id === 'invokeTests') {
+    const scope = await vscode.window.showInformationMessage(
+      'Do you want to select test codeunits to run? Select No to run all the tests. (y/N)',
+      { modal: true }, 'Yes', 'No'
+    );
+    if (scope === undefined) return;
+    if (scope === 'Yes') {
+      codeunitIds = await selectAlTestCodeunits();
+      if (codeunitIds === undefined) return;
+    }
+  }
+  const { command, powershellExecutable } = buildOperationTerminalCommand(operation, toolsetPath, { nonInteractive: false, codeunitIds });
 
   bcDataRuntime?.invalidate();
   const terminal = getOperationTerminal(powershellExecutable);
@@ -2349,6 +2433,7 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
   const session = getOrCreateMcpPromptSession(capture.sessionId);
   session.operationId = operation.id;
   session.operationTitle = operation.title;
+  session.codeunitIds = options.codeunitIds;
   session.promptAnswers = normalizeMcpPromptAnswers(options.promptAnswers);
   touchMcpPromptSession(session);
   const { command, powershellExecutable } = buildOperationTerminalCommand(operation, toolsetPath, {
@@ -2360,6 +2445,7 @@ async function executeOperationInTerminalForMcp(operation, toolsetPath, options 
     mcpSessionId: capture.sessionId,
     remotingInputs: operation.id === 'configureWinRm' ? options.promptAnswers : undefined,
     backupInputs: operation.id === 'backupBcDatabases' ? options.promptAnswers : undefined,
+    codeunitIds: options.codeunitIds,
     workspacePath: options.workspacePath,
     workspaceFile: options.workspaceFile,
     localSettingsPath: options.localSettingsPath
@@ -2438,6 +2524,9 @@ function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
 
   const remotingEnvironment = `$env:BCDEVTOOLSET_REMOTING_INPUTS = ${quotePowerShellArgument(options.mcpSessionId && operation.id === 'configureWinRm' ? JSON.stringify(options.remotingInputs || {}) : '')}; `;
   const backupEnvironment = `$env:BCDEVTOOLSET_BACKUP_INPUTS = ${quotePowerShellArgument(options.mcpSessionId && operation.id === 'backupBcDatabases' ? JSON.stringify(options.backupInputs || {}) : '')}; `;
+  const testCodeunitEnvironment = operation.id === 'invokeTests' && options.codeunitIds !== undefined
+    ? `$env:BCDEVTOOLSET_TEST_CODEUNIT_IDS = ${quotePowerShellArgument(JSON.stringify(options.codeunitIds))}; `
+    : '$env:BCDEVTOOLSET_TEST_CODEUNIT_IDS = $null; ';
   const mcpPromptEnvironment = options.mcpSessionId
     ? [
         `$env:BCDEVTOOLSET_MCP_SESSION_ID = ${quotePowerShellArgument(options.mcpSessionId)}`,
@@ -2460,6 +2549,7 @@ function buildOperationTerminalCommand(operation, toolsetPath, options = {}) {
     mcpPromptEnvironment +
     remotingEnvironment +
     backupEnvironment +
+    testCodeunitEnvironment +
     (options.includeMcpCapture
       ? buildMcpCapturedPowerShellCommand(operationCommand, options.transcriptPath, options.resultPath)
       : options.includeMcpExitMarker

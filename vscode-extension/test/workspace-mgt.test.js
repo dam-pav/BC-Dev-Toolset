@@ -772,18 +772,18 @@ test('runtime synchronization state includes an explicit content revision', () =
     path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
 
   const revision = Number(extensionSource.match(/const runtimeToolsetRevision = (\d+);/)?.[1]);
-  assert.equal(revision, 78, 'Bundled runtime changes must increment the synchronization revision');
+  assert.equal(revision, 79, 'Bundled runtime changes must increment the synchronization revision');
   assert.match(extensionSource, /`\$\{extensionVersion\}\.\$\{runtimeToolsetRevision\}\|\$\{getToolsetPath\(\)\}`/);
 });
 
-test('the restore-setting runtime revision resynchronizes an already installed extension version once', async () => {
+test('the runtime revision resynchronizes an already installed extension version once', async () => {
   const extensionSource = fs.readFileSync( // nosemgrep -- fixed segments resolve beneath the authorized repository root
     path.join(repositoryRoot, 'vscode-extension', 'extension.js'), 'utf8');
   const revisionDeclaration = extensionSource.match(/^const runtimeToolsetRevision = \d+;/m)?.[0];
   const syncKeyFunction = extensionSource.match(/^function getRuntimeSyncStateKey\([^]*?\n}/m)?.[0];
   const synchronizeFunction = extensionSource.match(/^async function syncRuntimeToolsetAfterExtensionUpdate\([^]*?\n}/m)?.[0];
   assert.ok(revisionDeclaration && syncKeyFunction && synchronizeFunction);
-  const previousKey = '1.11.16.77|fixture-runtime';
+  const previousKey = '1.11.18.78|fixture-runtime';
   let storedKey = previousKey;
   let syncCount = 0;
   const updates = [];
@@ -793,7 +793,7 @@ test('the restore-setting runtime revision resynchronizes an already installed e
     getMissingRuntimeFiles: () => [],
     syncRuntimeToolsetQuietly: async () => { syncCount++; },
     extensionContext: {
-      extension: { packageJSON: { version: '1.11.16' } },
+      extension: { packageJSON: { version: '1.11.18' } },
       globalState: {
         get: (key) => { assert.equal(key, 'runtimeToolsetSyncedForExtension'); return storedKey; },
         update: async (key, value) => {
@@ -807,7 +807,7 @@ test('the restore-setting runtime revision resynchronizes an already installed e
   vm.runInContext(`${revisionDeclaration}\n${syncKeyFunction}\n${synchronizeFunction}`, context);
   await vm.runInContext('syncRuntimeToolsetAfterExtensionUpdate(extensionContext)', context);
   assert.equal(syncCount, 1, 'Old revision must refresh complete runtime files even when the extension version is unchanged');
-  assert.deepEqual(updates, ['1.11.16.78|fixture-runtime']);
+  assert.deepEqual(updates, ['1.11.18.79|fixture-runtime']);
   assert.notEqual(storedKey, previousKey);
   await vm.runInContext('syncRuntimeToolsetAfterExtensionUpdate(extensionContext)', context);
   assert.equal(syncCount, 1, 'An already refreshed runtime must not be synchronized again');

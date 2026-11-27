@@ -1,5 +1,6 @@
 . (Join-Path $PSScriptRoot 'ContainerLifecycle.ps1')
 . (Join-Path $PSScriptRoot 'TestTargets.ps1')
+. (Join-Path $PSScriptRoot 'PublishingDiagnostics.ps1')
 
 function Get-BcConfigurationCredentialValues {
     param(
@@ -502,6 +503,22 @@ function Get-TestIsolationDisabledCodeunits {
     return @($value | ForEach-Object { [int]$_ } | Sort-Object -Unique)
 }
 
+function ConvertTo-BcTestCodeunitIds {
+    param($Value)
+
+    $message = 'codeunitIds must be a non-empty JSON array of integer codeunit IDs from 1 to 2147483647. Choose valid test codeunits or request all tests. No build, container preparation, or test execution was started.'
+    if ($Value -isnot [array] -or $Value.Count -eq 0) {
+        throw (New-BcExpectedFailure -Stage 'test selection validation' -Message $message)
+    }
+    foreach ($id in $Value) {
+        if (($id -isnot [int] -and $id -isnot [long] -and $id -isnot [double] -and $id -isnot [decimal]) -or
+            $id -lt 1 -or $id -gt [int]::MaxValue -or [Math]::Truncate($id) -ne $id) {
+            throw (New-BcExpectedFailure -Stage 'test selection validation' -Message $message)
+        }
+    }
+    return @($Value | ForEach-Object { [int]$_ } | Sort-Object -Unique)
+}
+
 function Assert-TestIsolationCapabilities {
     foreach ($entry in @(
         @{ Command = 'Get-TestsFromBcContainer'; Parameters = @('extensionId', 'testCodeunitRange', 'ignoreGroups') },
@@ -536,6 +553,29 @@ function Reset-TestIsolation {
     }
 }
 
+function Get-BcWorkspaceAppTestInventory {
+    param($WorkspaceApp, $InstalledApps, [string] $Container, [pscredential] $Credential)
+
+    $appId = [string]$WorkspaceApp.AppId
+    $installedApp = $InstalledApps | Where-Object { [string]$_.AppId -eq $appId } | Select-Object -First 1
+    if ($null -eq $installedApp) {
+        throw "Workspace app '$($WorkspaceApp.Name)' ($appId) is not installed in container '$Container'; tests cannot be discovered."
+    }
+
+    # Range validation can replace extension discovery, rather than intersecting it.
+    # Discover by extension alone, then use only the IDs belonging to that app.
+    $discovered = @(Get-TestsFromBcContainer -containerName $Container -credential $Credential `
+        -extensionId $appId -testCodeunitRange '' -ignoreGroups -ErrorAction Stop)
+    $ids = @($discovered | ForEach-Object {
+        $id = 0
+        if (-not [int]::TryParse([string]$_.Id, [ref]$id) -or $id -le 0 -or -not $_.PSObject.Properties['Tests']) {
+            throw "Malformed test discovery for '$($WorkspaceApp.Name)'."
+        }
+        $id
+    } | Sort-Object -Unique)
+    return [pscustomobject]@{ InstalledName = [string]$installedApp.Name; Codeunits = $discovered; Ids = $ids }
+}
+
 function Invoke-Tests {
     Param (
         [Parameter(Mandatory=$true)]
@@ -545,9 +585,14 @@ function Invoke-Tests {
         [Parameter(Mandatory=$true)]
         [PSObject] $workspaceJSON,
         [ValidateSet("Dev", "Test", "Production")]
-        [string] $targetType
+        [string] $targetType,
+        $CodeunitIds
     )
 
+    $selectedIds = $null
+    if ($PSBoundParameters.ContainsKey('CodeunitIds')) {
+        $selectedIds = @(ConvertTo-BcTestCodeunitIds -Value $CodeunitIds)
+    }
     $disabledIds = @(Get-TestIsolationDisabledCodeunits -SettingsJSON $settingsJSON -WorkspaceJSON $workspaceJSON)
     Assert-TestIsolationCapabilities
     $foundIds = [System.Collections.Generic.HashSet[int]]::new()
@@ -561,7 +606,7 @@ function Invoke-Tests {
         $targetConfigurations = @($targetConfigurations | Where-Object { $_.targetType -eq $targetType })
     }
 
-    $resultDirectory = Get-BcDevToolsetTestResultDirectory
+    $resultDirectory = if ($null -eq $selectedIds) { Get-BcDevToolsetTestResultDirectory }
     $compiledResult = [ordered]@{
         applicationCount = 0
         total = 0
@@ -572,6 +617,7 @@ function Invoke-Tests {
         failures = @()
         omittedFailureCount = 0
         allPassed = $true
+        selectedCodeunitIds = $selectedIds
         testIsolationDisabledCodeunits = @($disabledIds)
         groups = @()
         unmatchedCodeunitIds = @()
@@ -591,27 +637,33 @@ function Invoke-Tests {
                     -containerName $configuration.container `
                     -installedOnly)
 
-                foreach ($workspaceApp in $workspaceApps) {
-                    $installedApp = @($installedApps | Where-Object {
-                        [string]$_.AppId -eq [string]$workspaceApp.AppId
-                    } | Select-Object -First 1)
-                    if ($installedApp.Count -eq 0) {
-                        throw "Workspace app '$($workspaceApp.Name)' ($($workspaceApp.AppId)) is not installed in container '$($configuration.container)'; tests cannot be discovered."
+                $testInventory = @{}
+                if ($null -ne $selectedIds) {
+                    foreach ($workspaceApp in $workspaceApps) {
+                        $testInventory[[string]$workspaceApp.AppId] = Get-BcWorkspaceAppTestInventory `
+                            -WorkspaceApp $workspaceApp -InstalledApps $installedApps -Container $configuration.container -Credential $credential
                     }
+                    $targetIds = @($testInventory.Values | ForEach-Object { $_.Ids })
+                    $missingIds = @($selectedIds | Where-Object { $_ -notin $targetIds })
+                    if ($missingIds.Count -gt 0) {
+                        throw (New-BcExpectedFailure -Stage 'deployed test selection validation' -Message "Selected test codeunit IDs were not discovered in the deployed workspace apps: $($missingIds -join ', '). Refresh the test selection and check that the target contains the intended app versions before retrying. Build and container preparation may already have completed. No tests were executed on this target.")
+                    }
+                }
 
+                foreach ($workspaceApp in $workspaceApps) {
+                    $discoveredApp = $testInventory[[string]$workspaceApp.AppId]
+                    if ($null -eq $discoveredApp) {
+                        $discoveredApp = Get-BcWorkspaceAppTestInventory `
+                            -WorkspaceApp $workspaceApp -InstalledApps $installedApps -Container $configuration.container -Credential $credential
+                    }
+                    $discovered = $discoveredApp.Codeunits
+                    $ids = $discoveredApp.Ids
+                    foreach ($id in $ids) { $null = $foundIds.Add($id) }
+                    if ($null -ne $selectedIds) {
+                        $ids = @($ids | Where-Object { $_ -in $selectedIds })
+                        if ($ids.Count -eq 0) { continue }
+                    }
                     $compiledResult.applicationCount++
-                    # Range validation can replace extension discovery, rather than intersecting it.
-                    # Discover by extension alone, then use only the IDs belonging to that app.
-                    $discovered = @(Get-TestsFromBcContainer -containerName $configuration.container -credential $credential `
-                        -extensionId ([string]$workspaceApp.AppId) -testCodeunitRange '' -ignoreGroups -ErrorAction Stop)
-                    $ids = @($discovered | ForEach-Object {
-                        $id = 0
-                        if (-not [int]::TryParse([string]$_.Id, [ref]$id) -or $id -le 0 -or -not $_.PSObject.Properties['Tests']) {
-                            throw "Malformed test discovery for '$($workspaceApp.Name)'."
-                        }
-                        $null = $foundIds.Add($id)
-                        $id
-                    } | Sort-Object -Unique)
                     foreach ($policy in @(
                         @{ isolation = 'Codeunit'; runner = 130450; ids = @($ids | Where-Object { $_ -notin $disabledIds }) },
                         @{ isolation = 'Disabled'; runner = 130451; ids = @($ids | Where-Object { $_ -in $disabledIds }) }
@@ -628,12 +680,13 @@ function Invoke-Tests {
                         $compiledResult.groups += $group
                         Write-Host "App '$($workspaceApp.Name)': isolation=$($policy.isolation), runner=$($policy.runner), codeunit filter='$filter'." -ForegroundColor Blue
                         if ($policy.ids.Count -eq 0) { continue }
+                        if ($null -eq $resultDirectory) { $resultDirectory = Get-BcDevToolsetTestResultDirectory }
                         $resultPath = Join-Path $resultDirectory "$([guid]::NewGuid().ToString('N')).junit.xml"
                         $params = @{
                             containerName = $configuration.container
                             credential = $credential
                             extensionId = [string]$workspaceApp.AppId
-                            appName = [string]$installedApp[0].Name
+                            appName = $discoveredApp.InstalledName
                             JUnitResultFileName = $resultPath
                             returnTrueIfAllPassed = $true
                             detailed = $true

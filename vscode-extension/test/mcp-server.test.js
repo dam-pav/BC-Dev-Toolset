@@ -3,6 +3,10 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawn } = require('node:child_process');
+const { randomUUID } = require('node:crypto');
+const http = require('node:http');
+const readline = require('node:readline');
 process.env.BCDEVTOOLSET_MCP_TOOL_SETTINGS = JSON.stringify({"bc_dev_toolset_show_help": true, "bc_dev_toolset_invoke_tests": true, "bc_dev_toolset_invoke_page_script_tests": true});
 const { afterEach, test } = require('node:test');
 
@@ -138,16 +142,188 @@ test('build tool description directs AL compilation through workspace-aware tool
   assert.match(buildTool.description, /assembly probing paths/);
 });
 
-test('test preflight exposes confirmation and creation questions without a container-name selector', async () => {
-  for (const name of ['bc_dev_toolset_invoke_tests', 'bc_dev_toolset_invoke_page_script_tests']) {
-    const result = await mcpServer.callTool({ name, arguments: {} });
-    const preflight = JSON.parse(result.content[0].text);
-    assert.equal(preflight.status, 'input_required');
-    assert.ok(preflight.missingInputs.includes('executeTestsInContainer'));
-    assert.equal(preflight.questions.some(input => input.inputName === 'testContainerSelection'), false);
-    assert.ok(preflight.questions.some(input => input.inputName === 'pullFullArtifact'));
-    assert.equal(Object.hasOwn(preflight, 'conditionalPrompts'), false);
+test('page script preflight exposes confirmation and creation questions without a container-name selector', async () => {
+  const result = await mcpServer.callTool({ name: 'bc_dev_toolset_invoke_page_script_tests', arguments: {} });
+  const preflight = JSON.parse(result.content[0].text);
+  assert.equal(preflight.status, 'input_required');
+  assert.ok(preflight.missingInputs.includes('executeTestsInContainer'));
+  assert.equal(preflight.questions.some(input => input.inputName === 'testContainerSelection'), false);
+  assert.ok(preflight.questions.some(input => input.inputName === 'pullFullArtifact'));
+  assert.equal(Object.hasOwn(preflight, 'conditionalPrompts'), false);
+});
+
+test('AL test tool exposes the codeunit list input', () => {
+  const tools = mcpServer.getTools();
+  const testTool = tools.find(tool => tool.name === 'bc_dev_toolset_invoke_tests');
+  assert.deepEqual(testTool.inputSchema.properties.codeunitIds.items, { type: 'integer', minimum: 1, maximum: 2 ** 31 - 1 });
+  const pageScriptTool = tools.find(tool => tool.name === 'bc_dev_toolset_invoke_page_script_tests');
+  assert.equal(pageScriptTool.inputSchema.properties.codeunitIds, undefined);
+});
+
+async function createOperationBridgeFixture(t, handleRequest) {
+  const identity = { protocolVersion: 2, instanceId: randomUUID(), extensionHostPid: process.pid, workspace: { workspacePath: process.cwd() } };
+  const token = randomUUID();
+  const requests = [];
+  const bridge = http.createServer(async (request, response) => {
+    let input = '';
+    for await (const chunk of request) input += chunk;
+    const body = JSON.parse(input);
+    if (request.headers.authorization !== `Bearer ${token}` || body.binding?.instanceId !== identity.instanceId) {
+      response.writeHead(401).end('{}');
+      return;
+    }
+    response.setHeader('content-type', 'application/json');
+    requests.push({ route: request.url, body });
+    handleRequest(request, response, identity);
+  });
+  await new Promise(resolve => bridge.listen(0, '127.0.0.1', resolve));
+  t.after(() => { bridge.close(); bridge.closeAllConnections(); });
+  const child = spawn(process.execPath, [path.join(__dirname, '../mcp-server.js')], { windowsHide: true, env: {
+    ...process.env,
+    BCDEVTOOLSET_MCP_TOOL_SETTINGS: JSON.stringify({
+      bc_dev_toolset_invoke_tests: true,
+      bc_dev_toolset_build_all_apps: true
+    }),
+    BCDEVTOOLSET_MCP_TOOL_SETTINGS_SOURCE: '',
+    BCDEVTOOLSET_MCP_BRIDGE_URL: `http://127.0.0.1:${bridge.address().port}`,
+    BCDEVTOOLSET_MCP_BRIDGE_TOKEN: token,
+    BCDEVTOOLSET_MCP_BRIDGE_INSTANCE_ID: identity.instanceId,
+    BCDEVTOOLSET_MCP_BRIDGE_PROTOCOL_VERSION: '2',
+    BCDEVTOOLSET_MCP_EXTENSION_HOST_PID: String(process.pid),
+    BCDEVTOOLSET_MCP_WORKSPACE_CONTEXT: JSON.stringify(identity.workspace)
+  } });
+  child.stderr.resume();
+  const lines = readline.createInterface({ input: child.stdout });
+  t.after(() => { lines.close(); child.kill(); });
+  let id = 0;
+  async function invoke(args, name = 'bc_dev_toolset_invoke_tests') {
+    const response = new Promise(resolve => lines.once('line', line => resolve(JSON.parse(line))));
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: ++id, method: 'tools/call', params: {
+      name, arguments: args
+    } }) + '\n');
+    return (await response).result;
   }
+  return { invoke, requests };
+}
+
+test('generic terminal operations precheck authorized workspace folders before dispatch', { timeout: 10000 }, async t => {
+  const { invoke, requests } = await createOperationBridgeFixture(t, (request, response, identity) => {
+    if (request.url === '/handshake') response.end(JSON.stringify(identity));
+    else response.end(JSON.stringify({ status: 'completed' }));
+  });
+  const buildTool = 'bc_dev_toolset_build_all_apps';
+  const missingPath = path.join(process.cwd(), randomUUID());
+  const outsidePath = path.resolve(process.cwd(), '..', randomUUID());
+
+  const missing = await invoke({ workspacePath: missingPath }, buildTool);
+  assert.equal(missing.isError, true);
+  assert.match(missing.content[0].text, /Workspace path not found.*Check that the selected workspace folder still exists.*No operation was started/);
+
+  const outside = await invoke({ workspacePath: outsidePath }, buildTool);
+  assert.equal(outside.isError, true);
+  assert.match(outside.content[0].text, /outside the workspace bound to the VS Code bridge.*Select a path in the bound workspace.*No operation was started/);
+  assert.equal(requests.length, 0);
+
+  const valid = await invoke({ workspacePath: __dirname }, buildTool);
+  assert.equal(valid.isError, false);
+  assert.deepEqual(requests.map(request => request.route), ['/handshake', '/run-operation']);
+  assert.equal(requests[1].body.workspacePath, __dirname);
+});
+
+test('AL test preflight reads the grouped catalog, and execute forwards only validated inputs', { timeout: 10000 }, async t => {
+  const catalog = [{ appId: 'app', appName: 'Test app', codeunits: [{ id: 60992, name: 'Sales test' }] }];
+  let catalogAvailable = true;
+  const { invoke, requests } = await createOperationBridgeFixture(t, (request, response, identity) => {
+    if (request.url === '/handshake') response.end(JSON.stringify(identity));
+    else if (request.url === '/test-codeunit-catalog' && catalogAvailable) response.end(JSON.stringify({ testCodeunitCatalog: catalog }));
+    else if (request.url === '/run-operation') response.end(JSON.stringify({ status: 'completed' }));
+    else response.writeHead(404).end('{}');
+  });
+
+  const preflight = JSON.parse((await invoke({ execute: false })).content[0].text);
+  assert.deepEqual(preflight.testCodeunitCatalog, catalog);
+  assert.deepEqual(preflight.questions.map(question => question.inputName), [
+    'executeTestsInContainer', 'clearTranslationFiles', 'clearAppFiles', 'pullFullArtifact'
+  ]);
+  assert.deepEqual(requests.map(request => request.route), ['/handshake', '/test-codeunit-catalog']);
+
+  const execute = { execute: true, executeTestsInContainer: true, clearTranslationFiles: false, clearAppFiles: false, pullFullArtifact: false };
+  for (const invalid of [
+    { ...execute, clearAppFiles: undefined }, { ...execute, pullFullArtifact: 'sometimes' },
+    { ...execute, promptAnswers: { 'clearArtifacts.appFiles': 'maybe' } },
+    ...[null, [], ['60992'], [Infinity], [2147483648], [1.5]].map(codeunitIds => ({ ...execute, codeunitIds }))
+  ]) {
+    const result = await invoke(invalid);
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /No test operation was started/);
+  }
+  assert.equal(requests.length, 2);
+
+  assert.equal((await invoke({ ...execute, codeunitIds: [60992, 60992] })).isError, false);
+  assert.deepEqual(requests[2].body.codeunitIds, [60992]);
+  assert.equal(requests[2].body.promptAnswers['clearArtifacts.appFiles'], false);
+  assert.equal((await invoke(execute)).isError, false);
+  assert.equal(Object.hasOwn(requests[3].body, 'codeunitIds'), false);
+
+  catalogAvailable = false;
+  const unavailable = await invoke({ execute: false });
+  assert.equal(unavailable.isError, true);
+  assert.match(unavailable.content[0].text, /HTTP 404.*Reload.*No test operation was started/);
+  assert.equal(requests.filter(request => request.route === '/run-operation').length, 2);
+});
+
+const handshakeFailures = [
+  {
+    name: 'extension host identity mismatch',
+    reply: (response, identity) => response.end(JSON.stringify({ ...identity, instanceId: randomUUID() })),
+    diagnostic: /failed during the VS Code bridge handshake because the extension host identity did not match.*Reload the extension host.*restart the MCP client/
+  },
+  {
+    name: 'workspace identity mismatch',
+    reply: (response, identity) => response.end(JSON.stringify({
+      ...identity, workspace: { workspacePath: path.join(process.cwd(), 'different-workspace') }
+    })),
+    diagnostic: /failed during the VS Code bridge handshake because the bridge workspace did not match.*Open the intended workspace and reconnect the MCP client/
+  },
+  {
+    name: 'handshake HTTP rejection',
+    reply: response => response.writeHead(401).end(JSON.stringify({ error: 'private-bridge-detail' })),
+    diagnostic: /failed during the VS Code bridge handshake \(HTTP 401\).*rejected the current binding credentials.*restart the MCP client/
+  }
+];
+for (const { name, reply, diagnostic } of handshakeFailures) {
+  test(`AL test preflight reports ${name} before requesting the catalog`, { timeout: 10000 }, async t => {
+    const { invoke, requests } = await createOperationBridgeFixture(t, (_request, response, identity) => reply(response, identity));
+    const result = await invoke({ execute: false });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, diagnostic);
+    assert.match(result.content[0].text, /No test operation was started/);
+    assert.doesNotMatch(result.content[0].text, /private-bridge-detail/);
+    assert.deepEqual(requests.map(request => request.route), ['/handshake']);
+  });
+}
+
+test('AL test preflight reports a reset catalog connection with its safe transport code', { timeout: 10000 }, async t => {
+  const { invoke, requests } = await createOperationBridgeFixture(t, (request, response, identity) => {
+    if (request.url === '/handshake') response.end(JSON.stringify(identity));
+    else request.socket.destroy();
+  });
+  const result = await invoke({ execute: false });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /workspace test catalog request \(ECONNRESET\).*connection closed.*Reload the extension host.*restart the MCP client.*No test operation was started/);
+  assert.deepEqual(requests.map(request => request.route), ['/handshake', '/test-codeunit-catalog']);
+});
+
+test('AL test preflight reports the catalog HTTP failure without exposing the backend body', { timeout: 10000 }, async t => {
+  const { invoke, requests } = await createOperationBridgeFixture(t, (request, response, identity) => {
+    if (request.url === '/handshake') response.end(JSON.stringify(identity));
+    else response.writeHead(500).end(JSON.stringify({ error: 'private-bridge-detail' }));
+  });
+  const result = await invoke({ execute: false });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /could not read the workspace test catalog \(HTTP 500\).*extension output.*No test operation was started/);
+  assert.doesNotMatch(result.content[0].text, /private-bridge-detail/);
+  assert.deepEqual(requests.map(request => request.route), ['/handshake', '/test-codeunit-catalog']);
 });
 
 test('test preflight no longer reads settings to select a named container', t => {
@@ -194,6 +370,7 @@ test('serves repository help as an agent tool and Markdown resource', async () =
 test('compiles successful test output without prerequisite stage chatter', () => {
   const report = {
     applicationCount: 2,
+    selectedCodeunitIds: [60990, 60992],
     total: 12,
     passed: 11,
     failed: 0,
@@ -216,6 +393,7 @@ test('compiles successful test output without prerequisite stage chatter', () =>
 
   const compiled = mcpServer.compileInvokeTestsReport(output, 'completed', report);
 
+  assert.match(compiled, /Test scope: codeunits 60990, 60992/);
   assert.match(compiled, /12 total, 11 passed, 0 failed, 1 skipped/);
   assert.match(compiled, /Build workspace apps: succeeded/);
   assert.doesNotMatch(compiled, /verbose successful compiler output/);

@@ -34,7 +34,7 @@ test('activation registers every contributed operation command and dispatches cr
     queueCodexMcpReconciliation() {}
   };
   for (const name of ['writeOutput', 'openLocalSettingsJson', 'showObjectIdRangeVisualizationData',
-    'showMcpStatus', 'configureMcpTools', 'signInBcData', 'configureCodexMcp', 'disableCodexMcp', 'runOperation',
+    'showMcpStatus', 'configureMcpTools', 'signInBcData', 'selectAlTestCodeunits', 'configureCodexMcp', 'disableCodexMcp', 'runOperation',
     'startMcpBridgeServer', 'startMcpPromptSessionCleanup', 'resetBcDataCredentials',
     'registerMcpServerDefinitionProvider', 'provideSettingsCompletionItems']) {
     dependencies[name] = disposable;
@@ -43,6 +43,7 @@ test('activation registers every contributed operation command and dispatches cr
   const context = { subscriptions: [] };
   await activate(context);
   assert.equal(typeof commands.get('bcDevToolset.signInBcData'), 'function');
+  assert.equal(typeof commands.get('bcDevToolset.selectAlTestCodeunits'), 'function');
   for (const contribution of pkg.contributes.commands) {
     if (!contribution.command.startsWith('bcDevToolset.operation.')) continue;
     assert.equal(typeof commands.get(contribution.command), 'function', `${contribution.command} is contributed but unavailable`);

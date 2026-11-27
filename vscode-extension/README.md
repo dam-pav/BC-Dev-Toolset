@@ -221,8 +221,13 @@ If an extension blocks CLI User table validation/events, for example because no 
 | Operation | Description |
 | --- | --- |
 | `Run AL test tool tests` | Builds all workspace apps in dependency order before preparing the test container, so a failed build stops the operation before backup restore or deployment. It then runs tests once per workspace extension. Business Central discovers codeunits whose `SubType` is `Test` by extension ID, so test suite registration in an `OnInstall` procedure is not required. |
+| `Select AL test codeunits` | Opens a standalone multi-select picker grouped by app and saves the chosen codeunits beside the configured `bcDevToolset.localSettingsPath`. |
 | `Run page script tests` | Runs page script test recordings and writes the results to the configured output location. |
 | `AL Runner Test` | A BC Dev Toolset feature based on Stefan Maron's [BusinessCentral.AL.Runner](https://github.com/StefanMaron/BusinessCentral.AL.Runner) tool. It runs without a Business Central container and passes every workspace folder that contains an `app.json` file to one `al-runner` invocation. The operation resolves the configured Container release matching the workspace application baseline and passes its exact major/minor through `--bc-version`. Compatibility runs do the same for each explicitly configured newer release in sequence. The operation reports the requested release; unlike container modes, AL Runner does not expose an independently verified installed application version. Refer to the upstream GitHub repository for its capabilities, limitations, and CLI documentation. |
+
+Before a manual **Run AL test tool tests** run, choose Yes to open the picker or No to run all tests and keep the saved selection. Cancelling the picker uses the previous selection, or stops before launch when there is none. The saved file is `test-codeunit-selection.json`, next to the configured local settings file.
+
+For MCP, call `bc_dev_toolset_invoke_tests` with `execute: false` for the app-grouped source catalog and all run questions. Call again with `execute: true`, the named answers (including conditional questions), and optional `codeunitIds`. Omitting `codeunitIds` runs all workspace tests. The catalog and picker flag test codeunits that may depend on AL preprocessor symbols. The run verifies the selected codeunits against the deployed apps before executing tests and reports the effective scope.
 
 Automated test operations resolve only Container configurations whose `targetType` is `Test`. Dev, Production, and unspecified roles are excluded. AL Runner also uses Test-role configurations to resolve platform versions, but does not require a test toolkit because it does not use a BC container.
 
