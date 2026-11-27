@@ -8,7 +8,7 @@ const childProcess = require('child_process');
 const http = require('http');
 const os = require('os');
 const bridgeIdentity = require('./mcp-bridge-identity');
-const { authorizeRoot, resolveWithinRoot } = require('./path-security');
+const { authorizeExplicitPath, authorizeRoot, resolveWithinRoot } = require('./path-security');
 const { parseSettingsJsonc } = require('./settings-migration');
 const { dataTools, validateDataArguments } = require('./bc-data-tools');
 const { normalizeTestCodeunitIds } = require('./test-codeunit-selection');
@@ -854,7 +854,7 @@ function getOperationToolInputSchema(operation) {
     }
     properties.codeunitIds = {
       type: 'array', minItems: 1,
-      items: { type: 'integer', minimum: 1, maximum: 2147483647 },
+      items: { type: 'integer', minimum: 1, maximum: 2 ** 31 - 1 },
       description: 'Workspace test codeunit IDs to run. Omit to run all tests. Call with execute:false to list codeunits by app.'
     };
   }
@@ -986,16 +986,28 @@ async function runOperation(args, progress) {
     return textResult(`BC Dev Toolset operation bridge was not found at ${bridgePath}.`, true);
   }
 
-  const workspacePath = String(args.workspacePath || defaultWorkspacePath || '').trim();
-  if (operation.id !== 'invokeTests' && (!workspacePath || !fs.existsSync(workspacePath))) {
-    return textResult(`Workspace path not found: ${workspacePath}`, true);
-  }
-
   if (!shouldUseTerminalBridge()) {
     return textResult(
       `BC Dev Toolset operation '${operation.id}' requires the VS Code terminal bridge, but the bridge is not available. Restart the extension host and check 'BC Dev Toolset: Show MCP Status'.`,
       true
     );
+  }
+
+  if (operation.id !== 'invokeTests') {
+    const workspacePath = String(args.workspacePath || defaultWorkspacePath || '').trim();
+    if (!workspacePath) {
+      return textResult('Workspace path is required. Open the intended VS Code workspace and reconnect the MCP client before retrying. No operation was started.', true);
+    }
+    const validatedWorkspacePath = authorizeExplicitPath(workspacePath, 'Workspace path');
+    if (!bridgeIdentity.workspaceOwnsPath(bridgeBinding.workspace, validatedWorkspacePath)) {
+      return textResult('The requested workspace path falls outside the workspace bound to the VS Code bridge. Select a path in the bound workspace or open the intended workspace and reconnect the MCP client. No operation was started.', true);
+    }
+    // The configured bridge identity authorizes this normalized path with a path.relative containment check.
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- containment checked above
+    if (!fs.existsSync(validatedWorkspacePath)) { // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename
+      return textResult('Workspace path not found. Check that the selected workspace folder still exists, or open the intended workspace and reconnect the MCP client. No operation was started.', true);
+    }
+    if (args.workspacePath) args = { ...args, workspacePath: validatedWorkspacePath };
   }
 
   return runOperationInTerminal(operation, args, progress);
@@ -1012,15 +1024,11 @@ async function getAlTestPreflight(operation, args) {
       workspaceFile: args.workspaceFile,
       localSettingsPath: args.localSettingsPath
     });
-  } catch {
-    return textResult('AL test preflight could not read the workspace test catalog. Reload the matching VS Code extension host, then retry preflight. No test operation was started.', true);
+  } catch (error) {
+    return textResult(formatAlTestPreflightBridgeFailure(error), true);
   }
   if (response.statusCode !== 200 || !Array.isArray(response.body?.testCodeunitCatalog)) {
-    const reason = typeof response.body?.error === 'string' ? ` ${response.body.error}` : '';
-    const recovery = response.statusCode === 404
-      ? 'Reload the matching VS Code extension host with the updated extension and restart the MCP client.'
-      : 'Check the open workspace and retry preflight.';
-    return textResult(`AL test preflight could not read the workspace test catalog (HTTP ${response.statusCode}).${reason} ${recovery} No test operation was started.`, true);
+    return textResult(`AL test preflight could not read the workspace test catalog (HTTP ${response.statusCode}). ${describeAlTestCatalogResponseFailure(response.statusCode)} No test operation was started.`, true);
   }
   return textResult(JSON.stringify({
     status: 'input_required',
@@ -1029,6 +1037,49 @@ async function getAlTestPreflight(operation, args) {
     questions: getOperationPromptInputs(operation),
     testCodeunitCatalog: response.body.testCodeunitCatalog
   }, null, 2));
+}
+
+function formatAlTestPreflightBridgeFailure(error) {
+  const noExecution = 'No test operation was started.';
+  const reconnect = 'Reload the extension host in the intended VS Code workspace and restart the MCP client before retrying preflight.';
+  if (error instanceof BridgeHandshakeError) {
+    if (error.kind === 'workspace') {
+      return `AL test preflight failed during the VS Code bridge handshake because the bridge workspace did not match the bound workspace. Open the intended workspace and reconnect the MCP client before retrying preflight. ${noExecution}`;
+    }
+    if (error.kind === 'identity') {
+      return `AL test preflight failed during the VS Code bridge handshake because the extension host identity did not match the MCP binding. ${reconnect} ${noExecution}`;
+    }
+    const reason = error.statusCode === 401 ? 'The bridge rejected the current binding credentials. '
+      : error.statusCode === 409 ? 'The bridge rejected the MCP binding. ' : '';
+    return `AL test preflight failed during the VS Code bridge handshake (HTTP ${error.statusCode}). ${reason}${reconnect} ${noExecution}`;
+  }
+
+  const stage = error?.bridgeRoute === '/handshake' ? 'the VS Code bridge handshake' : 'the workspace test catalog request';
+  const transportReasons = {
+    ECONNREFUSED: 'The VS Code bridge refused the connection. Start or reload the extension host in the intended workspace and restart the MCP client.',
+    ECONNRESET: `The VS Code bridge connection closed before a complete response. ${reconnect}`,
+    EPIPE: `The VS Code bridge connection closed while sending the request. ${reconnect}`,
+    ETIMEDOUT: `The VS Code bridge did not respond in time. ${reconnect}`
+  };
+  if (Object.hasOwn(transportReasons, error?.code)) {
+    return `AL test preflight failed during ${stage} (${error.code}). ${transportReasons[error.code]} ${noExecution}`;
+  }
+  return `AL test preflight failed during ${stage}. The cause could not be determined. ${reconnect} ${noExecution}`;
+}
+
+function describeAlTestCatalogResponseFailure(statusCode) {
+  switch (statusCode) {
+    case 200:
+      return 'The VS Code bridge returned an invalid test catalog. Reload the matching extension host and restart the MCP client.';
+    case 401:
+      return 'The VS Code bridge rejected the current binding credentials. Reconnect the MCP client to the intended VS Code workspace.';
+    case 404:
+      return 'Reload the matching VS Code extension host with the updated extension and restart the MCP client.';
+    case 409:
+      return 'The VS Code bridge rejected the MCP binding or the requested workspace. Omit workspace path overrides or open the intended workspace and reconnect the MCP client.';
+    default:
+      return 'Check the open workspace and the BC Dev Toolset extension output, then retry preflight.';
+  }
 }
 
 function validateAlTestOperationInputs(operation, args) {
@@ -1463,25 +1514,37 @@ async function postBridgeJson(route, body) {
   return postBridgeJsonRaw(route, body);
 }
 
+class BridgeHandshakeError extends Error {
+  constructor(kind, message, statusCode) {
+    super(message);
+    this.kind = kind;
+    this.statusCode = statusCode;
+  }
+}
+
 async function validateBridgeHandshake() {
   const response = await postBridgeJsonRaw('/handshake', {});
   const identity = response.body || {};
-  if (response.statusCode < 200 || response.statusCode >= 300 ||
-      identity.protocolVersion !== bridgeBinding.protocolVersion ||
+  const identityMismatch = 'BC Dev Toolset bridge handshake mismatch; refusing to route across VS Code windows.';
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw new BridgeHandshakeError('http', identityMismatch, response.statusCode);
+  }
+  if (identity.protocolVersion !== bridgeBinding.protocolVersion ||
       identity.instanceId !== bridgeBinding.instanceId ||
       identity.extensionHostPid !== bridgeBinding.extensionHostPid) {
-    throw new Error('BC Dev Toolset bridge handshake mismatch; refusing to route across VS Code windows.');
+    throw new BridgeHandshakeError('identity', identityMismatch);
   }
   const expectedWorkspace = bridgeBinding.workspace || {};
   const actualWorkspace = identity.workspace || {};
   if ((expectedWorkspace.workspaceFilePath || expectedWorkspace.workspacePath) !==
       (actualWorkspace.workspaceFilePath || actualWorkspace.workspacePath)) {
-    throw new Error('BC Dev Toolset bridge workspace handshake mismatch; refusing the request.');
+    throw new BridgeHandshakeError('workspace', 'BC Dev Toolset bridge workspace handshake mismatch; refusing the request.');
   }
 }
 
 function postBridgeJsonRaw(route, body) {
   return new Promise((resolve, reject) => {
+    const rejectRequest = error => reject(Object.assign(error, { bridgeRoute: route }));
     const url = new URL(route, bridgeUrl);
     const content = JSON.stringify({
       ...(body || {}),
@@ -1501,6 +1564,7 @@ function postBridgeJsonRaw(route, body) {
     }, (response) => {
       let rawBody = '';
       response.setEncoding('utf8');
+      response.on('error', rejectRequest);
       response.on('data', (chunk) => {
         rawBody += chunk;
       });
@@ -1520,10 +1584,14 @@ function postBridgeJsonRaw(route, body) {
       });
     });
 
-    if (route === '/handshake' || route === '/tool-settings' || route === '/data-call') {
-      request.setTimeout(route === '/data-call' ? 70000 : 5000, () => request.destroy(new Error('BC Dev Toolset workspace bridge timed out. Reload the extension host and restart the MCP client.')));
+    const requestTimeout = { '/handshake': 5000, '/tool-settings': 5000, '/data-call': 70000, '/test-codeunit-catalog': 30000 }[route];
+    if (requestTimeout) {
+      request.setTimeout(requestTimeout, () => request.destroy(Object.assign(
+        new Error('BC Dev Toolset workspace bridge timed out. Reload the extension host and restart the MCP client.'),
+        { code: 'ETIMEDOUT' }
+      )));
     }
-    request.on('error', reject);
+    request.on('error', rejectRequest);
     request.write(content);
     request.end();
   });

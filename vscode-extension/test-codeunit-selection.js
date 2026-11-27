@@ -3,12 +3,12 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
-const { authorizeRoot, resolveWithinRoot } = require('./path-security');
+const { assertWithinRoot, authorizeRoot, resolveWithinRoot } = require('./path-security');
 const { parseSettingsJsonc } = require('./settings-migration');
 
 const selectionFilename = 'test-codeunit-selection.json';
 const ignoredDirectories = new Set(['.git', '.alpackages', '.bcdevtoolset', '.vscode', 'node_modules']);
-const codeunitIdMaximum = 2147483647;
+const codeunitIdMaximum = 2 ** 31 - 1;
 
 function normalizeTestCodeunitIds(value) {
   if (value === undefined) return undefined;
@@ -44,8 +44,10 @@ function getSourceTestCodeunits(source) {
     const token = tokens[index];
     const directive = token.match(/^\s*#\s*(\w+)/)?.[1]?.toLowerCase();
     if (directive) {
-      if (directive === 'if') conditionalDepth++;
-      if (directive === 'endif') conditionalDepth = Math.max(0, conditionalDepth - 1);
+      switch (directive) {
+        case 'if': conditionalDepth++; break;
+        case 'endif': conditionalDepth = Math.max(0, conditionalDepth - 1); break;
+      }
       continue;
     }
     if (depth === 0 && isToken(token, 'codeunit')) {
@@ -62,10 +64,14 @@ function getSourceTestCodeunits(source) {
       declaration = undefined;
     }
 
-    if (token === '{') depth++;
-    if (token === '}') {
-      depth = Math.max(0, depth - 1);
-      if (depth === 0) declaration = undefined;
+    switch (token) {
+      case '{':
+        depth++;
+        break;
+      case '}':
+        depth = Math.max(0, depth - 1);
+        if (depth === 0) declaration = undefined;
+        break;
     }
   }
   return codeunits;
@@ -79,9 +85,10 @@ function reasonCode(error) {
   return typeof error?.code === 'string' && /^[A-Z][A-Z0-9_]+$/.test(error.code) ? ` (${error.code})` : '';
 }
 
-async function optionalLstat(validatedPath) {
+async function optionalLstat(authorizedRoot, candidate) {
+  const validatedPath = assertWithinRoot(authorizedRoot, candidate);
   try {
-    return await fs.lstat(validatedPath);
+    return await fs.lstat(validatedPath); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- containment is checked against the caller's authorized root and lstat does not follow the leaf
   } catch (error) {
     if (error.code === 'ENOENT') return undefined;
     throw error;
@@ -92,12 +99,12 @@ async function readAppManifest(appRoot) {
   const manifestPath = resolveWithinRoot(appRoot, 'app.json');
   let source;
   try {
-    const manifestStat = await optionalLstat(manifestPath);
+    const manifestStat = await optionalLstat(appRoot, manifestPath);
     if (!manifestStat) return undefined;
     if (!manifestStat.isFile()) {
       throw new Error('Read AL app manifest failed. Use a regular app.json file in the workspace app folder.');
     }
-    source = await fs.readFile(manifestPath, 'utf8');
+    source = await fs.readFile(manifestPath, 'utf8'); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- fixed manifest path is confined to the canonical app root and verified to be a regular file
   } catch (error) {
     if (!error.code) throw error;
     throw new Error(`Read AL app manifest failed${reasonCode(error)}. Check read access to workspace app.json files.`);
@@ -121,15 +128,15 @@ async function readAppTestCodeunits(appRoot, workspaceRoots) {
   const directories = [appRoot];
   while (directories.length) {
     const directory = directories.pop();
-    const entries = await fs.readdir(directory, { withFileTypes: true });
+    const entries = await fs.readdir(directory, { withFileTypes: true }); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- queue contains the canonical workspace app root and contained, non-link directories only
     for (const entry of entries) {
       const entryPath = resolveWithinRoot(appRoot, directory, entry.name);
       if (entry.isDirectory() && !ignoredDirectories.has(entry.name.toLowerCase()) &&
           !workspaceRoots.has(pathKey(entryPath))) {
         const nestedManifest = resolveWithinRoot(appRoot, entryPath, 'app.json');
-        if (!await optionalLstat(nestedManifest)) directories.push(entryPath);
+        if (!await optionalLstat(appRoot, nestedManifest)) directories.push(entryPath);
       } else if (entry.isFile() && path.extname(entry.name).toLowerCase() === '.al') {
-        const source = await fs.readFile(entryPath, 'utf8');
+        const source = await fs.readFile(entryPath, 'utf8'); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- resolveWithinRoot confines the entry to the app root and the directory entry identifies a regular file
         for (const codeunit of getSourceTestCodeunits(source)) codeunits.set(codeunit.id, codeunit);
       }
     }
@@ -147,7 +154,7 @@ async function getTestCodeunitCatalog(vscode) {
   try {
     for (const folder of folders) {
       const authorizedFolder = authorizeRoot(folder.uri.fsPath, 'VS Code workspace folder');
-      const appRoot = await fs.realpath(authorizedFolder);
+      const appRoot = await fs.realpath(authorizedFolder); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- canonicalizes only the explicitly opened VS Code workspace folder root
       workspaceRoots.set(pathKey(appRoot), appRoot);
     }
   } catch (error) {
@@ -170,7 +177,7 @@ async function getTestCodeunitCatalog(vscode) {
     first.appId.localeCompare(second.appId));
 }
 
-async function resolveSelectionPath(workspaceBasePath, localSettingsPath, createDirectory) {
+async function getSelectionFile(workspaceBasePath, localSettingsPath, createDirectory) {
   const workspaceRoot = authorizeRoot(workspaceBasePath, 'VS Code workspace base');
   let settingsPath;
   try {
@@ -181,31 +188,27 @@ async function resolveSelectionPath(workspaceBasePath, localSettingsPath, create
   }
 
   const relativeDirectory = path.relative(workspaceRoot, path.dirname(settingsPath));
-  const realWorkspaceRoot = await fs.realpath(workspaceRoot);
+  const realWorkspaceRoot = await fs.realpath(workspaceRoot); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- canonicalizes only the authorized VS Code workspace base, without using the configured settings path
   let directory = realWorkspaceRoot;
   for (const component of relativeDirectory.split(path.sep).filter(Boolean)) {
     const nextDirectory = resolveWithinRoot(realWorkspaceRoot, directory, component);
-    let stat = await optionalLstat(nextDirectory);
-    if (!stat && !createDirectory) return undefined;
+    let stat = await optionalLstat(realWorkspaceRoot, nextDirectory);
+    if (!stat && !createDirectory) return { exists: false };
     if (!stat) {
       try {
-        await fs.mkdir(nextDirectory);
+        await fs.mkdir(nextDirectory); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- a single contained component beneath the canonical workspace root or a checked non-link parent
       } catch (error) {
         if (error.code !== 'EEXIST') throw error;
       }
-      stat = await fs.lstat(nextDirectory);
+      stat = await fs.lstat(nextDirectory); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- resolveWithinRoot confines the component to the canonical workspace root and lstat does not follow the leaf
     }
     if (!stat.isDirectory()) {
       throw new Error('Resolve AL test selection storage failed. Set bcDevToolset.localSettingsPath inside an ordinary workspace directory without filesystem links. No selection was changed.');
     }
     directory = nextDirectory;
   }
-  return resolveWithinRoot(realWorkspaceRoot, directory, selectionFilename);
-}
-
-async function getSelectionFile(workspaceBasePath, localSettingsPath, createDirectory) {
-  const selectionPath = await resolveSelectionPath(workspaceBasePath, localSettingsPath, createDirectory);
-  const stat = selectionPath && await optionalLstat(selectionPath);
+  const selectionPath = resolveWithinRoot(realWorkspaceRoot, directory, selectionFilename);
+  const stat = await optionalLstat(realWorkspaceRoot, selectionPath);
   if (stat && !stat.isFile()) {
     throw new Error(`Open AL test selection failed. Replace the linked or non-file ${selectionFilename} beside bcDevToolset.localSettingsPath with a regular JSON file, then reopen the picker. No selection was changed.`);
   }
@@ -217,7 +220,7 @@ async function readSelection(workspaceBasePath, localSettingsPath) {
   try {
     const { selectionPath, exists } = await getSelectionFile(workspaceBasePath, localSettingsPath, false);
     if (!exists) return undefined;
-    source = await fs.readFile(selectionPath, 'utf8');
+    source = await fs.readFile(selectionPath, 'utf8'); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- getSelectionFile checks containment and excludes directory and leaf links
   } catch (error) {
     if (!error.code) throw error;
     throw new Error(`Read saved AL test selection failed${reasonCode(error)}. Check access to the folder containing bcDevToolset.localSettingsPath, then reopen the picker. No selection was changed.`);
@@ -239,18 +242,18 @@ async function writeSelection(workspaceBasePath, localSettingsPath, ids) {
     const { selectionPath } = await getSelectionFile(workspaceBasePath, localSettingsPath, true);
     const selectionDirectory = path.dirname(selectionPath);
     temporaryPath = resolveWithinRoot(selectionDirectory, `.${selectionFilename}.${randomUUID()}.tmp`);
-    temporaryFile = await fs.open(temporaryPath, 'wx');
+    temporaryFile = await fs.open(temporaryPath, 'wx'); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- exclusive creation of a generated filename confined to the validated workspace selection directory
     try {
       await temporaryFile.writeFile(`${JSON.stringify({ codeunitIds: ids })}\n`, 'utf8');
     } finally {
       await temporaryFile.close();
     }
-    await fs.rename(temporaryPath, selectionPath);
+    await fs.rename(temporaryPath, selectionPath); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- both entries are contained in the same validated workspace selection directory
   } catch (error) {
     if (!error.code) throw error;
     if (temporaryFile) {
       try {
-        await fs.unlink(temporaryPath);
+        await fs.unlink(temporaryPath); // nosemgrep: javascript_pathtraversal_rule-non-literal-fs-filename -- remove only the exclusively created staging file within the validated selection directory
       } catch (cleanupError) {
         if (cleanupError.code !== 'ENOENT') {
           throw new Error(`Save AL test selection failed${reasonCode(error)}. The saved selection was not replaced and temporary file cleanup failed${reasonCode(cleanupError)}. Remove leftover selection temporary files beside bcDevToolset.localSettingsPath and check write access before retrying.`);

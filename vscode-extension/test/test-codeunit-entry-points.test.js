@@ -11,7 +11,8 @@ const operation = { id: 'invokeTests', title: 'Run AL test tool tests', script: 
 const testScopeQuestion = 'Do you want to select test codeunits to run? Select No to run all the tests. (y/N)';
 
 function loadExtensionFunction(name, dependencies) {
-  const definition = source.match(new RegExp(`^(?:async )?function ${name}\\([^]*?^}`, 'm'))?.[0];
+  const functions = source.matchAll(/^(?:async )?function (\w+)\([^]*?^}/gm);
+  const definition = functions.find(match => match[1] === name)?.[0];
   assert.ok(definition, `Expected extension function ${name}`);
   return vm.runInNewContext(`(${definition})`, dependencies);
 }
